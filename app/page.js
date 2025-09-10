@@ -1,83 +1,123 @@
-"use client";
-import { useState } from "react";
+'use client';
+
+import { useState } from 'react';
+import { signIn, signOut, useSession } from 'next-auth/react';
 
 export default function Home() {
-  const [prompt, setPrompt] = useState("");
+  const { data: session } = useSession();
+  const [prompt, setPrompt] = useState('');
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [msg, setMsg] = useState("");
+  const [error, setError] = useState('');
 
-  const doRecommend = async () => {
-    setMsg(""); setLoading(true); setTracks([]);
+  async function generar() {
+    setError('');
+    setTracks([]);
+    setLoading(true);
     try {
-      const r = await fetch("/api/recommend", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, limit: 25 }),
+      const r = await fetch('/api/recommend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, limit: 20 }),
       });
       const data = await r.json();
-      if (!r.ok) throw data;
+      if (!r.ok) throw new Error(data?.error?.error?.message || 'Error al recomendar');
       setTracks(data.tracks || []);
-      setMsg(`OK: ${data.tracks?.length || 0} temas`);
     } catch (e) {
-      setMsg("Error al generar recomendaciones");
+      setError(e.message || 'Error');
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const doCreate = async () => {
-    if (!tracks.length) { setMsg("No hay canciones"); return; }
-    setCreating(true); setMsg("");
+  async function crearEnSpotify() {
+    setError('');
+    setCreating(true);
     try {
-      const name = prompt?.trim() ? prompt.trim().slice(0, 90) : "Playlist IA";
       const uris = tracks.map(t => t.uri);
-      const r = await fetch("/api/playlist/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description: `Generada: ${prompt || ""}`, uris, isPublic: false }),
+      const r = await fetch('/api/playlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: (prompt || 'Playlist IA').slice(0, 60),
+          uris,
+        }),
       });
       const data = await r.json();
-      if (!r.ok) throw data;
-      setMsg(`Playlist creada ✅ ${data.url ? "→ " + data.url : ""}`);
+      if (!r.ok) throw new Error(data?.error || 'Error al crear playlist');
+      window.open(data.url, '_blank');
     } catch (e) {
-      setMsg("Error al crear la playlist");
+      setError(e.message || 'Error');
     } finally {
       setCreating(false);
     }
-  };
+  }
+
+  const logged = !!session;
 
   return (
-    <main style={{ maxWidth: 720, margin: "40px auto", padding: 16 }}>
-      <h1>Playlist IA (MVP)</h1>
-      <p>Escribe lo que te apetece y probamos:</p>
+    <main className="p-8 max-w-3xl mx-auto space-y-4">
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Playlist IA (MVP)</h1>
+        <div>
+          {logged ? (
+            <div className="flex items-center gap-3">
+              <span className="text-sm">Conectado: {session.user?.name || 'Usuario Spotify'}</span>
+              <button onClick={() => signOut()} className="border px-3 py-1 rounded">Cerrar sesión</button>
+            </div>
+          ) : (
+            <button onClick={() => signIn('spotify')} className="border px-3 py-1 rounded">
+              Iniciar sesión con Spotify
+            </button>
+          )}
+        </div>
+      </header>
+
+      <p className="text-sm text-gray-500">Escribe lo que te apetece y probamos:</p>
       <textarea
         value={prompt}
         onChange={e => setPrompt(e.target.value)}
         placeholder="Ej: Fiesta bailable en español, 2000s–actualidad, energía alta"
-        rows={4}
-        style={{ width: "100%", padding: 12 }}
+        className="w-full h-28 border rounded p-3"
       />
-      <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-        <button onClick={doRecommend} disabled={loading} style={{ padding: "8px 12px" }}>
-          {loading ? "Generando..." : "Generar lista"}
+
+      <div className="flex gap-3">
+        <button onClick={generar} disabled={loading || !prompt} className="border px-3 py-1 rounded">
+          {loading ? 'Generando…' : 'Generar lista'}
         </button>
-        <button onClick={doCreate} disabled={creating || tracks.length === 0} style={{ padding: "8px 12px" }}>
-          {creating ? "Creando..." : "Crear en mi Spotify"}
+        <button
+          onClick={crearEnSpotify}
+          disabled={!logged || tracks.length === 0 || creating}
+          className="border px-3 py-1 rounded"
+          title={!logged ? 'Inicia sesión para crear la playlist' : ''}
+        >
+          {creating ? 'Creando…' : 'Crear en mi Spotify'}
         </button>
       </div>
-      {msg && <p style={{ marginTop: 8 }}>{msg}</p>}
-      <ul style={{ marginTop: 16 }}>
+
+      {error && <p className="text-red-600 text-sm">⚠️ {error}</p>}
+
+      <ul className="divide-y">
         {tracks.map(t => (
-          <li key={t.id}>
-            {t.name} — {t.artists}
+          <li key={t.id} className="py-3 flex items-start justify-between gap-4">
+            <div>
+              <div className="font-medium">{t.name}</div>
+              <div className="text-sm text-gray-500">{t.artists}</div>
+            </div>
+            <div className="shrink-0 flex gap-2">
+              {t.preview_url && (
+                <audio controls src={t.preview_url} className="h-8" />
+              )}
+              <a href={t.external_url} target="_blank" rel="noreferrer" className="text-blue-600 text-sm underline">
+                Abrir
+              </a>
+            </div>
           </li>
         ))}
       </ul>
-      <p style={{ marginTop: 16 }}>
-        Si no te deja, inicia sesión arriba (o recarga). Necesita permisos de Spotify.
-      </p>
+
+      {!logged && <p className="text-sm text-gray-500">Si no te deja, inicia sesión arriba (o recarga). Necesita permisos de Spotify.</p>}
     </main>
   );
 }
