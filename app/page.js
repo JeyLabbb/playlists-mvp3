@@ -7,12 +7,12 @@ export default function Home() {
   const { data: session } = useSession();
 
   const [promptText, setPromptText] = useState("");
-  const [tracks, setTracks] = useState([]); // {name, artists, uri, open_url}
+  const [tracks, setTracks] = useState([]); // {id,name,artists,uri,open_url}
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [msg, setMsg] = useState("");
   const [lastLinks, setLastLinks] = useState(null);
-  const [count, setCount] = useState(50); // nº de canciones
+  const [count, setCount] = useState(30); // nº canciones (máx 50 en MVP)
 
   async function generarLista() {
     setMsg("");
@@ -22,14 +22,17 @@ export default function Home() {
       const res = await fetch("/api/recommend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: promptText, limit: count }),
+        body: JSON.stringify({ prompt: promptText, limit: Number(count) }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "recommend-failed");
-
+      if (!res.ok) {
+        console.error("RECOMMEND ERROR", data);
+        setMsg(`⚠️ ${data?.error || "fallo"} (${data?.status || res.status}).`);
+        return;
+      }
       setTracks(data.tracks || []);
       if (!data.tracks?.length) {
-        setMsg("⚠️ No se encontraron canciones para ese prompt. Ajusta un poco y prueba de nuevo.");
+        setMsg("⚠️ No se encontraron canciones. Ajusta el prompt y prueba otra vez.");
       }
     } catch (e) {
       setMsg("⚠️ Error al recomendar. Inicia sesión y prueba otra vez.");
@@ -55,18 +58,21 @@ export default function Home() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "create-failed");
+      if (!res.ok) {
+        console.error("CREATE ERROR", data);
+        setMsg("⚠️ No se pudo crear la playlist. Cierra sesión y entra de nuevo.");
+        return;
+      }
 
       setMsg("✅ Playlist creada. Abriendo Spotify…");
       setLastLinks({ web: data.webUrl, app: data.appUrl });
 
-      // Intentamos abrir la app; si no, la web
       try {
         const fallback = setTimeout(() => window.open(data.webUrl, "_blank"), 800);
-        window.location.href = data.appUrl;
-        clearTimeout(fallback);
+        window.location.href = data.appUrl; // intenta abrir app
+        setTimeout(() => clearTimeout(fallback), 1500);
       } catch {
-        window.open(data.webUrl, "_blank");
+        window.open(data.webUrl, "_blank"); // abre web si falla
       }
     } catch {
       setMsg("⚠️ No se pudo crear la playlist. Vuelve a iniciar sesión y prueba otra vez.");
@@ -102,7 +108,7 @@ export default function Home() {
         <textarea
           className="w-full p-3 border rounded"
           rows={4}
-          placeholder="Ej: Fiesta bailable en español, 2000s–actualidad, energía alta"
+          placeholder="Ej: Fiesta bailable en español, 2000s–actualidad, energía alta (hasta 50 hoy)"
           value={promptText}
           onChange={(e) => setPromptText(e.target.value)}
         />
@@ -111,15 +117,14 @@ export default function Home() {
           <input
             type="number"
             min={1}
-            max={500}
+            max={50}
             value={count}
             onChange={(e) =>
-              setCount(
-                Math.max(1, Math.min(500, Number(e.target.value) || 50))
-              )
+              setCount(Math.max(1, Math.min(50, Number(e.target.value) || 30)))
             }
             className="w-24 p-2 border rounded"
           />
+          <span className="text-xs text-gray-500">(máx 50 en esta versión)</span>
         </div>
       </div>
 
@@ -144,8 +149,8 @@ export default function Home() {
         <p className="text-sm">
           {msg}{" "}
           {lastLinks?.web && (
-            <a className="underline" href={lastLinks.web} target="_blank">
-              Abrir en Spotify
+            <a className="underline" href={lastLinks.web} target="_blank" rel="noreferrer">
+              Abrir en Spotify (web)
             </a>
           )}
         </p>
@@ -158,7 +163,7 @@ export default function Home() {
               <div>{t.name}</div>
               <div className="text-sm text-gray-600">{t.artists}</div>
             </div>
-            <a className="text-sm underline" href={t.open_url} target="_blank">
+            <a className="text-sm underline" href={t.open_url} target="_blank" rel="noreferrer">
               Abrir
             </a>
           </div>

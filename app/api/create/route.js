@@ -9,58 +9,65 @@ export async function POST(req) {
 
   const { name = "Mi playlist", tracks = [] } = await req.json();
 
-  // 1) usuario actual
-  const meRes = await fetch("https://api.spotify.com/v1/me", {
-    headers: { Authorization: `Bearer ${token.accessToken}` },
+  const headers = {
+    Authorization: `Bearer ${token.accessToken}`,
+    "Content-Type": "application/json",
+  };
+
+  const description = "Generada con IA (demo) — by JeyLabbb";
+
+  // 1) Crear playlist (intentando ya con descripción)
+  const createRes = await fetch("https://api.spotify.com/v1/me/playlists", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      name,
+      description,
+      public: true,
+    }),
   });
-  const me = await meRes.json();
-
-  // 2) crear playlist pública
-  const createRes = await fetch(
-    `https://api.spotify.com/v1/users/${me.id}/playlists`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token.accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name,
-        public: true,
-        description: "Generada con IA (demo)",
-      }),
-    }
-  );
-
+  const playlist = await createRes.json();
   if (!createRes.ok) {
-    const err = await createRes.text();
-    return NextResponse.json({ error: "create-playlist", details: err }, { status: 500 });
+    return NextResponse.json(
+      { error: "spotify-create", details: playlist },
+      { status: createRes.status }
+    );
   }
 
-  const playlist = await createRes.json();
   const playlistId = playlist.id;
 
-  // 3) añadir canciones (URIs tipo "spotify:track:XXXX")
-  if (tracks.length) {
+  // 1.5) Refuerzo: volver a aplicar nombre/descripcion (por si el POST la ignoró)
+  await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ name, description, public: true }),
+  });
+
+  // 2) Añadir canciones en bloques de 100
+  let remaining = [...tracks];
+  while (remaining.length) {
+    const chunk = remaining.slice(0, 100);
+    remaining = remaining.slice(100);
     const addRes = await fetch(
       `https://api.spotify.com/v1/playlists/${playlistId}/tracks`,
       {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ uris: tracks }),
+        headers,
+        body: JSON.stringify({ uris: chunk }),
       }
     );
     if (!addRes.ok) {
-      const err = await addRes.text();
-      return NextResponse.json({ error: "add-tracks", details: err }, { status: 500 });
+      let det = null;
+      try { det = await addRes.json(); } catch {}
+      return NextResponse.json(
+        { error: "spotify-add", details: det },
+        { status: addRes.status }
+      );
     }
   }
 
   const webUrl = `https://open.spotify.com/playlist/${playlistId}`;
-  const appUrl = `spotify://playlist/${playlistId}`;
+  const appUrl = `spotify:playlist:${playlistId}`;
 
-  return NextResponse.json({ ok: true, playlistId, webUrl, appUrl });
+  return NextResponse.json({ id: playlistId, webUrl, appUrl }, { status: 200 });
 }

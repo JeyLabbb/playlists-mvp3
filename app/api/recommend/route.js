@@ -1,7 +1,7 @@
 import { getToken } from "next-auth/jwt";
 import { NextResponse } from "next/server";
 
-// Devuelve JSON aunque la respuesta de Spotify no sea JSON
+// Devuelve JSON aunque Spotify no mande JSON
 async function safeJsonResponse(res) {
   try { return await res.json(); } catch { return null; }
 }
@@ -18,35 +18,35 @@ function mapTracks(items = []) {
 }
 
 async function handler(req) {
-  // 1) Token de Spotify desde NextAuth
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
   if (!token?.accessToken) {
     return NextResponse.json({ error: "no-access-token" }, { status: 401 });
   }
 
-  // 2) Lee prompt y limit de GET o POST
   let prompt = "";
-  let limit = 50;
+  let limit = 30;
   if (req.method === "GET") {
     const sp = new URL(req.url).searchParams;
     prompt = sp.get("prompt") || "";
-    limit = Number(sp.get("limit") || 50);
+    limit = Number(sp.get("limit") || 30);
   } else {
     try {
       const body = await req.json();
       prompt = body?.prompt || "";
-      limit = Number(body?.limit || 50);
+      limit = Number(body?.limit || 30);
     } catch {}
   }
-  limit = Math.max(1, Math.min(Number.isFinite(limit) ? limit : 50, 500));
+
+  // CAP fuerte a 50 para evitar errores de Search en MVP
+  const lim = Math.max(1, Math.min(Number.isFinite(limit) ? limit : 30, 50));
 
   try {
-    // 3) BÚSQUEDA directa en Spotify (evita 404 de /recommendations)
     const url = new URL("https://api.spotify.com/v1/search");
-    url.searchParams.set("q", prompt || "pop");
+    url.searchParams.set("q", (prompt || "pop").trim());
     url.searchParams.set("type", "track");
-    url.searchParams.set("limit", String(limit));
-    url.searchParams.set("market", "from_token");
+    url.searchParams.set("limit", String(lim));
+    // Si más adelante quieres usar país del usuario: añade scope user-read-private y descomenta:
+    // url.searchParams.set("market","from_token");
 
     const r = await fetch(url, {
       headers: { Authorization: `Bearer ${token.accessToken}` },
@@ -57,7 +57,6 @@ async function handler(req) {
     const body = await safeJsonResponse(r);
 
     if (!r.ok) {
-      // Siempre devolvemos detalle de error (nunca pantalla en blanco)
       return NextResponse.json(
         { error: "spotify", status: r.status, url: url.toString(), body },
         { status: r.status }
