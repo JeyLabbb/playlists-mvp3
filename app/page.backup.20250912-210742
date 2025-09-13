@@ -1,0 +1,163 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { signIn, signOut, useSession } from "next-auth/react";
+
+export default function Home() {
+  const { data: session } = useSession();
+  const [prompt, setPrompt] = useState("");
+  const [count, setCount] = useState(50);
+  const [tracks, setTracks] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    setMsg("");
+  }, [prompt, count]);
+
+  async function generate() {
+    setMsg("");
+    setTracks([]);
+    setLoading(true);
+    try {
+      const r = await fetch("/api/recs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt, count: Number(count) }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.ok) throw new Error(data?.error || "fail");
+      setTracks(data.tracks || []);
+      setMsg(`Generadas ${data.got || data.tracks?.length || 0} canciones`);
+    } catch (e) {
+      setMsg("⚠️ Error al recomendar. Inicia sesión y prueba otra vez.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createInSpotify() {
+    setMsg("");
+    setCreating(true);
+    try {
+      if (!tracks.length) {
+        setMsg("No hay canciones para crear la playlist.");
+        return;
+      }
+      const name = "🎧 Playlist IA";
+      const description = "Generada con IA (Demo) — by JLabbb";
+      const r = await fetch("/api/create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name,
+          description,
+          isPublic: true,
+          // el backend acepta objetos {id|uri} y los convierte a URIs
+          tracks: tracks.map(t => ({ id: t.id })),
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data?.ok) throw new Error(data?.error || "create-fail");
+      setMsg("✅ Playlist creada en Spotify. Abriendo...");
+      // abrir Spotify en nueva pestaña
+      if (data.url) window.open(data.url, "_blank");
+    } catch (e) {
+      setMsg("⚠️ No se pudo crear la playlist en Spotify.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <main style={{ maxWidth: 900, margin: "40px auto", padding: 16, fontFamily: "system-ui, -apple-system" }}>
+      {/* Header de sesión */}
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ fontWeight: 700 }}>Playlist AI — MVP</div>
+        <div>
+          {!session ? (
+            <button onClick={() => signIn("spotify")} style={btn}>
+              Iniciar sesión con Spotify
+            </button>
+          ) : (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 14, opacity: 0.8 }}>
+                Conectado como <b>{session.user?.name || "Usuario"}</b>
+              </span>
+              <button onClick={() => signOut()} style={btnGhost}>Cerrar sesión</button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* Formulario */}
+      <section style={card}>
+        <label style={label}>Prompt</label>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder='Ej: "Playlist para prepararme para Groove Pamplona 2025 — 80 canciones"'
+          rows={3}
+          style={ta}
+        />
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 8 }}>
+          <label style={label}>Nº canciones (1–200)</label>
+          <input
+            type="number"
+            value={count}
+            min={1}
+            max={200}
+            onChange={(e) => setCount(e.target.value)}
+            style={input}
+          />
+          <button onClick={generate} disabled={loading} style={btn}>
+            {loading ? "Pensando con IA..." : "Generar"}
+          </button>
+          <button onClick={createInSpotify} disabled={creating || tracks.length===0} style={btnPrimary}>
+            {creating ? "Creando..." : "Crear en mi Spotify"}
+          </button>
+        </div>
+        {msg && <p style={{ marginTop: 8 }}>{msg}</p>}
+      </section>
+
+      {/* Ayuda */}
+      <details style={{ marginTop: 12 }}>
+        <summary>¿Cómo escribir buenos prompts?</summary>
+        <ul>
+          <li>Eventos: “Playlist para prepararme para <b>Groove Pamplona 2025</b> — 80 canciones”.</li>
+          <li>Género/Mood: “<b>Hardstyle</b> y <b>Nightcore</b> para entrenar — 60 canciones”.</li>
+          <li>Estudio: “Instrumentales <b>tristes/chill</b>, sin voces — 50 canciones”.</li>
+        </ul>
+      </details>
+
+      {/* Lista de temas */}
+      {tracks.length > 0 && (
+        <section style={{ marginTop: 24 }}>
+          <h3 style={{ margin: 0, marginBottom: 8 }}>Candidatas ({tracks.length})</h3>
+          <ol style={{ paddingLeft: 18 }}>
+            {tracks.map((t) => (
+              <li key={t.id} style={{ marginBottom: 4 }}>
+                {t.name} — {Array.isArray(t.artists) ? t.artists.join(", ") : ""}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+    </main>
+  );
+}
+
+const btn = {
+  padding: "8px 12px",
+  borderRadius: 8,
+  border: "1px solid #ddd",
+  background: "#fff",
+  cursor: "pointer",
+};
+const btnGhost = { ...btn, background: "transparent" };
+const btnPrimary = { ...btn, background: "#000", color: "#fff", borderColor: "#000" };
+const card = { border: "1px solid #eee", padding: 16, borderRadius: 12, background: "#fff" };
+const label = { fontSize: 13, opacity: 0.8 };
+const ta = { width: "100%", padding: 10, borderRadius: 8, border: "1px solid #ddd" };
+const input = { width: 100, padding: 8, borderRadius: 8, border: "1px solid #ddd" };

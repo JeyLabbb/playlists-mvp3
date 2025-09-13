@@ -1,0 +1,408 @@
+import { NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+
+/* ---------------------------------- utils --------------------------------- */
+
+function norm(s = "") {
+  return String(s)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function extractYear(text = "") {
+  const m = String(text).match(/\b(20\d{2})\b/);
+  return m ? m[1] : null;
+}
+
+function baseFestivalName(prompt = "") {
+  const s = norm(prompt)
+    .replace(/\b(20\d{2})\b/g, "")
+    .replace(/\b(festival|cartel|line[\s-]?up|lineup)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return s;
+}
+
+function tokensPresent(haystack, tokens) {
+  const present = tokens.filter(t => haystack.includes(t));
+  const need = tokens.length >= 3 ? 2 : tokens.length;
+  return present.length >= need;
+}
+
+function mapTrack(item) {
+  const t = item?.track || item;
+  if (!t?.id) return null;
+  return {
+    id: t.id,
+    name: t.name,
+    artists: (t.artists || []).map(a => a.name),
+    artist_ids: (t.artists || []).map(a => a.id).filter(Boolean),
+    uri: t.uri,
+    open_url: t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
+  };
+}
+
+async function fetchJSON(url, opts = {}) {
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, data };
+}
+
+/* ------------------------------- spotify api ------------------------------ */
+
+async function searchPlaylists({ q, token, limit = 12 }) {
+  const url = new URL("https://api.spotify.com/v1/search");
+  url.searchParams.set("q", q);
+  url.searchParams.set("type", "playlist");
+  url.searchParams.set("limit", String(limit));
+  const { ok, data } = await fetchJSON(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!ok) return [];
+  return data?.playlists?.items || [];
+}
+
+async function getPlaylistTracks({ playlistId, token, max = 250 }) {
+  let url = new URL(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`);
+  url.searchParams.set("fields", "items(track(id,name,uri,artists(id,name),external_urls(spotify))),next");
+  url.searchParams.set("limit", "100");
+
+  const out = [];
+  while (url && out.length < max) {
+    const { ok, data } = await fetchJSON(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!ok) break;
+    for (const it of (data?.items || [])) {
+      const mt = mapTrack(it);
+      if (mt) out.push(mt);
+    }
+    if (data?.next && out.length < max) {
+      url = data.next;
+    } else {
+      url = null;
+    }
+  }
+  return out;
+}
+
+async function getArtistTopTracks(artistId, token) {
+  const url = new URL(`https://api.spotify.com/v1/artists/${artistId}/top-tracks`);
+  url.searchParams.set("market", "from_token");
+  const { ok, data } = await fetchJSON(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!ok) return [];
+  return (data?.tracks || []).map(mapTrack).filter(Boolean);
+}
+
+async function getArtistCatalogTracks(artistId, token, maxTracks = 40) {
+  const url = new URL(`https://api.spotify.com/v1/artists/${artistId}/albums`);
+  url.searchParams.set("include_groups", "album,single");
+  url.searchParams.set("limit", "10");
+  const { ok, data } = await fetchJSON(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!ok) return [];
+  const albums = data?.items || [];
+  const out = [];
+  for (const a of albums.slice(0, 10)) {
+    const u = new URL(`https://api.spotify.com/v1/albums/${a.id}/tracks`);
+    u.searchParams.set("limit", "50");
+    const r = await fetchJSON(u, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!r.ok) continue;
+    for (const tr of (r.data?.items || [])) {
+      const mapped = mapTrack(tr);
+      if (mapped) out.push(mapped);
+      if (out.length >= maxTracks) break;
+    }
+    if (out.length >= maxTracks) break;
+  }
+  return out;
+}
+
+/* --------------------------- core: festival recs -------------------------- */
+
+function computeArtistCap(wanted, artistNames) {
+  const unique = Array.from(new Set(artistNames || []));
+  const n = unique.length || 1;
+  let cap = Math.max(2, Math.ceil(wanted / 30));
+  if (n <= 6) {
+    const relaxed = Math.ceil((wanted / n) * 0.8);
+    cap = Math.max(cap, relaxed);
+  }
+  return { cap, uniqueCount: n };
+}
+
+async function fillFromArtists({ artistsById, have, wanted, token, capPerArtist }) {
+  const haveIds = new Set(have.map(t => t.id));
+  const usedByArtist = new Map();
+  for (const t of have) {
+    const main = (t.artists && t.artists[0]) || null;
+    if (main) usedByArtist.set(main, (usedByArtist.get(main) || 0) + 1);
+  }
+
+  const order = [...artistsById].sort((a, b) => {
+    const na = usedByArtist.get(a.name) || 0;
+    const nb = usedByArtist.get(b.name) || 0;
+    return na - nb;
+  });
+
+  const out = [];
+  for (const art of order) {
+    if (have.length + out.length >= wanted) break;
+    const used = usedByArtist.get(art.name) || 0;
+    if (used >= capPerArtist) continue;
+
+    const tops = await getArtistTopTracks(art.id, token);
+    for (const t of tops) {
+      if (have.length + out.length >= wanted) break;
+      if (usedByArtist.get(art.name) >= capPerArtist) break;
+      if (haveIds.has(t.id)) continue;
+      haveIds.add(t.id);
+      out.push(t);
+      usedByArtist.set(art.name, (usedByArtist.get(art.name) || 0) + 1);
+    }
+    if (have.length + out.length >= wanted) break;
+
+    const cat = await getArtistCatalogTracks(art.id, token, 40);
+    for (const t of cat) {
+      if (have.length + out.length >= wanted) break;
+      if (usedByArtist.get(art.name) >= capPerArtist) break;
+      if (haveIds.has(t.id)) continue;
+      haveIds.add(t.id);
+      out.push(t);
+      usedByArtist.set(art.name, (usedByArtist.get(art.name) || 0) + 1);
+    }
+  }
+  return out;
+}
+
+async function festivalRecs({ prompt, wanted, token }) {
+  const year = extractYear(prompt);
+  const base = baseFestivalName(prompt);
+  if (!base) return { tracks: [], why: "no-base-name", note: "Sin nombre base" };
+
+  const baseTokens = base.split(" ").filter(Boolean);
+
+  // Queries más estrictas
+  const queries = [];
+  if (year) {
+    queries.push(`${base} ${year}`);
+    queries.push(`${base} festival ${year}`);
+    queries.push(`${base} ${year} lineup`);
+  } else {
+    queries.push(`${base} festival`);
+    queries.push(base);
+  }
+
+  const seenPlaylist = new Set();
+  const pickedPlaylists = [];
+
+  // Filtramos por TÍTULO (no descripción) y forzamos año en título si hay año
+  for (const q of queries) {
+    const pls = await searchPlaylists({ q, token, limit: 15 });
+    for (const p of pls) {
+      if (!p?.id || seenPlaylist.has(p.id)) continue;
+
+      const name = norm(p.name || "");
+      const nameOk = tokensPresent(name, baseTokens) && (!year || name.includes(year));
+      if (!nameOk) continue;
+
+      if (/\b(karaoke|tribute|cover|mix|remix)\b/.test(name)) continue;
+
+      seenPlaylist.add(p.id);
+      pickedPlaylists.push({ id: p.id, name: p.name });
+      if (pickedPlaylists.length >= 10) break;
+    }
+    if (pickedPlaylists.length >= 6) break;
+  }
+
+  if (pickedPlaylists.length < 2) {
+    return { tracks: [], why: "too-few-playlists", note: "Se requieren al menos 2 playlists del festival (por título)." };
+  }
+
+  const trackFreq = new Map();     // trackId -> veces (por playlist)
+  const trackData = new Map();     // trackId -> track completo
+  const artistNameSet = new Set(); // nombres para stats/cap
+  const artistIdMap = new Map();   // id -> nombre (del primer artist del tema)
+  const artistPLFreq = new Map();  // artistId -> en cuántas playlists aparece
+
+  for (const pl of pickedPlaylists) {
+    const tracks = await getPlaylistTracks({ playlistId: pl.id, token, max: 250 });
+
+    const idsInThisList = new Set();    // track contado una vez por playlist
+    const artistInThisList = new Set(); // artista contado una vez por playlist
+
+    for (const t of tracks) {
+      if (!t?.id) continue;
+      trackData.set(t.id, t);
+
+      for (const nm of (t.artists || [])) if (nm) artistNameSet.add(nm);
+
+      for (const aid of (t.artist_ids || [])) {
+        if (aid) artistInThisList.add(aid);
+        if (aid && !artistIdMap.has(aid)) {
+          const mainName = (t.artists && t.artists[0]) || "";
+          artistIdMap.set(aid, mainName);
+        }
+      }
+
+      if (!idsInThisList.has(t.id)) {
+        idsInThisList.add(t.id);
+        trackFreq.set(t.id, (trackFreq.get(t.id) || 0) + 1);
+      }
+    }
+
+    for (const aid of artistInThisList) {
+      artistPLFreq.set(aid, (artistPLFreq.get(aid) || 0) + 1);
+    }
+  }
+
+  // Solo artistas presentes en ≥2 playlists (por título)
+  const allowedArtistIds = new Set(
+    [...artistPLFreq.entries()].filter(([, f]) => f >= 2).map(([id]) => id)
+  );
+
+  // Ordenamos temas por frecuencia entre playlists
+  const scored = Array.from(trackFreq.entries())
+    .map(([id, freq]) => ({ id, freq }))
+    .sort((a, b) => b.freq - a.freq);
+
+  const { cap: perArtistCap } = computeArtistCap(
+    wanted,
+    Array.from(artistNameSet)
+  );
+
+  const artistCount = new Map();
+  const result = [];
+
+  for (const s of scored) {
+    if (result.length >= wanted) break;
+    const t = trackData.get(s.id);
+    if (!t) continue;
+    const mainArtistId = t.artist_ids?.[0] || null;
+    if (!mainArtistId || !allowedArtistIds.has(mainArtistId)) continue; // <— filtro duro
+    const mainArtistName = (t.artists && t.artists[0]) || null;
+    if (mainArtistName) {
+      const used = artistCount.get(mainArtistName) || 0;
+      if (used >= perArtistCap) continue;
+      artistCount.set(mainArtistName, used + 1);
+    }
+    result.push(t);
+  }
+
+  // Si faltan, SOLO rellenar con más temas de esos artistas válidos
+  let note = null;
+  if (result.length < wanted && allowedArtistIds.size) {
+    const need = wanted - result.length;
+    const artistsById = [...artistIdMap.entries()]
+      .filter(([id]) => allowedArtistIds.has(id))
+      .map(([id, name]) => ({ id, name }));
+
+    const extra = await fillFromArtists({
+      artistsById,
+      have: result,
+      wanted,
+      token,
+      capPerArtist: perArtistCap,
+    });
+
+    const unique = new Set(result.map(t => t.id));
+    for (const t of extra) {
+      if (result.length >= wanted) break;
+      if (unique.has(t.id)) continue;
+      const main = (t.artists && t.artists[0]) || null;
+      if (main) {
+        const used = artistCount.get(main) || 0;
+        if (used >= perArtistCap) continue;
+        artistCount.set(main, used + 1);
+      }
+      unique.add(t.id);
+      result.push(t);
+    }
+    if (result.length < wanted) {
+      note = `Solo se han reunido ${result.length} de ${wanted} canciones con artistas confirmados en varias playlists del festival.`;
+    }
+  }
+
+  return { tracks: result, why: "playlist-title-cross+artist-fill(>=2pl)", note };
+}
+
+/* ------------------------------- non-event -------------------------------- */
+
+async function nonEventFallback({ prompt, wanted, token }) {
+  const url = new URL("https://api.spotify.com/v1/search");
+  url.searchParams.set("q", prompt || "");
+  url.searchParams.set("type", "track");
+  url.searchParams.set("limit", String(Math.min(50, wanted)));
+  url.searchParams.set("market", "from_token");
+
+  const { ok, data } = await fetchJSON(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!ok) return [];
+
+  const items = (data?.tracks?.items || []).map(mapTrack).filter(Boolean);
+  return items.slice(0, wanted);
+}
+
+/* --------------------------------- handler -------------------------------- */
+
+export default async function handler(req) {
+  try {
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    if (!token?.accessToken) {
+      return NextResponse.json({ error: "no-access-token" }, { status: 401 });
+    }
+
+    let body = {};
+    try { body = await req.json(); } catch {}
+
+    const plan = body?.plan || {};
+    const prompt = plan?.rawPrompt || body?.prompt || "";
+    const wanted = Math.max(1, Math.min(Number(plan?.count || body?.count || 50), 200));
+    const isEvent = !!plan?.isEvent;
+
+    let tracks = [];
+    let used = "none";
+    let note = null;
+
+    if (isEvent) {
+      const fr = await festivalRecs({ prompt, wanted, token: token.accessToken });
+      tracks = fr.tracks || [];
+      used = `festival:${fr.why}`;
+      note = fr.note || null;
+    } else {
+      tracks = await nonEventFallback({ prompt, wanted, token: token.accessToken });
+      used = "non-event:search";
+    }
+
+    return NextResponse.json({
+      ok: true,
+      used,
+      prompt,
+      requested: wanted,
+      got: tracks.length,
+      note,
+      tracks,
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { error: "server", message: String(e?.message || e) },
+      { status: 500 }
+    );
+  }
+}
+
+export const GET = handler;
+export const POST = handler;

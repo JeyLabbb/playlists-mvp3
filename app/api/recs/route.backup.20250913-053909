@@ -1,0 +1,258 @@
+import { NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+
+/* ---------------------------------- utils --------------------------------- */
+
+function norm(s = "") {
+  return String(s)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function extractYear(text = "") {
+  const m = String(text).match(/\b(20\d{2})\b/);
+  return m ? m[1] : null;
+}
+
+function baseFestivalName(prompt = "") {
+  // quita “festival/cartel/lineup” y años; recorta dobles espacios
+  const s = norm(prompt).replace(/\b(20\d{2})\b/g, "")
+    .replace(/\b(festival|cartel|line[\s-]?up|lineup)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return s;
+}
+
+function tokensPresent(haystack, tokens) {
+  // pedimos al menos 2 tokens si hay 3+; si hay 1–2 tokens, pedimos todos.
+  const present = tokens.filter(t => haystack.includes(t));
+  const need = tokens.length >= 3 ? 2 : tokens.length;
+  return present.length >= need;
+}
+
+function mapTrack(item) {
+  const t = item?.track || item; // /playlists/{id}/tracks devuelve { track: {...} }
+  if (!t?.id) return null;
+  return {
+    id: t.id,
+    name: t.name,
+    artists: (t.artists || []).map(a => a.name),
+    uri: t.uri,
+    open_url: t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
+  };
+}
+
+async function fetchJSON(url, opts = {}) {
+  const r = await fetch(url, opts);
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, data };
+}
+
+/* ------------------------------- spotify api ------------------------------ */
+
+async function searchPlaylists({ q, token, limit = 10 }) {
+  const url = new URL("https://api.spotify.com/v1/search");
+  url.searchParams.set("q", q);
+  url.searchParams.set("type", "playlist");
+  url.searchParams.set("limit", String(limit));
+  const { ok, data } = await fetchJSON(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!ok) return [];
+  return data?.playlists?.items || [];
+}
+
+async function getPlaylistTracks({ playlistId, token, max = 250 }) {
+  let url = new URL(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`);
+  // solo lo necesario; paginamos si hace falta
+  url.searchParams.set("fields", "items(track(id,name,uri,artists(name),external_urls(spotify))),next");
+  url.searchParams.set("limit", "100");
+
+  const out = [];
+  while (url && out.length < max) {
+    const { ok, data } = await fetchJSON(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!ok) break;
+    for (const it of data?.items || []) {
+      const mt = mapTrack(it);
+      if (mt) out.push(mt);
+    }
+    if (data?.next && out.length < max) {
+      url = data.next; // Spotify devuelve URL absoluta
+    } else {
+      url = null;
+    }
+  }
+  return out;
+}
+
+/* --------------------------- core: festival recs -------------------------- */
+
+async function festivalRecs({ prompt, wanted, token }) {
+  const year = extractYear(prompt);
+  const base = baseFestivalName(prompt); // ej. "groove pamplona"
+  if (!base) return { tracks: [], why: "no-base-name" };
+
+  const baseTokens = base.split(" ").filter(Boolean); // ["groove","pamplona"]
+
+  // queries en orden de precisión
+  const queries = [];
+  if (year) {
+    queries.push(`${base} ${year}`);
+    queries.push(`${base} festival ${year}`);
+    queries.push(`${base} ${year} lineup`);
+  }
+  queries.push(`${base} festival`);
+  queries.push(base);
+
+  // buscamos playlists (vamos agregando hasta que tengamos suficientes)
+  const seenPlaylist = new Set();
+  const pickedPlaylists = [];
+
+  for (const q of queries) {
+    const pls = await searchPlaylists({ q, token, limit: 15 });
+    for (const p of pls) {
+      if (!p?.id || seenPlaylist.has(p.id)) continue;
+
+      const name = norm(p.name || "");
+      const descr = norm(p.description || "");
+      const hay = name + " " + descr;
+
+      // Debe contener tokens del nombre base (al menos 2 si hay >=3)…
+      if (!tokensPresent(hay, baseTokens)) continue;
+      // …y si hay año en el prompt, exigirlo en nombre/descr.
+      if (year && !hay.includes(year)) continue;
+
+      // Evita listas ruidosas
+      if (/\b(karaoke|tribute|cover|mix|remix)\b/.test(hay)) continue;
+
+      seenPlaylist.add(p.id);
+      pickedPlaylists.push({ id: p.id, name: p.name });
+      // límite razonable de playlists consideradas (para no tardar)
+      if (pickedPlaylists.length >= 10) break;
+    }
+    if (pickedPlaylists.length >= 6) break; // suficiente con 6–10 playlists buenas
+  }
+
+  // si no encontramos nada, devolvemos vacío (UI enseñará “got < requested”)
+  if (!pickedPlaylists.length) {
+    return { tracks: [], why: "no-playlists" };
+  }
+
+  // recolectar temas de esas playlists
+  const trackFreq = new Map();  // trackId -> frecuencia en nº de playlists
+  const trackData = new Map();  // trackId -> objeto track
+
+  for (const pl of pickedPlaylists) {
+    const tracks = await getPlaylistTracks({ playlistId: pl.id, token, max: 200 });
+    const idsInThisList = new Set();
+    for (const t of tracks) {
+      if (!t?.id) continue;
+      trackData.set(t.id, t);
+      if (!idsInThisList.has(t.id)) {
+        idsInThisList.add(t.id);
+        trackFreq.set(t.id, (trackFreq.get(t.id) || 0) + 1);
+      }
+    }
+  }
+
+  // ordenar por frecuencia (más comunes entre playlists primero)
+  const scored = Array.from(trackFreq.entries())
+    .map(([id, freq]) => ({ id, freq }))
+    .sort((a, b) => b.freq - a.freq);
+
+  // límite por artista para evitar que se estanque en 2–3
+  const perArtistCap = Math.max(2, Math.ceil(wanted / 30)); // p.ej. 150 => 5
+  const artistCount = new Map();
+  const result = [];
+
+  for (const s of scored) {
+    if (result.length >= wanted) break;
+    const t = trackData.get(s.id);
+    if (!t) continue;
+    const mainArtist = (t.artists && t.artists[0]) ? t.artists[0] : null;
+    if (mainArtist) {
+      const used = artistCount.get(mainArtist) || 0;
+      if (used >= perArtistCap) continue;
+      artistCount.set(mainArtist, used + 1);
+    }
+    result.push(t);
+  }
+
+  return { tracks: result, why: "playlist-cross" };
+}
+
+/* ------------------------------- non-event -------------------------------- */
+
+async function nonEventFallback({ prompt, wanted, token }) {
+  // Búsqueda muy simple: “prompt” como query en tracks y cogemos lo mejor posicionado.
+  // (No tocamos tu lógica existente fuera de festivales para no romper nada.)
+  const url = new URL("https://api.spotify.com/v1/search");
+  url.searchParams.set("q", prompt || "");
+  url.searchParams.set("type", "track");
+  url.searchParams.set("limit", String(Math.min(50, wanted)));
+  url.searchParams.set("market", "from_token");
+
+  const { ok, data } = await fetchJSON(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!ok) return [];
+
+  const items = (data?.tracks?.items || []).map(mapTrack).filter(Boolean);
+  // si falta, no rellenamos agresivo aquí para no meter ruido
+  return items.slice(0, wanted);
+}
+
+/* --------------------------------- handler -------------------------------- */
+
+export default async function handler(req) {
+  try {
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    if (!token?.accessToken) {
+      return NextResponse.json({ error: "no-access-token" }, { status: 401 });
+    }
+
+    let body = {};
+    try { body = await req.json(); } catch {}
+
+    const plan = body?.plan || {};
+    const prompt = plan?.rawPrompt || body?.prompt || "";
+    const wanted = Math.max(1, Math.min(Number(plan?.count || body?.count || 50), 200));
+    const isEvent = !!plan?.isEvent;
+
+    let tracks = [];
+    let used = "none";
+
+    if (isEvent) {
+      const fr = await festivalRecs({ prompt, wanted, token: token.accessToken });
+      tracks = fr.tracks || [];
+      used = `festival:${fr.why}`;
+      // NO relleno fuera de playlists para festivales (requisito tuyo)
+    } else {
+      tracks = await nonEventFallback({ prompt, wanted, token: token.accessToken });
+      used = "non-event:search";
+    }
+
+    return NextResponse.json({
+      ok: true,
+      used,
+      prompt,
+      requested: wanted,
+      got: tracks.length,
+      tracks,
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { error: "server", message: String(e?.message || e) },
+      { status: 500 }
+    );
+  }
+}
+
+export const GET = handler;
+export const POST = handler;

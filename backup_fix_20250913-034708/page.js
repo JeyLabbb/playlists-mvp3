@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { signIn, signOut, useSession } from "next-auth/react";
+import { useRef, useState } from "react";
+import { useSession, signIn, signOut } from "next-auth/react";
 
 export default function Home() {
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
+  const isAuthed = !!session;
 
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useState(50);
@@ -13,7 +14,7 @@ export default function Home() {
 
   // Progreso y estados de texto
   const [progress, setProgress] = useState(0);
-  const [statusText, setStatusText] = useState("");
+  const [status, setStatus] = useState("");
   const progTimer = useRef(null);
 
   // Opciones de creación
@@ -21,14 +22,19 @@ export default function Home() {
   const [isPublic, setIsPublic] = useState(false);
   const [creating, setCreating] = useState(false);
 
+  // Modal de consejos
+  const [showHelp, setShowHelp] = useState(false);
+  const openHelp = () => setShowHelp(true);
+  const closeHelp = () => setShowHelp(false);
+
   // -------- Helpers de progreso --------
   function startProgress(label = "🤖 IA pensando… puede tardar unos segundos") {
-    setStatusText(label);
+    setStatus(label);
     setProgress(0);
     if (progTimer.current) clearInterval(progTimer.current);
     progTimer.current = setInterval(() => {
       setProgress((p) => {
-        const cap = 90; // hasta 90% mientras esperamos
+        const cap = 90;
         if (p < cap) {
           const inc = p < 30 ? 2.0 : p < 60 ? 1.2 : 0.6;
           return Math.min(cap, p + inc);
@@ -37,12 +43,10 @@ export default function Home() {
       });
     }, 200);
   }
-
   function bumpPhase(label, floor) {
-    setStatusText(label);
+    setStatus(label);
     setProgress((p) => Math.max(p, floor));
   }
-
   function finishProgress() {
     if (progTimer.current) {
       clearInterval(progTimer.current);
@@ -50,19 +54,22 @@ export default function Home() {
     }
     setProgress(100);
   }
-
   function resetProgress() {
     if (progTimer.current) {
       clearInterval(progTimer.current);
       progTimer.current = null;
     }
     setProgress(0);
-    setStatusText("");
+    setStatus("");
   }
-
   function safeDefaultName(p) {
     const s = (p || "").replace(/\s+/g, " ").trim();
     return s.length > 60 ? s.slice(0, 57) + "…" : s || "Mi playlist IA";
+  }
+  function applyBrand(name) {
+    const base = (name || "Mi playlist IA").trim();
+    const branded = `${base} · by JeyLabbb`;
+    return branded.slice(0, 100);
   }
 
   // ---------------------- Generar (plan + recs) ----------------------
@@ -71,9 +78,8 @@ export default function Home() {
       alert("Escribe un prompt.");
       return;
     }
-    // Si no está logueado, forzamos login y retorno aquí
-    if (!session?.accessToken) {
-      await signIn("spotify", { callbackUrl: "/" });
+    if (!isAuthed) {
+      await signIn("spotify");
       return;
     }
 
@@ -112,7 +118,7 @@ export default function Home() {
 
       setTracks(recs.tracks || []);
       finishProgress();
-      setStatusText(`✔️ Lista generada (${recs.got}/${plan.plan.count})`);
+      setStatus(`✔️ Lista generada (${recs.got}/${plan.plan.count})`);
       if (!playlistName.trim()) setPlaylistName(safeDefaultName(prompt));
     } catch (e) {
       console.error(e);
@@ -128,47 +134,42 @@ export default function Home() {
   // ---------------------- Crear en Spotify ----------------------
   async function handleCreate() {
     if (!tracks.length) return;
-    if (!session?.accessToken) {
-      await signIn("spotify", { callbackUrl: "/" });
+    if (!isAuthed) {
+      await signIn("spotify");
       return;
     }
 
     setCreating(true);
     try {
-      const nameWithBrand =
-        (playlistName || safeDefaultName(prompt)) + " — by JeyLabbb";
-
+      const computedName = applyBrand(playlistName || safeDefaultName(prompt));
       const res = await fetch("/api/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: nameWithBrand,
+          name: computedName,
           description: `Generada con IA (demo) — by JeyLabbb · ${prompt}`,
           public: !!isPublic,
-          // Mandamos ambos por compatibilidad con tu endpoint
+          // IMPORTANTE: enviamos "tracks" (URIs) porque el endpoint espera "tracks"
           tracks: tracks.map((t) => t.uri).filter(Boolean),
-          uris: tracks.map((t) => t.uri).filter(Boolean),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "create-failed");
 
-      // Abre Spotify con la playlist creada (try app, then web)
       const webUrl =
         data.webUrl ||
         data.url ||
         data.open_url ||
         data.external_url ||
-        (data.playlistId
-          ? `https://open.spotify.com/playlist/${data.playlistId}`
-          : "");
-      const appUrl = data.appUrl || (data.playlistId ? `spotify://playlist/${data.playlistId}` : "");
+        (data.id ? `https://open.spotify.com/playlist/${data.id}` : "");
+      const appUrl = data.appUrl;
 
+      // Intenta abrir la app; si no, abre web
       if (appUrl) {
-        // Primero intentamos app (móvil/desktop)
-        window.open(appUrl, "_blank");
-        // Y también la web como fallback para escritorio
-        if (webUrl) window.open(webUrl, "_blank");
+        setTimeout(() => {
+          if (webUrl) window.open(webUrl, "_blank");
+        }, 800);
+        window.location.href = appUrl;
       } else if (webUrl) {
         window.open(webUrl, "_blank");
       }
@@ -182,49 +183,45 @@ export default function Home() {
     }
   }
 
+  // Ejemplos rápidos (justo DEBAJO del prompt)
+  const examples = [
+    { label: "Gym sin voces (80)", prompt: "Música electrónica para entrenar sin voces, 120–140 bpm", count: 80 },
+    { label: "Festival genérico 2025 (100)", prompt: "Cartel del Festival Delta 2025: artistas del lineup 2025, hits representativos", count: 100 },
+    { label: "Focus lo-fi (60)", prompt: "Lo-fi hip hop sin voces para concentrarme", count: 60 },
+    { label: "Hardstyle / Nightcore (70)", prompt: "Hardstyle y nightcore cañero para cardio", count: 70 },
+  ];
+  function setExample(e) {
+    setPrompt(e.prompt);
+    setCount(e.count);
+  }
+
   return (
     <div style={{ maxWidth: 860, margin: "40px auto", padding: "0 16px" }}>
-      {/* Header simple con sesión */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ fontSize: 14, opacity: 0.8 }}>
-          {status === "loading"
-            ? "Comprobando sesión…"
-            : session?.user
-            ? `Sesión iniciada`
-            : "No has iniciado sesión"}
-        </div>
-        <div>
-          {session?.user ? (
-            <button
-              onClick={() => signOut({ callbackUrl: "/" })}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: "1px solid #111",
-                background: "#fff",
-                cursor: "pointer",
-                fontWeight: 600,
-              }}
-            >
-              Cerrar sesión
-            </button>
+      {/* Header + sesión */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700 }}>Playlist AI — MVP</h1>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {isAuthed ? (
+            <>
+              <span style={{ fontSize: 12, opacity: 0.8 }}>
+                Conectado: {session?.user?.name || "usuario"}
+              </span>
+              <button
+                onClick={() => signOut()}
+                style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #ddd", background: "#fff" }}
+              >
+                Cerrar sesión
+              </button>
+            </>
           ) : (
             <button
-              onClick={() => signIn("spotify", { callbackUrl: "/" })}
+              onClick={() => signIn("spotify")}
               style={{
-                padding: "8px 12px",
-                borderRadius: 10,
+                padding: "6px 10px",
+                borderRadius: 8,
                 border: "1px solid #111",
                 background: "#111",
                 color: "#fff",
-                cursor: "pointer",
                 fontWeight: 600,
               }}
             >
@@ -234,12 +231,10 @@ export default function Home() {
         </div>
       </div>
 
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
-        Playlist AI — MVP
-      </h1>
-      <p style={{ opacity: 0.8, marginBottom: 16 }}>
-        Escribe un prompt (ej.: “hardstyle nightcore 80 canciones”, “festival
-        2025”, “para entrenar sin voces, 120-140 bpm”).
+      {/* Prompt */}
+      <p style={{ opacity: 0.8, marginBottom: 8 }}>
+        Escribe un prompt (ej.: “hardstyle nightcore”, “festival 2025”, “para entrenar sin voces, 120-140 bpm”).  
+        Elige el número de canciones con el control de abajo.
       </p>
 
       <div
@@ -263,7 +258,46 @@ export default function Home() {
             fontSize: 14,
           }}
         />
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+
+        {/* Ejemplos bajo el prompt */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ fontSize: 12, opacity: 0.8 }}>Ejemplos:</span>
+          {examples.map((ex, idx) => (
+            <button
+              key={idx}
+              onClick={() => setExample(ex)}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 999,
+                border: "1px solid #ddd",
+                background: "#fafafa",
+                cursor: "pointer",
+                fontSize: 12,
+              }}
+            >
+              {ex.label}
+            </button>
+          ))}
+          {/* Botón de consejos (abre modal) */}
+          <button
+            onClick={openHelp}
+            title="Consejos para tu prompt"
+            style={{
+              marginLeft: "auto",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #ddd",
+              background: "#fff",
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            💡 Consejos
+          </button>
+        </div>
+
+        {/* Fila: nº canciones + generar */}
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <label style={{ fontSize: 14 }}>Nº canciones (1–200):</label>
           <input
             type="number"
@@ -281,14 +315,14 @@ export default function Home() {
           />
           <button
             onClick={handleGenerate}
-            disabled={loading}
+            disabled={loading || !isAuthed}
             style={{
               padding: "10px 14px",
               borderRadius: 10,
               border: "1px solid #111",
-              background: loading ? "#f5f5f5" : "#111",
-              color: loading ? "#111" : "#fff",
-              cursor: loading ? "not-allowed" : "pointer",
+              background: loading || !isAuthed ? "#f5f5f5" : "#111",
+              color: loading || !isAuthed ? "#111" : "#fff",
+              cursor: loading || !isAuthed ? "not-allowed" : "pointer",
               fontWeight: 600,
             }}
           >
@@ -316,9 +350,7 @@ export default function Home() {
                 }}
               />
             </div>
-            <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
-              {statusText}
-            </div>
+            <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>{status}</div>
           </div>
         ) : null}
       </div>
@@ -332,10 +364,8 @@ export default function Home() {
           marginTop: 12,
         }}
       >
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <label style={{ minWidth: 140, fontSize: 14 }}>
-            Nombre de playlist:
-          </label>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <label style={{ minWidth: 140, fontSize: 14 }}>Nombre de playlist:</label>
           <input
             type="text"
             value={playlistName}
@@ -343,6 +373,7 @@ export default function Home() {
             placeholder="(Usará tu prompt si lo dejas vacío)"
             style={{
               flex: 1,
+              minWidth: 220,
               padding: 8,
               borderRadius: 8,
               border: "1px solid #ddd",
@@ -359,14 +390,14 @@ export default function Home() {
           </label>
           <button
             onClick={handleCreate}
-            disabled={!tracks.length || creating}
+            disabled={!tracks.length || creating || !isAuthed}
             style={{
               padding: "10px 14px",
               borderRadius: 10,
               border: "1px solid #111",
-              background: !tracks.length || creating ? "#f5f5f5" : "#111",
-              color: !tracks.length || creating ? "#111" : "#fff",
-              cursor: !tracks.length || creating ? "not-allowed" : "pointer",
+              background: !tracks.length || creating || !isAuthed ? "#f5f5f5" : "#111",
+              color: !tracks.length || creating || !isAuthed ? "#111" : "#fff",
+              cursor: !tracks.length || creating || !isAuthed ? "not-allowed" : "pointer",
               fontWeight: 600,
             }}
           >
@@ -397,7 +428,7 @@ export default function Home() {
                   <div style={{ fontSize: 14 }}>
                     <strong>{t.name}</strong>{" "}
                     <span style={{ opacity: 0.8 }}>
-                      — {(t.artists || []).join(", ")}
+                      — {(t.artists || []).join?.(", ") || t.artists}
                     </span>
                   </div>
                   <a
@@ -414,11 +445,86 @@ export default function Home() {
           </div>
         ) : (
           <p style={{ opacity: 0.7 }}>
-            No hay resultados todavía. Genera una playlist para ver las
-            canciones aquí.
+            No hay resultados todavía. Genera una playlist para ver las canciones aquí.
           </p>
         )}
       </div>
+
+      {/* --------- MODAL de Consejos --------- */}
+      {showHelp ? (
+        <div
+          onClick={closeHelp}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+            zIndex: 50,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: 640,
+              width: "100%",
+              background: "#fff",
+              borderRadius: 12,
+              padding: 16,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.15)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+                Consejos para tu prompt
+              </h3>
+              <button
+                onClick={closeHelp}
+                style={{
+                  border: "1px solid #ddd",
+                  background: "#fff",
+                  borderRadius: 8,
+                  padding: "4px 8px",
+                  cursor: "pointer",
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+            <div style={{ marginTop: 10, fontSize: 14, lineHeight: 1.5 }}>
+              <ul style={{ margin: "0 0 0 18px" }}>
+                <li>
+                  Incluye <strong>mood/uso</strong>: <em>“para entrenar sin voces”</em>, <em>“para estudiar”</em>, <em>“fiesta relajada”</em>.
+                </li>
+                <li>
+                  Si quieres eventos: pon <strong>nombre del evento + año</strong>, p. ej. <em>“Festival Delta 2025”</em>.
+                </li>
+                <li>
+                  Añade <strong>géneros/bpm/épocas</strong> si te importa: <em>“hardstyle y nightcore 130–160 bpm”</em>, <em>“pop 2010–2015”</em>.
+                </li>
+                <li>
+                  Puedes indicar <strong>artistas o canciones concretas</strong>:
+                  <br/>– para que <strong>aparezcan</strong> seguro (p. ej. “incluye 2 de [Artista X] y [Canción Y]”)
+                  <br/>– o para marcar <strong>el estilo/vibe</strong> general de la lista.
+                </li>
+              </ul>
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Ejemplos rápidos:</div>
+                <ul style={{ margin: "0 0 0 18px" }}>
+                  <li><em>“Lo-fi hip hop sin voces para estudiar”</em></li>
+                  <li><em>“Cartel de un festival 2025: artistas del lineup y sus hits representativos”</em></li>
+                  <li><em>“Techno melódico 120–128 bpm para correr”</em></li>
+                </ul>
+                <p style={{ marginTop: 8, opacity: 0.8 }}>
+                  El <strong>número de canciones</strong> elígelo con el control de “Nº canciones”.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

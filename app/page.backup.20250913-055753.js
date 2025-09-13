@@ -1,34 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { signIn, signOut, useSession } from "next-auth/react";
+import { useRef, useState } from "react";
+import { useSession, signIn, signOut } from "next-auth/react";
 
 export default function Home() {
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
 
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useState(50);
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Progreso y estados de texto
+  // progreso
   const [progress, setProgress] = useState(0);
-  const [statusText, setStatusText] = useState("");
+  const [status, setStatus] = useState("");
   const progTimer = useRef(null);
 
-  // Opciones de creación
+  // crear
   const [playlistName, setPlaylistName] = useState("");
-  const [isPublic, setIsPublic] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
   const [creating, setCreating] = useState(false);
 
-  // -------- Helpers de progreso --------
+  // modal consejos
+  const [showTips, setShowTips] = useState(false);
+
   function startProgress(label = "🤖 IA pensando… puede tardar unos segundos") {
-    setStatusText(label);
+    setStatus(label);
     setProgress(0);
     if (progTimer.current) clearInterval(progTimer.current);
     progTimer.current = setInterval(() => {
       setProgress((p) => {
-        const cap = 90; // hasta 90% mientras esperamos
+        const cap = 90;
         if (p < cap) {
           const inc = p < 30 ? 2.0 : p < 60 ? 1.2 : 0.6;
           return Math.min(cap, p + inc);
@@ -37,12 +39,10 @@ export default function Home() {
       });
     }, 200);
   }
-
   function bumpPhase(label, floor) {
-    setStatusText(label);
+    setStatus(label);
     setProgress((p) => Math.max(p, floor));
   }
-
   function finishProgress() {
     if (progTimer.current) {
       clearInterval(progTimer.current);
@@ -50,14 +50,13 @@ export default function Home() {
     }
     setProgress(100);
   }
-
   function resetProgress() {
     if (progTimer.current) {
       clearInterval(progTimer.current);
       progTimer.current = null;
     }
     setProgress(0);
-    setStatusText("");
+    setStatus("");
   }
 
   function safeDefaultName(p) {
@@ -65,19 +64,13 @@ export default function Home() {
     return s.length > 60 ? s.slice(0, 57) + "…" : s || "Mi playlist IA";
   }
 
-  // ---------------------- Generar (plan + recs) ----------------------
   async function handleGenerate() {
     if (!prompt.trim()) {
       alert("Escribe un prompt.");
       return;
     }
-    // Si no está logueado, forzamos login y retorno aquí
-    if (!session?.accessToken) {
-      await signIn("spotify", { callbackUrl: "/" });
-      return;
-    }
-
     const wanted = Number(count) || 50;
+
     setLoading(true);
     setTracks([]);
     startProgress("🤖 IA pensando… puede tardar unos segundos");
@@ -111,8 +104,11 @@ export default function Home() {
       await new Promise((r) => setTimeout(r, 300));
 
       setTracks(recs.tracks || []);
+      if ((recs.got ?? 0) < (plan.plan.count ?? 0)) {
+        alert(`⚠️ Solo se han añadido ${recs.got} de ${plan.plan.count}. Seguiremos mejorando con artistas del cartel.`);
+      }
       finishProgress();
-      setStatusText(`✔️ Lista generada (${recs.got}/${plan.plan.count})`);
+      setStatus(`✔️ Lista generada (${recs.got}/${plan.plan.count})`);
       if (!playlistName.trim()) setPlaylistName(safeDefaultName(prompt));
     } catch (e) {
       console.error(e);
@@ -125,50 +121,46 @@ export default function Home() {
     }
   }
 
-  // ---------------------- Crear en Spotify ----------------------
   async function handleCreate() {
     if (!tracks.length) return;
-    if (!session?.accessToken) {
-      await signIn("spotify", { callbackUrl: "/" });
-      return;
-    }
-
     setCreating(true);
     try {
-      const nameWithBrand =
-        (playlistName || safeDefaultName(prompt)) + " — by JeyLabbb";
+      // añadimos “— by JeyLabbb” al nombre que se envía a Spotify
+      const finalName = `${playlistName || safeDefaultName(prompt)} — by JeyLabbb`;
 
       const res = await fetch("/api/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: nameWithBrand,
+          name: finalName,
           description: `Generada con IA (demo) — by JeyLabbb · ${prompt}`,
           public: !!isPublic,
-          // Mandamos ambos por compatibilidad con tu endpoint
-          tracks: tracks.map((t) => t.uri).filter(Boolean),
           uris: tracks.map((t) => t.uri).filter(Boolean),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "create-failed");
 
-      // Abre Spotify con la playlist creada (try app, then web)
+      // abrir app y fallback a web
       const webUrl =
         data.webUrl ||
         data.url ||
         data.open_url ||
         data.external_url ||
-        (data.playlistId
-          ? `https://open.spotify.com/playlist/${data.playlistId}`
-          : "");
-      const appUrl = data.appUrl || (data.playlistId ? `spotify://playlist/${data.playlistId}` : "");
+        (data.id ? `https://open.spotify.com/playlist/${data.id}` : "");
+      const appUrl = data.appUrl || (data.id ? `spotify://playlist/${data.id}` : "");
 
       if (appUrl) {
-        // Primero intentamos app (móvil/desktop)
-        window.open(appUrl, "_blank");
-        // Y también la web como fallback para escritorio
-        if (webUrl) window.open(webUrl, "_blank");
+        const t = setTimeout(() => {
+          if (webUrl) window.open(webUrl, "_blank");
+        }, 800);
+        window.location.href = appUrl;
+        // por si el navegador bloquea el location, abrimos igualmente la web
+        setTimeout(() => {
+          try {
+            if (webUrl) window.open(webUrl, "_blank");
+          } catch {}
+        }, 1200);
       } else if (webUrl) {
         window.open(webUrl, "_blank");
       }
@@ -182,45 +174,44 @@ export default function Home() {
     }
   }
 
+  const examples = [
+    "hardstyle + nightcore, 80 canciones, energía alta",
+    "música clásica (Vivaldi/Mozart), sin voces, 50-80 bpm",
+    "festival 2025 Riverland, 120 canciones",
+    "para estudiar concentrado, ambient/chill, sin voces, 60 canciones",
+    "para gym, techno 125-140 bpm, sin letras explícitas, 100 canciones",
+  ];
+
   return (
     <div style={{ maxWidth: 860, margin: "40px auto", padding: "0 16px" }}>
-      {/* Header simple con sesión */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ fontSize: 14, opacity: 0.8 }}>
-          {status === "loading"
-            ? "Comprobando sesión…"
-            : session?.user
-            ? `Sesión iniciada`
-            : "No has iniciado sesión"}
-        </div>
+      {/* header + sesión */}
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700 }}>Playlist AI — MVP</h1>
         <div>
-          {session?.user ? (
-            <button
-              onClick={() => signOut({ callbackUrl: "/" })}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: "1px solid #111",
-                background: "#fff",
-                cursor: "pointer",
-                fontWeight: 600,
-              }}
-            >
-              Cerrar sesión
-            </button>
+          {session ? (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 12, opacity: 0.8 }}>
+                Conectado: {session.user?.name || session.user?.email}
+              </span>
+              <button
+                onClick={() => signOut()}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: "1px solid #ddd",
+                  background: "#fff",
+                  cursor: "pointer",
+                }}
+              >
+                Cerrar sesión
+              </button>
+            </div>
           ) : (
             <button
-              onClick={() => signIn("spotify", { callbackUrl: "/" })}
+              onClick={() => signIn("spotify")}
               style={{
-                padding: "8px 12px",
-                borderRadius: 10,
+                padding: "6px 10px",
+                borderRadius: 8,
                 border: "1px solid #111",
                 background: "#111",
                 color: "#fff",
@@ -234,22 +225,13 @@ export default function Home() {
         </div>
       </div>
 
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
-        Playlist AI — MVP
-      </h1>
-      <p style={{ opacity: 0.8, marginBottom: 16 }}>
-        Escribe un prompt (ej.: “hardstyle nightcore 80 canciones”, “festival
-        2025”, “para entrenar sin voces, 120-140 bpm”).
+      <p style={{ opacity: 0.8, marginBottom: 12 }}>
+        Escribe un prompt (ej.: “hardstyle nightcore 80 canciones”, “<strong>festival</strong>
+        Riverland 2025”, “para entrenar sin voces, 120-140 bpm”).
       </p>
 
-      <div
-        style={{
-          display: "grid",
-          gap: 12,
-          gridTemplateColumns: "1fr",
-          marginBottom: 12,
-        }}
-      >
+      {/* prompt + controles */}
+      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr", marginBottom: 8 }}>
         <textarea
           rows={3}
           value={prompt}
@@ -263,6 +245,41 @@ export default function Home() {
             fontSize: 14,
           }}
         />
+        {/* chips de ejemplos */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {examples.map((ex, i) => (
+            <button
+              key={i}
+              onClick={() => setPrompt(ex)}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 999,
+                border: "1px solid #ddd",
+                background: "#fff",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              {ex}
+            </button>
+          ))}
+          <button
+            onClick={() => setShowTips(true)}
+            style={{
+              marginLeft: "auto",
+              padding: "6px 10px",
+              borderRadius: 8,
+              border: "1px solid #ddd",
+              background: "#f8f8f8",
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            Consejos para el prompt
+          </button>
+        </div>
+
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <label style={{ fontSize: 14 }}>Nº canciones (1–200):</label>
           <input
@@ -296,7 +313,7 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Barra de progreso */}
+        {/* barra progreso */}
         {loading || progress > 0 ? (
           <div style={{ marginTop: 4 }}>
             <div
@@ -316,14 +333,12 @@ export default function Home() {
                 }}
               />
             </div>
-            <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
-              {statusText}
-            </div>
+            <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>{status}</div>
           </div>
         ) : null}
       </div>
 
-      {/* Opciones de creación */}
+      {/* opciones crear */}
       <div
         style={{
           border: "1px solid #eee",
@@ -332,10 +347,8 @@ export default function Home() {
           marginTop: 12,
         }}
       >
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <label style={{ minWidth: 140, fontSize: 14 }}>
-            Nombre de playlist:
-          </label>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <label style={{ minWidth: 140, fontSize: 14 }}>Nombre de playlist:</label>
           <input
             type="text"
             value={playlistName}
@@ -347,9 +360,13 @@ export default function Home() {
               borderRadius: 8,
               border: "1px solid #ddd",
               fontSize: 14,
+              minWidth: 220,
             }}
           />
-          <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <small style={{ opacity: 0.7 }}>
+            Se añadirá automáticamente “— by JeyLabbb”.
+          </small>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", marginLeft: "auto" }}>
             <input
               type="checkbox"
               checked={isPublic}
@@ -375,7 +392,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Resultados */}
+      {/* resultados */}
       <div style={{ marginTop: 18 }}>
         {tracks.length ? (
           <div>
@@ -396,16 +413,9 @@ export default function Home() {
                 >
                   <div style={{ fontSize: 14 }}>
                     <strong>{t.name}</strong>{" "}
-                    <span style={{ opacity: 0.8 }}>
-                      — {(t.artists || []).join(", ")}
-                    </span>
+                    <span style={{ opacity: 0.8 }}>— {(t.artists || []).join(", ")}</span>
                   </div>
-                  <a
-                    href={t.open_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ fontSize: 12 }}
-                  >
+                  <a href={t.open_url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
                     Abrir
                   </a>
                 </li>
@@ -414,11 +424,81 @@ export default function Home() {
           </div>
         ) : (
           <p style={{ opacity: 0.7 }}>
-            No hay resultados todavía. Genera una playlist para ver las
-            canciones aquí.
+            No hay resultados todavía. Genera una playlist para ver las canciones aquí.
           </p>
         )}
       </div>
+
+      {/* MODAL de consejos */}
+      {showTips ? (
+        <div
+          onClick={() => setShowTips(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.5)",
+            display: "grid",
+            placeItems: "center",
+            padding: 16,
+            zIndex: 50,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(720px, 95vw)",
+              background: "#fff",
+              borderRadius: 12,
+              padding: 20,
+              boxShadow: "0 10px 30px rgba(0,0,0,.2)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>
+                Consejos para escribir tu prompt
+              </h3>
+              <button
+                onClick={() => setShowTips(false)}
+                style={{
+                  border: "1px solid #ddd",
+                  borderRadius: 8,
+                  padding: "6px 10px",
+                  background: "#f8f8f8",
+                  cursor: "pointer",
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+            <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+              <ul>
+                <li>
+                  <b>Cantidad</b>: elige el número en el selector (1–200). No hace falta ponerlo en el texto.
+                </li>
+                <li>
+                  <b>Estilo</b>: describe género/mood/época (ej.: “hardstyle y nightcore”, “2000s-actualidad”).
+                </li>
+                <li>
+                  <b>Voces</b>: añade “sin voces / instrumental” si quieres solo instrumentales.
+                </li>
+                <li>
+                  <b>Ritmo</b>: puedes indicar rango de BPM (ej.: “120–140 bpm”).
+                </li>
+                <li>
+                  <b>Festivales</b>: pon el nombre y la palabra <b>festival</b> + año(s) si quieres afinar (ej.: “Riverland festival 2025”).
+                </li>
+                <li>
+                  <b>Artistas/canciones concretas</b>: puedes incluirlos para que aparezcan o para orientar el estilo.
+                </li>
+              </ul>
+              <p style={{ opacity: 0.8, marginTop: 8 }}>
+                Tip: si algo no sale perfecto a la primera, añade 1–2 ejemplos de artistas o un par de descriptores más
+                (energía, idioma, década…).
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

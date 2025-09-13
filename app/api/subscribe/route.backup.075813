@@ -1,0 +1,85 @@
+import { NextResponse } from "next/server";
+import { Resend } from "resend";
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Util para leer tanto application/x-www-form-urlencoded como JSON
+async function readEmailFromRequest(req) {
+  const ctype = req.headers.get("content-type") || "";
+  if (ctype.includes("application/json")) {
+    const body = await req.json().catch(() => ({}));
+    return { 
+      email: String(body.email || "").trim(), 
+      name: String(body.name || body.nombre || "").trim()
+    };
+  }
+  // FormData (por si el <form> no usa JS)
+  const form = await req.formData().catch(() => null);
+  if (form) {
+    return { 
+      email: String(form.get("email") || "").trim(), 
+      name: String(form.get("name") || form.get("nombre") || "").trim()
+    };
+  }
+  return { email: "", name: "" };
+}
+
+export async function POST(req) {
+  try {
+    // 1) Leer email (y nombre opcional) del body
+    const { email, name } = await readEmailFromRequest(req);
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return NextResponse.json({ ok: false, error: "bad-email" }, { status: 400 });
+    }
+
+    // 2) Reenviar a Formspree para que quede registrado en su panel
+    const fsId = process.env.FORMSPREE_FORM_ID;
+    if (fsId) {
+      await fetch(`https://formspree.io/f/${fsId}`, {
+        method: "POST",
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ email, name }),
+        cache: "no-store",
+      }).catch(() => null); // si falla, no rompemos el flujo de gracias
+    }
+
+    // 3) Enviar email de gracias con Resend
+    const from = process.env.RESEND_FROM || 'Playlist AI <onboarding@resend.dev>';
+    const replyTo = process.env.CONTACT_EMAIL || 'hola@example.com';
+
+    const html = `
+      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5">
+        <h2>¡Gracias por unirte a la lista!</h2>
+        <p>Te avisaremos cuando abramos el acceso al generador de playlists con IA.</p>
+        <p style="margin-top:16px">Si quieres responder, escribe a <a href="mailto:${replyTo}">${replyTo}</a>.</p>
+        <hr style="margin:24px 0;border:none;border-top:1px solid #eee"/>
+        <p style="font-size:12px;color:#666">JeyLabbb — MVP Playlists IA</p>
+      </div>
+    `;
+
+    // Enviar (si falla, no tiramos 500 para no romper UX)
+    await resend.emails.send({
+      from,
+      to: email,
+      subject: "¡Gracias por suscribirte! 🎧",
+      html,
+      reply_to: replyTo,
+    }).catch(() => null);
+
+    // 4) Opcional: devolver redirect a /gracias si se usa <form> sin JS
+    const url = new URL(req.url);
+    const wantsRedirect = url.searchParams.get("redirect") || "";
+    if (wantsRedirect) {
+      return NextResponse.redirect(new URL(wantsRedirect, url.origin), { status: 303 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+  }
+}
+
+// GET simple por si quieres probar en el navegador
+export async function GET() {
+  return NextResponse.json({ ok: true, info: "POST email/name to subscribe" });
+}

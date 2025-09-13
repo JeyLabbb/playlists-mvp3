@@ -1,0 +1,107 @@
+import { NextResponse } from "next/server";
+
+const FALLBACK_GENRES = [
+  "hardstyle","nightcore","phonk","techno","house","deep house",
+  "drum and bass","dnb","dubstep","trance","hard trance",
+  "reggaeton","latin","pop","rap","hip hop","rock","metal","indie","k-pop"
+];
+
+export async function POST(req) {
+  try {
+    const { prompt = "", count = 50 } = await req.json().catch(() => ({}));
+    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json({ error: "openai-key-missing" }, { status: 500 });
+    }
+
+    const system = `
+Eres un planificador musical. Devuelve SOLO JSON válido:
+{
+  "candidates": [ { "track": "Titulo", "artist": "Artista" }, ... ],
+  "queryTerms": ["palabras","clave","para","Spotify"],
+  "targetGenres": ["hardstyle","techno", "..."],
+  "isEvent": true|false,
+  "count": 120
+}
+Reglas:
+- "candidates" ≥ COUNT + 40% (para cubrir descartes). No inventes títulos raros.
+- "targetGenres": géneros concisos (2–4), alineados con el prompt (ej: hardstyle/nightcore).
+- "isEvent": true si huele a festival/cartel/lineup/edición concreta o info “actual”.
+- Respeta idioma/época/energía si el prompt lo pide.
+- SOLO JSON. Nada fuera del JSON.
+`.trim();
+
+    const user = `COUNT=${Number(count)||50}
+PROMPT=${prompt}`.trim();
+
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+    });
+
+    const data = await r.json();
+    if (!r.ok) return NextResponse.json({ error: "openai", details: data }, { status: r.status });
+
+    const raw = data.choices?.[0]?.message?.content || "{}";
+    let plan;
+    try { plan = JSON.parse(raw); } catch { plan = {}; }
+
+    // Heurística extra local para detectar eventos (festival/lineup/año…)
+    const p = (prompt || "").toLowerCase();
+    const eventRegex = /(festival|cartel|line[\s-]?up|lineup|riverland|primavera|mad\s?cool|boombastic|arenal|sonar|fib|o son do camiño|cruilla)/i;
+    const yearMatch = (prompt.match(/\b(20\d{2})\b/g) || []).slice(0,2);
+
+    // Heurística extra para géneros si la IA no lo clavó
+    const inferred = [];
+    for (const g of FALLBACK_GENRES) {
+      if (p.includes(g)) inferred.push(g);
+    }
+
+    const out = {
+      candidates: Array.isArray(plan.candidates) ? plan.candidates : [],
+      queryTerms: Array.isArray(plan.queryTerms) ? plan.queryTerms.slice(0, 10) : [],
+      targetGenres: Array.isArray(plan.targetGenres) && plan.targetGenres.length
+        ? plan.targetGenres.slice(0,4)
+        : Array.from(new Set(inferred)).slice(0,4),
+      isEvent: !!plan.isEvent || eventRegex.test(p),
+      count: Math.max(1, Math.min(Number(plan.count || count || 50), 200)),
+      rawPrompt: prompt
+    };
+
+    // Asegurar queryTerms útiles
+    const baseTerms = [];
+    const noYears = (prompt || "").replace(/\b20\d{2}\b/g, "").trim();
+    if (noYears) baseTerms.push(noYears);
+    if (yearMatch.length) baseTerms.push(...yearMatch);
+    if (eventRegex.test(p)) {
+      const festivalName = (prompt || "").replace(/.*?(festival|cartel|line[\s-]?up|lineup)\s*/i, "").trim() || prompt;
+      if (festivalName) {
+        baseTerms.push(festivalName);
+        for (const y of yearMatch) baseTerms.push(`${festivalName} ${y}`);
+      }
+    }
+    const seen = new Set(out.queryTerms.map(t=>t.toLowerCase()));
+    for (const t of baseTerms) {
+      const k = t.toLowerCase();
+      if (!seen.has(k) && k.length >= 3) { out.queryTerms.push(t); seen.add(k); }
+    }
+
+    return NextResponse.json({ ok: true, plan: out });
+  } catch (e) {
+    return NextResponse.json({ error: "server", message: String(e?.message || e) }, { status: 500 });
+  }
+}
+
+export const GET = POST;

@@ -1,11 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { signIn, signOut, useSession } from "next-auth/react";
 
 export default function Home() {
-  const { data: session, status } = useSession();
-
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useState(50);
   const [tracks, setTracks] = useState([]);
@@ -13,7 +10,7 @@ export default function Home() {
 
   // Progreso y estados de texto
   const [progress, setProgress] = useState(0);
-  const [statusText, setStatusText] = useState("");
+  const [status, setStatus] = useState("");
   const progTimer = useRef(null);
 
   // Opciones de creación
@@ -21,15 +18,16 @@ export default function Home() {
   const [isPublic, setIsPublic] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  // -------- Helpers de progreso --------
+  // -------- Helpers de progreso (barra animada mientras hay trabajo) --------
   function startProgress(label = "🤖 IA pensando… puede tardar unos segundos") {
-    setStatusText(label);
+    setStatus(label);
     setProgress(0);
     if (progTimer.current) clearInterval(progTimer.current);
     progTimer.current = setInterval(() => {
       setProgress((p) => {
         const cap = 90; // hasta 90% mientras esperamos
         if (p < cap) {
+          // sube rápido al principio y más lento luego
           const inc = p < 30 ? 2.0 : p < 60 ? 1.2 : 0.6;
           return Math.min(cap, p + inc);
         }
@@ -39,7 +37,7 @@ export default function Home() {
   }
 
   function bumpPhase(label, floor) {
-    setStatusText(label);
+    setStatus(label);
     setProgress((p) => Math.max(p, floor));
   }
 
@@ -57,7 +55,7 @@ export default function Home() {
       progTimer.current = null;
     }
     setProgress(0);
-    setStatusText("");
+    setStatus("");
   }
 
   function safeDefaultName(p) {
@@ -71,12 +69,6 @@ export default function Home() {
       alert("Escribe un prompt.");
       return;
     }
-    // Si no está logueado, forzamos login y retorno aquí
-    if (!session?.accessToken) {
-      await signIn("spotify", { callbackUrl: "/" });
-      return;
-    }
-
     const wanted = Number(count) || 50;
     setLoading(true);
     setTracks([]);
@@ -108,11 +100,12 @@ export default function Home() {
       if (!recsRes.ok || !recs?.ok) throw new Error("recs-failed");
 
       bumpPhase("🎛️ Afinando por género/ritmo…", 70);
+      // pequeño delay para que se note la fase final
       await new Promise((r) => setTimeout(r, 300));
 
       setTracks(recs.tracks || []);
       finishProgress();
-      setStatusText(`✔️ Lista generada (${recs.got}/${plan.plan.count})`);
+      setStatus(`✔️ Lista generada (${recs.got}/${plan.plan.count})`);
       if (!playlistName.trim()) setPlaylistName(safeDefaultName(prompt));
     } catch (e) {
       console.error(e);
@@ -128,55 +121,36 @@ export default function Home() {
   // ---------------------- Crear en Spotify ----------------------
   async function handleCreate() {
     if (!tracks.length) return;
-    if (!session?.accessToken) {
-      await signIn("spotify", { callbackUrl: "/" });
-      return;
-    }
-
     setCreating(true);
     try {
-      const nameWithBrand =
-        (playlistName || safeDefaultName(prompt)) + " — by JeyLabbb";
-
       const res = await fetch("/api/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: nameWithBrand,
+          name: playlistName || safeDefaultName(prompt),
           description: `Generada con IA (demo) — by JeyLabbb · ${prompt}`,
           public: !!isPublic,
-          // Mandamos ambos por compatibilidad con tu endpoint
-          tracks: tracks.map((t) => t.uri).filter(Boolean),
           uris: tracks.map((t) => t.uri).filter(Boolean),
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "create-failed");
 
-      // Abre Spotify con la playlist creada (try app, then web)
-      const webUrl =
-        data.webUrl ||
+      // Abre Spotify con la playlist creada
+      const url =
         data.url ||
         data.open_url ||
         data.external_url ||
-        (data.playlistId
-          ? `https://open.spotify.com/playlist/${data.playlistId}`
-          : "");
-      const appUrl = data.appUrl || (data.playlistId ? `spotify://playlist/${data.playlistId}` : "");
+        (data.id ? `https://open.spotify.com/playlist/${data.id}` : "");
+      if (url) window.open(url, "_blank");
 
-      if (appUrl) {
-        // Primero intentamos app (móvil/desktop)
-        window.open(appUrl, "_blank");
-        // Y también la web como fallback para escritorio
-        if (webUrl) window.open(webUrl, "_blank");
-      } else if (webUrl) {
-        window.open(webUrl, "_blank");
-      }
-
+      // Feedback al usuario
       alert("✅ Playlist creada en tu Spotify");
     } catch (e) {
       console.error(e);
-      alert("⚠️ No se pudo crear en tu Spotify. Inicia sesión de nuevo y reintenta.");
+      alert(
+        "⚠️ No se pudo crear en tu Spotify. Inicia sesión de nuevo y reintenta."
+      );
     } finally {
       setCreating(false);
     }
@@ -184,62 +158,12 @@ export default function Home() {
 
   return (
     <div style={{ maxWidth: 860, margin: "40px auto", padding: "0 16px" }}>
-      {/* Header simple con sesión */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ fontSize: 14, opacity: 0.8 }}>
-          {status === "loading"
-            ? "Comprobando sesión…"
-            : session?.user
-            ? `Sesión iniciada`
-            : "No has iniciado sesión"}
-        </div>
-        <div>
-          {session?.user ? (
-            <button
-              onClick={() => signOut({ callbackUrl: "/" })}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: "1px solid #111",
-                background: "#fff",
-                cursor: "pointer",
-                fontWeight: 600,
-              }}
-            >
-              Cerrar sesión
-            </button>
-          ) : (
-            <button
-              onClick={() => signIn("spotify", { callbackUrl: "/" })}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: "1px solid #111",
-                background: "#111",
-                color: "#fff",
-                cursor: "pointer",
-                fontWeight: 600,
-              }}
-            >
-              Iniciar sesión con Spotify
-            </button>
-          )}
-        </div>
-      </div>
-
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
         Playlist AI — MVP
       </h1>
       <p style={{ opacity: 0.8, marginBottom: 16 }}>
         Escribe un prompt (ej.: “hardstyle nightcore 80 canciones”, “festival
-        2025”, “para entrenar sin voces, 120-140 bpm”).
+        Riverland 2025”, “para entrenar sin voces, 120-140 bpm”).
       </p>
 
       <div
@@ -317,7 +241,7 @@ export default function Home() {
               />
             </div>
             <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
-              {statusText}
+              {status}
             </div>
           </div>
         ) : null}

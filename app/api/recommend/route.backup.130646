@@ -1,0 +1,177 @@
+import { getToken } from "next-auth/jwt";
+import { NextResponse } from "next/server";
+import OpenAI from "openai";
+
+const SAFE_MAX = 50; // cap MVP
+
+function mapTracks(items = []) {
+  return items.map((t) => ({
+    id: t.id,
+    name: t.name,
+    artists: (t.artists || []).map((a) => a.name).join(", "),
+    uri: t.uri,
+    open_url: `https://open.spotify.com/track/${t.id}`,
+  }));
+}
+
+async function aiPlan(prompt, limit) {
+  // Si no hay API key, no usamos IA
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    const sys = `Eres un planificador de playlists.
+Devuelves SOLO JSON. Estructura:
+{
+  "queries": [ "frases para buscar en Spotify", ... ],
+  "note": "opcional"
+}
+Reglas:
+- Genera 5-12 queries TEXTUALES que ayuden a encontrar canciones del prompt.
+- Mezcla términos por género/época/estado de ánimo/idioma si aplica.
+- Mantén las queries cortas (2-5 palabras).`;
+
+    const user = `Prompt: "${prompt || ""}"
+Límite deseado: ${limit}
+Idioma del usuario: es-ES
+Devuelve únicamente el JSON pedido, sin texto extra.`;
+
+    // Usamos chat.completions con salida JSON
+    const res = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: user },
+      ],
+      temperature: 0.4,
+    });
+
+    const content = res?.choices?.[0]?.message?.content || "{}";
+    const parsed = JSON.parse(content);
+
+    const queries = Array.isArray(parsed?.queries)
+      ? parsed.queries.filter((q) => typeof q === "string" && q.trim()).slice(0, 12)
+      : [];
+
+    if (!queries.length) return null;
+
+    return { queries, note: parsed?.note || null };
+  } catch (e) {
+    // Fallback si falla la IA
+    return null;
+  }
+}
+
+// Busca en Spotify varias queries hasta reunir "limit" temas
+async function searchSpotify(accessToken, queries, limit) {
+  const seen = new Set();
+  const results = [];
+
+  for (const q of queries) {
+    if (results.length >= limit) break;
+
+    const take = Math.min(10, limit - results.length);
+    const url = new URL("https://api.spotify.com/v1/search");
+    url.searchParams.set("q", q);
+    url.searchParams.set("type", "track");
+    url.searchParams.set("limit", String(take));
+    // No usamos market=from_token para evitar scopes adicionales
+
+    const r = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+      next: { revalidate: 0 },
+    });
+
+    // Si hay error, sigue con la siguiente query
+    if (!r.ok) continue;
+
+    const data = await r.json();
+    const tracks = mapTracks(data?.tracks?.items || []);
+    for (const t of tracks) {
+      if (!seen.has(t.id)) {
+        seen.add(t.id);
+        results.push(t);
+        if (results.length >= limit) break;
+      }
+    }
+  }
+
+  return results;
+}
+
+async function fallbackSearch(accessToken, prompt, limit) {
+  const url = new URL("https://api.spotify.com/v1/search");
+  url.searchParams.set("q", (prompt || "pop").trim());
+  url.searchParams.set("type", "track");
+  url.searchParams.set("limit", String(Math.min(limit, SAFE_MAX)));
+
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+    next: { revalidate: 0 },
+  });
+
+  if (!r.ok) {
+    let body = null;
+    try { body = await r.json(); } catch {}
+    return { error: "spotify", status: r.status, url: url.toString(), body };
+  }
+
+  const data = await r.json();
+  return mapTracks(data?.tracks?.items || []);
+}
+
+async function handler(req) {
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token?.accessToken) {
+    return NextResponse.json({ error: "no-access-token" }, { status: 401 });
+  }
+
+  // Lee prompt/limit desde GET o POST
+  let prompt = "";
+  let limit = 30;
+  if (req.method === "GET") {
+    const sp = new URL(req.url).searchParams;
+    prompt = sp.get("prompt") || "";
+    limit = Number(sp.get("limit") || 30);
+  } else {
+    try {
+      const body = await req.json();
+      prompt = body?.prompt || "";
+      limit = Number(body?.limit || 30);
+    } catch {}
+  }
+  const lim = Math.max(1, Math.min(Number.isFinite(limit) ? limit : 30, SAFE_MAX));
+
+  // 1) Pide plan a la IA (si hay clave)
+  const plan = await aiPlan(prompt, lim);
+
+  // 2) Si la IA dio queries, busca por lotes
+  if (plan?.queries?.length) {
+    const tracks = await searchSpotify(token.accessToken, plan.queries, lim);
+    if (tracks.length) {
+      return NextResponse.json(
+        { ok: true, used: "ai+search", prompt, queries: plan.queries, tracks },
+        { status: 200 }
+      );
+    }
+  }
+
+  // 3) Fallback: búsqueda directa por el prompt
+  const fallback = await fallbackSearch(token.accessToken, prompt, lim);
+  if (Array.isArray(fallback)) {
+    return NextResponse.json(
+      { ok: true, used: "fallback-search", prompt, tracks: fallback },
+      { status: 200 }
+    );
+  }
+
+  // 4) Si incluso el fallback falla, devolvemos el error de Spotify
+  return NextResponse.json(fallback, { status: fallback?.status || 500 });
+}
+
+export const GET = handler;
+export const POST = handler;
