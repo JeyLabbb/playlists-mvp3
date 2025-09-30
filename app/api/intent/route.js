@@ -167,7 +167,7 @@ export async function POST(req) {
       );
     }
 
-    const targetSize = Math.max(1, Math.min(200, Number(target_tracks) || 50));
+    const targetSize = Math.max(1, Math.min(500, Number(target_tracks) || 50));
     
     // Detect mode and canonize for VIRAL/FESTIVAL
     const mode = detectMode(prompt);
