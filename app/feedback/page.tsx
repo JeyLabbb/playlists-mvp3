@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import FeedbackModal from "../components/FeedbackModal";
 
-export default function FeedbackPage() {
+function FeedbackContent() {
   const searchParams = useSearchParams();
   const playlistId = searchParams.get('pid');
   const [showModal, setShowModal] = useState(false);
@@ -45,5 +45,21 @@ export default function FeedbackPage() {
         />
       </div>
     </div>
+  );
+}
+
+export default function FeedbackPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-black-base flex items-center justify-center p-4">
+        <div className="text-center">
+          <h1 className="text-2xl font-semibold text-white mb-4">
+            Cargando...
+          </h1>
+        </div>
+      </div>
+    }>
+      <FeedbackContent />
+    </Suspense>
   );
 }
