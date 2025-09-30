@@ -104,23 +104,47 @@ async function getIntentFromLLM(prompt, target_tracks) {
 function determineMode(intent, prompt) {
   const promptLower = prompt.toLowerCase();
   
+  // Check for underground mode FIRST (highest priority)
+  const undergroundKeywords = ['underground', 'indie', 'alternativo', 'alternativa', 'independiente'];
+  const hasUndergroundKeyword = undergroundKeywords.some(keyword => promptLower.includes(keyword));
+  const hasUndergroundContext = intent.contexts && intent.contexts.key === 'underground_es';
+  const hasFilteredArtists = intent.filtered_artists && intent.filtered_artists.length > 0;
+  
+  console.log(`[MODE-DETECTION] Prompt: "${prompt}"`);
+  console.log(`[MODE-DETECTION] Underground check:`, {
+    hasUndergroundKeyword,
+    hasUndergroundContext,
+    hasFilteredArtists,
+    contextKey: intent.contexts?.key,
+    filteredArtistsCount: intent.filtered_artists?.length || 0
+  });
+  
+  if (hasUndergroundKeyword || hasUndergroundContext || hasFilteredArtists) {
+    console.log(`[MODE-DETECTION] Returning UNDERGROUND mode`);
+    return 'UNDERGROUND';
+  }
+  
   // Check for viral/current mode
   const viralKeywords = ['tiktok', 'viral', 'virales', 'top', 'charts', 'tendencia', 'tendencias', '2024', '2025'];
   if (viralKeywords.some(keyword => promptLower.includes(keyword))) {
+    console.log(`[MODE-DETECTION] Returning VIRAL mode`);
     return 'VIRAL';
   }
   
   // Check for festival mode
   const festivalInfo = extractFestivalInfo(prompt);
   if (festivalInfo.name && festivalInfo.year) {
+    console.log(`[MODE-DETECTION] Returning FESTIVAL mode`);
     return 'FESTIVAL';
   }
   
   // Check for artist style mode (contains "como" or "like")
   if (promptLower.includes('como') || promptLower.includes('like')) {
+    console.log(`[MODE-DETECTION] Returning ARTIST_STYLE mode`);
     return 'ARTIST_STYLE';
   }
   
+  console.log(`[MODE-DETECTION] Returning NORMAL mode`);
   return 'NORMAL';
 }
 
