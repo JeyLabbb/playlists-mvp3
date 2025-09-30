@@ -364,8 +364,6 @@ async function enrichArtistsWithSpotify(tracks, accessToken) {
       return tracks;
     }
 
-    const enriched = await enrichArtistsWithSpotify(validTracks, accessToken);
-
     // Helper para hidratar tracks sin metadata
     async function hydrateTracks(accessToken, items) {
       const need = items.filter(x => !x?.name || !extractArtistNames(x) || extractArtistNames(x) === '-');
