@@ -217,6 +217,165 @@ export default function Home() {
     return intent;
   }
 
+  // Generate playlist using streaming SSE
+  async function generatePlaylistWithStreaming(prompt, wanted, playlistName) {
+    return new Promise((resolve, reject) => {
+      let allTracks = [];
+      let eventSource;
+      
+      try {
+        // Create EventSource with query parameters (EventSource doesn't support POST)
+        const params = new URLSearchParams({
+          prompt,
+          target_tracks: wanted.toString(),
+          playlist_name: playlistName || safeDefaultName(prompt)
+        });
+        
+        eventSource = new EventSource(`/api/playlist/stream?${params.toString()}`);
+        
+        // Handle different event types
+        eventSource.addEventListener('LLM_START', (event) => {
+          const data = JSON.parse(event.data);
+          bumpPhase(data.message || 'Processing LLM tracks...', 50);
+        });
+        
+        eventSource.addEventListener('LLM_CHUNK', (event) => {
+          const data = JSON.parse(event.data);
+          allTracks = [...allTracks, ...data.tracks];
+          setTracks([...allTracks]);
+          setStatusText(`Found ${data.totalSoFar} tracks so far...`);
+        });
+        
+        eventSource.addEventListener('LLM_DONE', (event) => {
+          const data = JSON.parse(event.data);
+          bumpPhase('Getting Spotify recommendations...', 70);
+          setStatusText(`LLM phase complete: ${data.totalSoFar} tracks`);
+        });
+        
+        eventSource.addEventListener('SPOTIFY_START', (event) => {
+          const data = JSON.parse(event.data);
+          bumpPhase(data.message || 'Getting Spotify recommendations...', 80);
+        });
+        
+        eventSource.addEventListener('SPOTIFY_CHUNK', (event) => {
+          const data = JSON.parse(event.data);
+          allTracks = [...allTracks, ...data.tracks];
+          setTracks([...allTracks]);
+          setStatusText(`Found ${data.totalSoFar} tracks so far...`);
+        });
+        
+        eventSource.addEventListener('SPOTIFY_DONE', (event) => {
+          const data = JSON.parse(event.data);
+          bumpPhase('Finalizing playlist...', 90);
+          setStatusText(`Spotify phase complete: ${data.totalSoFar} tracks`);
+        });
+        
+        eventSource.addEventListener('DONE', (event) => {
+          const data = JSON.parse(event.data);
+          allTracks = data.tracks || allTracks;
+          setTracks(allTracks);
+          finishProgress();
+          
+          if (data.partial) {
+            setStatusText(`Playlist generated (${data.totalSoFar} tracks) - ${data.reason || 'partial'}`);
+          } else {
+            setStatusText(`${t('progress.completed')} (${data.totalSoFar}/${wanted})`);
+          }
+          
+          eventSource.close();
+          resolve(data);
+        });
+        
+        eventSource.addEventListener('ERROR', (event) => {
+          const data = JSON.parse(event.data);
+          setError(data.error || 'Failed to generate playlist');
+          setTracks(allTracks);
+          resetProgress();
+          eventSource.close();
+          reject(new Error(data.error || 'Streaming failed'));
+        });
+        
+        eventSource.addEventListener('HEARTBEAT', (event) => {
+          // Keep connection alive
+          console.log('[SSE] Heartbeat received');
+        });
+        
+        // Handle connection errors
+        eventSource.onerror = (error) => {
+          console.error('[SSE] Connection error:', error);
+          setError('Connection lost. Falling back to regular generation...');
+          
+          // Fallback to regular endpoint
+          eventSource.close();
+          
+          // Retry with regular endpoint
+          fetch('/api/playlist/llm', {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            cache: "no-store",
+            body: JSON.stringify({ 
+              prompt, 
+              target_tracks: wanted,
+              playlist_name: playlistName || safeDefaultName(prompt)
+            }),
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (data.tracks) {
+              setTracks(data.tracks);
+              finishProgress();
+              setStatusText(`${t('progress.completed')} (${data.count || data.tracks.length}/${wanted})`);
+              resolve(data);
+            } else {
+              setError(data.error || 'Failed to generate playlist');
+              resetProgress();
+              reject(new Error(data.error || 'Fallback failed'));
+            }
+          })
+          .catch(err => {
+            setError('Failed to generate playlist');
+            resetProgress();
+            reject(err);
+          });
+        };
+        
+      } catch (error) {
+        console.error('[SSE] Setup error:', error);
+        setError('Failed to start streaming. Falling back...');
+        
+        // Fallback to regular endpoint
+        fetch('/api/playlist/llm', {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ 
+            prompt, 
+            target_tracks: wanted,
+            playlist_name: playlistName || safeDefaultName(prompt)
+          }),
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.tracks) {
+            setTracks(data.tracks);
+            finishProgress();
+            setStatusText(`${t('progress.completed')} (${data.count || data.tracks.length}/${wanted})`);
+            resolve(data);
+          } else {
+            setError(data.error || 'Failed to generate playlist');
+            resetProgress();
+            reject(new Error(data.error || 'Fallback failed'));
+          }
+        })
+        .catch(err => {
+          setError('Failed to generate playlist');
+          resetProgress();
+          reject(err);
+        });
+      }
+    });
+  }
+
   // Generate playlist using new API structure
   async function handleGenerate() {
     if (!prompt.trim()) {
@@ -281,54 +440,60 @@ export default function Home() {
       );
 
       // Step 2: Generate playlist
-      // Use demo mode if not authenticated with Spotify
+      // Use streaming in production, fallback to regular endpoint
+      const isProduction = process.env.NODE_ENV === 'production';
       const endpoint = session?.user ? "/api/playlist/llm" : "/api/playlist/demo";
-      const playlistRes = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({ 
-          prompt, 
-          target_tracks: wanted,
-          playlist_name: playlistName || safeDefaultName(prompt)
-        }),
-      });
       
-      const playlistData = await playlistRes.json().catch(() => ({}));
-      
-      if (!playlistRes.ok || (playlistData && playlistData.ok === false)) {
-        const baseMsg = playlistData?.error || t('errors.failedToGenerate');
-        const sug = playlistData?.suggestion ? ` ${playlistData.suggestion}` : "";
+      if (isProduction && session?.user) {
+        // Use streaming SSE in production
+        await generatePlaylistWithStreaming(prompt, wanted, playlistName);
+      } else {
+        // Use regular fetch for demo or development
+        const playlistRes = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ 
+            prompt, 
+            target_tracks: wanted,
+            playlist_name: playlistName || safeDefaultName(prompt)
+          }),
+        });
         
-        // PROMPT 9: Handle standardized NO_SESSION error
-        if (playlistData?.code === 'NO_SESSION' || playlistRes.status === 401) {
-          setError("Please sign in with Spotify to generate playlists. Click the 'Connect with Spotify' button above.");
-        } else if (playlistData?.needsAuth) {
-          setError("Please sign in with Spotify to generate playlists. Click the 'Connect with Spotify' button above.");
-        } else {
-          setError(baseMsg + sug);
+        const playlistData = await playlistRes.json().catch(() => ({}));
+        
+        if (!playlistRes.ok || (playlistData && playlistData.ok === false)) {
+          const baseMsg = playlistData?.error || t('errors.failedToGenerate');
+          const sug = playlistData?.suggestion ? ` ${playlistData.suggestion}` : "";
+          
+          // PROMPT 9: Handle standardized NO_SESSION error
+          if (playlistData?.code === 'NO_SESSION' || playlistRes.status === 401) {
+            setError("Please sign in with Spotify to generate playlists. Click the 'Connect with Spotify' button above.");
+          } else if (playlistData?.needsAuth) {
+            setError("Please sign in with Spotify to generate playlists. Click the 'Connect with Spotify' button above.");
+          } else {
+            setError(baseMsg + sug);
+          }
+          
+          setTracks(playlistData?.tracks || []);
+          resetProgress();
+          return;
         }
-        
+
+        bumpPhase(t('progress.applyingFilters'), 70);
+        await new Promise((r) => setTimeout(r, 300));
+
         setTracks(playlistData?.tracks || []);
-        resetProgress();
-        return;
-      }
-
-      bumpPhase(t('progress.applyingFilters'), 70);
-      await new Promise((r) => setTimeout(r, 300));
-
-      setTracks(playlistData?.tracks || []);
-      finishProgress();
-      setStatusText(`${t('progress.completed')} (${(playlistData?.count ?? (playlistData?.tracks?.length || 0))}/${intent.target_tracks})`);
-      
-      // Redirect to Spotify playlist if created
-      if (playlistData?.spotify_playlist_url) {
-        console.log(`[FRONTEND] Redirecting to Spotify playlist: ${playlistData.spotify_playlist_url}`);
-        setSpotifyPlaylistUrl(playlistData.spotify_playlist_url);
-        // Open Spotify playlist in new tab
-        window.open(playlistData.spotify_playlist_url, '_blank');
-        // Also show a success message
-        setStatusText(`${t('progress.completed')} - Redirecting to Spotify...`);
+        finishProgress();
+        setStatusText(`${t('progress.completed')} (${(playlistData?.count ?? (playlistData?.tracks?.length || 0))}/${intent.target_tracks})`);
+        
+        // Redirect to Spotify playlist if created
+        if (playlistData?.spotify_playlist_url) {
+          console.log(`[FRONTEND] Redirecting to Spotify playlist: ${playlistData.spotify_playlist_url}`);
+          setSpotifyPlaylistUrl(playlistData.spotify_playlist_url);
+          // Open Spotify playlist in new tab
+          window.open(playlistData.spotify_playlist_url, '_blank');
+        }
       }
       
     } catch (e) {
