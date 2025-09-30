@@ -102,7 +102,7 @@ async function getIntentFromLLM(prompt, target_tracks) {
  * Determines the mode based on intent and prompt
  */
 function determineMode(intent, prompt) {
-  const promptLower = prompt.toLowerCase();
+  const promptLower = (prompt || '').toLowerCase();
   
   // Check for underground mode FIRST (highest priority) - only if explicitly underground
   const undergroundKeywords = ['underground', 'indie', 'alternativo', 'alternativa', 'independiente'];
@@ -155,7 +155,7 @@ function determineMode(intent, prompt) {
 async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
   console.log(`[STREAM:${traceId}] Starting LLM phase - target: ${target_tracks}`);
   console.log(`[STREAM:${traceId}] Intent data:`, {
-    mode: determineMode(intent, intent.prompt),
+    mode: determineMode(intent, intent.prompt || ''),
     contexts: intent.contexts?.key || 'none',
     llmTracksCount: intent.tracks_llm?.length || 0,
     artistsCount: intent.artists_llm?.length || 0,
@@ -175,7 +175,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
   }
   
   // Determine mode and LLM target
-  const mode = determineMode(intent, intent.prompt);
+  const mode = determineMode(intent, intent.prompt || '');
   const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
   const hasContexts = intent.contexts && intent.contexts.key && intent.contexts.key !== 'normal';
   
@@ -239,7 +239,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
 async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
   console.log(`[STREAM:${traceId}] Starting Spotify phase, remaining: ${remaining}`);
   console.log(`[STREAM:${traceId}] Spotify phase intent data:`, {
-    mode: determineMode(intent, intent.prompt),
+    mode: determineMode(intent, intent.prompt || ''),
     contexts: intent.contexts?.key || 'none',
     artistsCount: intent.artists_llm?.length || 0,
     filteredArtistsCount: intent.filtered_artists?.length || 0,
@@ -253,7 +253,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
     return;
   }
   
-  const mode = determineMode(intent, intent.prompt);
+  const mode = determineMode(intent, intent.prompt || '');
   const chunkSize = 10;
   let totalYielded = 0;
   let attempts = 0;
@@ -270,7 +270,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         ? intent.filtered_artists 
         : intent.contexts.compass;
       
-      const prompt = intent.prompt || '';
+      const prompt = (intent?.prompt || '').toString();
       const isInclusive = /\b(con|que contenga|que tenga alguna|con alguna|con canciones|con temas|con música|con tracks)\b/i.test(prompt);
       const isRestrictive = !isInclusive && /\b(solo|tan solo|solamente|nada más que|solo de|con solo|únicamente|exclusivamente)\b/i.test(prompt);
       
@@ -284,7 +284,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         maxPerArtist: maxPerArtist,
         isInclusive: isInclusive,
         isRestrictive: isRestrictive,
-        prompt: prompt.substring(0, 100) + '...'
+        prompt: (prompt || '').substring(0, 100) + '...'
       });
       console.log(`[STREAM:${traceId}] Allowed artists sample:`, allowedArtists.slice(0, 5));
       console.log(`[STREAM:${traceId}] Priority artists:`, priorityArtists);
@@ -680,7 +680,7 @@ export async function GET(request) {
             }
             
             // For NORMAL mode: trim LLM tracks to 75% and prepare for Spotify
-            const mode = determineMode(intent, intent.prompt);
+            const mode = determineMode(intent, intent.prompt || '');
             const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
             const hasContexts = intent.contexts && intent.contexts.key && intent.contexts.key !== 'normal';
             
@@ -994,7 +994,7 @@ export async function POST(request) {
             }
             
             // For NORMAL mode: trim LLM tracks to 75% and prepare for Spotify
-            const mode = determineMode(intent, intent.prompt);
+            const mode = determineMode(intent, intent.prompt || '');
             const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
             const hasContexts = intent.contexts && intent.contexts.key && intent.contexts.key !== 'normal';
             
