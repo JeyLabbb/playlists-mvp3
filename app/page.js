@@ -922,7 +922,12 @@ export default function Home() {
                         {track.title || track.name || 'Unknown Track'}
                       </div>
                       <div className="spotify-track-artist">
-                        {track.artistNames || '—'}
+                        {track.artistNames ? track.artistNames.split(',').map((artist, index) => (
+                          <span key={index}>
+                            {artist.trim()}
+                            {index < track.artistNames.split(',').length - 1 && ', '}
+                          </span>
+                        )) : '—'}
                       </div>
                     </div>
                     <div className="flex gap-2 mobile-flex-wrap">

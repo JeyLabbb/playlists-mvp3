@@ -165,7 +165,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
   });
   
   const llmTracks = intent.tracks_llm || [];
-  const chunkSize = 10;
+             const chunkSize = 20; // Increased chunk size
   let totalYielded = 0;
   let chunkCounter = 0;
   
@@ -196,8 +196,13 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
     console.log(`[STREAM:${traceId}] ${mode} mode conditions: isUndergroundStrict=${isUndergroundStrict}, hasContexts=${hasContexts}`);
   }
   
-  // Process LLM tracks in chunks until we have enough or run out
-  for (let i = 0; i < llmTracks.length && totalYielded < llmTarget; i += chunkSize) {
+             // Process LLM tracks in chunks until we have enough or run out
+             // For NORMAL mode, be more aggressive to reach target
+             const maxLLMIterations = mode === 'NORMAL' ? 10 : 5;
+             let iteration = 0;
+             
+             for (let i = 0; i < llmTracks.length && totalYielded < llmTarget && iteration < maxLLMIterations; i += chunkSize) {
+               iteration++;
     const chunk = llmTracks.slice(i, i + chunkSize);
     chunkCounter++;
     console.log(`[STREAM:${traceId}] Processing LLM chunk ${chunkCounter}: ${chunk.length} tracks`);
@@ -217,7 +222,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
         
         // Add delay between chunks for better UX
         if (totalYielded < llmTarget) {
-          await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
+          await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
         }
         
         if (totalYielded >= llmTarget) {
@@ -230,7 +235,37 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
     }
   }
   
-  console.log(`[STREAM:${traceId}] LLM phase completed: ${totalYielded} tracks`);
+             console.log(`[STREAM:${traceId}] LLM phase completed: ${totalYielded} tracks`);
+             
+             // If we didn't reach target and have more LLM tracks, try again with smaller chunks
+             if (totalYielded < llmTarget && llmTracks.length > totalYielded) {
+               console.log(`[STREAM:${traceId}] LLM phase incomplete, trying with smaller chunks...`);
+               const remainingLLMTracks = llmTracks.slice(totalYielded);
+               const smallChunkSize = 5;
+               
+               for (let i = 0; i < remainingLLMTracks.length && totalYielded < llmTarget; i += smallChunkSize) {
+                 const chunk = remainingLLMTracks.slice(i, i + smallChunkSize);
+                 console.log(`[STREAM:${traceId}] Processing small LLM chunk: ${chunk.length} tracks`);
+                 
+                 try {
+                   const resolved = await resolveTracksBySearch(accessToken, chunk);
+                   const filtered = resolved.filter(track => notExcluded(track, intent.exclusions));
+                   
+                   if (filtered.length > 0) {
+                     const remaining = llmTarget - totalYielded;
+                     const toYield = filtered.slice(0, remaining);
+                     totalYielded += toYield.length;
+                     
+                     console.log(`[STREAM:${traceId}] Small LLM chunk yielded: ${toYield.length} tracks, total: ${totalYielded}/${llmTarget}`);
+                     yield toYield;
+                     
+                     if (totalYielded >= llmTarget) break;
+                   }
+                 } catch (error) {
+                   console.error(`[STREAM:${traceId}] Error processing small LLM chunk:`, error);
+                 }
+               }
+             }
 }
 
 /**
@@ -254,10 +289,10 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
   }
   
   const mode = determineMode(intent, intent.prompt || '');
-  const chunkSize = 10;
+             const chunkSize = 20; // Increased chunk size
   let totalYielded = 0;
   let attempts = 0;
-  const maxAttempts = 10; // Prevent infinite loops
+  const maxAttempts = 20; // Increased attempts for better completion
   let chunkCounter = 0;
   
   try {
@@ -308,7 +343,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           
           // Add delay between chunks for better UX
           if (totalYielded < remaining) {
-            await new Promise(resolve => setTimeout(resolve, 8000)); // 8 second delay
+            await new Promise(resolve => setTimeout(resolve, 3000)); // 3 second delay
           }
         }
         
@@ -461,7 +496,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         
         // Add delay between chunks for better UX
         if (totalYielded < remaining) {
-          await new Promise(resolve => setTimeout(resolve, 8000)); // 8 second delay
+          await new Promise(resolve => setTimeout(resolve, 3000)); // 3 second delay
         }
       }
       
@@ -640,7 +675,7 @@ export async function GET(request) {
           } catch (error) {
             console.log(`[STREAM:${traceId}] Controller already closed during timeout`);
           }
-        }, 120000); // 2 minutes timeout
+        }, 180000); // 3 minutes timeout
         
         // Main processing
         (async () => {
@@ -978,7 +1013,7 @@ export async function POST(request) {
           } catch (error) {
             console.log(`[STREAM:${traceId}] Controller already closed during timeout`);
           }
-        }, 120000); // 2 minutes timeout
+        }, 180000); // 3 minutes timeout
         
         // Main processing
         (async () => {
