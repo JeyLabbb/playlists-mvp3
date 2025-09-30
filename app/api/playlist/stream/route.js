@@ -143,14 +143,19 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
   // Determine mode and LLM target
   const mode = determineMode(intent, intent.prompt);
   const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
+  const hasContexts = intent.contexts && intent.contexts.key && intent.contexts.key !== 'normal';
   
   let llmTarget;
-  if (mode === 'NORMAL' && !isUndergroundStrict) {
+  if (mode === 'NORMAL' && !isUndergroundStrict && !hasContexts) {
     // MODE NORMAL: Get 75% LLM (but get 50 by default to be safe)
     llmTarget = Math.max(50, Math.ceil(target_tracks * 0.75));
     console.log(`[STREAM:${traceId}] NORMAL mode: LLM target = ${llmTarget} (75% of ${target_tracks})`);
+  } else if (mode === 'VIRAL') {
+    // VIRAL mode: LLM prepares terms and delegates everything to Spotify
+    llmTarget = 0;
+    console.log(`[STREAM:${traceId}] VIRAL mode: LLM target = ${llmTarget} (delegates to Spotify)`);
   } else {
-    // Other modes: exact target
+    // Other modes (FESTIVAL, ARTIST_STYLE, CONTEXTS, UNDERGROUND): exact target
     llmTarget = target_tracks;
     console.log(`[STREAM:${traceId}] ${mode} mode: LLM target = ${llmTarget} (exact target)`);
   }
@@ -558,8 +563,9 @@ export async function GET(request) {
             // For NORMAL mode: trim LLM tracks to 75% and prepare for Spotify
             const mode = determineMode(intent, intent.prompt);
             const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
+            const hasContexts = intent.contexts && intent.contexts.key && intent.contexts.key !== 'normal';
             
-            if (mode === 'NORMAL' && !isUndergroundStrict) {
+            if (mode === 'NORMAL' && !isUndergroundStrict && !hasContexts) {
               const llmTarget = Math.max(50, Math.ceil(target_tracks * 0.75));
               if (allTracks.length > llmTarget) {
                 console.log(`[STREAM:${traceId}] NORMAL mode: trimming LLM tracks from ${allTracks.length} to ${llmTarget}`);
@@ -844,8 +850,9 @@ export async function POST(request) {
             // For NORMAL mode: trim LLM tracks to 75% and prepare for Spotify
             const mode = determineMode(intent, intent.prompt);
             const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
+            const hasContexts = intent.contexts && intent.contexts.key && intent.contexts.key !== 'normal';
             
-            if (mode === 'NORMAL' && !isUndergroundStrict) {
+            if (mode === 'NORMAL' && !isUndergroundStrict && !hasContexts) {
               const llmTarget = Math.max(50, Math.ceil(target_tracks * 0.75));
               if (allTracks.length > llmTarget) {
                 console.log(`[STREAM:${traceId}] NORMAL mode: trimming LLM tracks from ${allTracks.length} to ${llmTarget}`);
