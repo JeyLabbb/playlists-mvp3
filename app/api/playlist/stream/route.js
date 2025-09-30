@@ -676,7 +676,7 @@ export async function GET(request) {
           } catch (error) {
             console.log(`[STREAM:${traceId}] Controller already closed during timeout`);
           }
-        }, 180000); // 3 minutes timeout
+        }, target_tracks > 100 ? 300000 : 180000); // 5 minutes for high track counts, 3 minutes for normal
         
         // Main processing
         (async () => {
@@ -1014,7 +1014,7 @@ export async function POST(request) {
           } catch (error) {
             console.log(`[STREAM:${traceId}] Controller already closed during timeout`);
           }
-        }, 180000); // 3 minutes timeout
+        }, target_tracks > 100 ? 300000 : 180000); // 5 minutes for high track counts, 3 minutes for normal
         
         // Main processing
         (async () => {
