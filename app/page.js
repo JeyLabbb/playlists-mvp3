@@ -911,8 +911,13 @@ export default function Home() {
           {tracks.length > 0 && (
             <div className="spotify-card">
               <h3 className="text-xl font-semibold text-white mb-6">
-                {t('playlist.tracksTitle')}
+                {t('playlist.tracksTitle')} ({tracks.length} tracks)
               </h3>
+              
+              {/* Mobile debug info */}
+              <div className="md:hidden text-xs text-gray-400 mb-4 p-2 bg-gray-800 rounded">
+                Mobile Debug: {tracks.length} tracks loaded, container visible
+              </div>
               
               <div className="max-h-96 overflow-y-auto mobile-track-list">
                 {tracks.map((track, i) => (
