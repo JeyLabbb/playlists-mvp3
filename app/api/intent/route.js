@@ -179,6 +179,13 @@ export async function POST(req) {
       console.log(`[INTENT] SINGLE ARTIST detected: "${prompt}" - delegating to Spotify`);
     }
     
+    // Detect artist style mode and extract reference artist
+    let referenceArtist = null;
+    if (mode === 'ARTIST_STYLE') {
+      referenceArtist = extractReferenceArtist(prompt);
+      console.log(`[INTENT] ARTIST_STYLE detected: "${prompt}" - reference artist: "${referenceArtist}"`);
+    }
+    
     if (mode === 'VIRAL' || mode === 'FESTIVAL') {
       canonizedData = await canonizePrompt(prompt);
       console.log(`[INTENT] Mode: ${mode}, Canonized:`, canonizedData);
@@ -436,6 +443,28 @@ Devuelve un JSON con:
 - "artists": ["${prompt}"] (solo este artista)
 - "filtered_artists": ["${prompt}"] (artista específico)
 - "priority_artists": ["${prompt}"] (artista prioritario)`;
+          } else if (mode === 'ARTIST_STYLE' && referenceArtist) {
+            // MODO ESTILO DE ARTISTA - buscar artista de referencia y similares
+            userMessage = `ARTIST STYLE MODE - FIND SIMILAR ARTISTS
+
+PROMPT: "${prompt}"
+TARGET: ${targetSize} tracks
+REFERENCE ARTIST: "${referenceArtist}"
+
+INSTRUCCIONES ESPECIALES:
+1. El usuario quiere canciones del estilo de "${referenceArtist}"
+2. Busca "${referenceArtist}" como artista prioritario (priority_artists)
+3. Encuentra artistas similares en el mismo nicho/estilo
+4. Genera canciones de "${referenceArtist}" y artistas similares
+5. Spotify también rellenará con radios de canciones similares
+
+RESPUESTA REQUERIDA:
+Devuelve un JSON con:
+- "mode": "ARTIST_STYLE"
+- "tracks": Array de canciones del estilo de "${referenceArtist}"
+- "artists": Array con "${referenceArtist}" y artistas similares
+- "priority_artists": ["${referenceArtist}"] (artista de referencia prioritario)
+- "filtered_artists": Array con "${referenceArtist}" y artistas similares`;
           } else {
             userMessage = `Prompt: "${prompt}"\nTamaño solicitado: ${targetSize} tracks\n\nGenera ${Math.ceil(targetSize * 1.4)} canciones que encajen perfectamente con la petición. Usa solo canciones reales con título y artista específicos. Respeta TODAS las restricciones mencionadas (ej. instrumental, género, etc.).\n\nNUNCA uses comillas curvas; usa comillas dobles normales; no pongas comas finales.`;
           }
@@ -796,6 +825,15 @@ function detectMode(prompt) {
     return 'FESTIVAL';
   }
   
+  // Check for artist style mode (contains "como" or "like" but not exclusion)
+  const artistStyleKeywords = ['como', 'like', 'estilo de', 'similar a', 'parecido a', 'tipo de'];
+  const hasArtistStyleKeyword = artistStyleKeywords.some(keyword => promptLower.includes(keyword));
+  const hasExclusionKeyword = promptLower.includes('sin');
+  
+  if (hasArtistStyleKeyword && !hasExclusionKeyword) {
+    return 'ARTIST_STYLE';
+  }
+  
   return 'NORMAL';
 }
 
@@ -822,4 +860,39 @@ function detectSingleArtist(prompt) {
   }
   
   return false;
+}
+
+/**
+ * Extract reference artist from artist style prompt
+ */
+function extractReferenceArtist(prompt) {
+  const promptLower = prompt.toLowerCase();
+  
+  // Patterns to match artist names after style keywords
+  const patterns = [
+    /como\s+([^,.\n]+)/i,
+    /like\s+([^,.\n]+)/i,
+    /estilo\s+de\s+([^,.\n]+)/i,
+    /similar\s+a\s+([^,.\n]+)/i,
+    /parecido\s+a\s+([^,.\n]+)/i,
+    /tipo\s+de\s+([^,.\n]+)/i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = prompt.match(pattern);
+    if (match && match[1]) {
+      const artist = match[1].trim();
+      // Clean up common words that might be included
+      const cleanedArtist = artist
+        .replace(/\b(playlist|música|canciones|tracks|songs|mix|compilation)\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      if (cleanedArtist.length > 0) {
+        return cleanedArtist;
+      }
+    }
+  }
+  
+  return null;
 }
