@@ -112,7 +112,7 @@ export default function FeedbackModal({
             </h2>
             {defaultValues.playlistName && (
               <p className="text-sm text-gray-text-secondary mt-1">
-                "{defaultValues.playlistName}" ({defaultValues.trackCount || 0} tracks)
+                &quot;{defaultValues.playlistName}&quot; ({defaultValues.trackCount || 0} tracks)
               </p>
             )}
           </div>
