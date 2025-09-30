@@ -149,9 +149,18 @@ const UNIVERSAL_SCHEMA = {
 
 export async function POST(req) {
   try {
+    // Log request details for mobile debugging
+    const userAgent = req.headers.get('user-agent') || 'unknown';
+    const isMobile = /Mobile|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+    
+    console.log(`[INTENT] Request received - Mobile: ${isMobile}, User-Agent: ${userAgent.substring(0, 100)}`);
+    
     const { prompt, target_tracks } = await req.json();
     
+    console.log(`[INTENT] Parsed request - Prompt: "${prompt?.substring(0, 50)}...", Target: ${target_tracks}`);
+    
     if (!prompt || typeof prompt !== 'string') {
+      console.error(`[INTENT] Invalid prompt - Type: ${typeof prompt}, Value: ${prompt}`);
       return NextResponse.json(
         { error: "Prompt is required and must be a string" },
         { status: 422 }
@@ -630,9 +639,10 @@ Devuelve un JSON con:
 
       } catch (error) {
         attempts++;
-        console.error(`OpenAI attempt ${attempts} failed:`, error.message);
+        console.error(`[INTENT] OpenAI attempt ${attempts} failed - Mobile: ${isMobile}, Error: ${error.message}`);
         
         if (attempts >= maxAttempts) {
+          console.error(`[INTENT] All attempts failed - Mobile: ${isMobile}, Final error: ${error.message}`);
           return NextResponse.json(
             { error: "OpenAI service unavailable. Please try again later." },
             { status: 503 }
@@ -641,7 +651,7 @@ Devuelve un JSON con:
       }
     }
   } catch (error) {
-    console.error("Intent parsing error:", error);
+    console.error(`[INTENT] Intent parsing error - Mobile: ${isMobile}, Error: ${error.message}`);
     return NextResponse.json(
       { error: "Service unavailable. Please try again later." },
       { status: 503 }
