@@ -2,33 +2,82 @@
 
 import { useEffect, useRef, useState } from "react";
 import { signIn, signOut, useSession } from "next-auth/react";
+import Link from "next/link";
+import { useLanguage } from "./contexts/LanguageContext";
+import LanguageSwitcher from "./components/LanguageSwitcher";
+import EpicSection from "./components/EpicSection";
+import PromptTips from "./components/PromptTips";
+import LoadingStatus from "./components/LoadingStatus";
+import FeedbackModal from "./components/FeedbackModal";
+import FeedbackGate from "./components/FeedbackGate";
+import RequestAccessModal from "./components/RequestAccessModal";
 
 export default function Home() {
   const { data: session, status } = useSession();
+  const { t } = useLanguage();
 
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useState(50);
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [showTips, setShowTips] = useState(false);
 
-  // Progreso y estados de texto
+  // Progress and status
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState("");
   const progTimer = useRef(null);
 
-  // Opciones de creación
+  // Playlist creation options
   const [playlistName, setPlaylistName] = useState("");
-  const [isPublic, setIsPublic] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isCreated, setIsCreated] = useState(false);
+  const [spotifyUrl, setSpotifyUrl] = useState(null);
+  const [createError, setCreateError] = useState(null);
+  
+  // FIXPACK: Definir isPublic para evitar ReferenceError
+  const isPublic = true; // Por defecto siempre público
 
-  // -------- Helpers de progreso --------
-  function startProgress(label = "🤖 IA pensando… puede tardar unos segundos") {
+  // UI Controls
+  const [refining, setRefining] = useState(false);
+  const [addingMore, setAddingMore] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  // Feedback Modal
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackData, setFeedbackData] = useState({});
+  const [feedbackShownForId, setFeedbackShownForId] = useState({});
+  
+  // Request Access Modal
+  const [showRequestAccessModal, setShowRequestAccessModal] = useState(false);
+
+  // Check for OAuth callback error on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const error = urlParams.get('error');
+    if (error === 'OAuthCallback') {
+      setShowRequestAccessModal(true);
+    }
+  }, []);
+
+  // Example prompts
+  const examplePrompts = [
+    t('prompt.example1'),
+    t('prompt.example2'),
+    t('prompt.example3'),
+    t('prompt.example4'),
+    t('prompt.example5')
+  ];
+
+  // Progress helpers
+  function startProgress(label = t('progress.parsingIntent')) {
     setStatusText(label);
     setProgress(0);
+    setError(null);
     if (progTimer.current) clearInterval(progTimer.current);
     progTimer.current = setInterval(() => {
       setProgress((p) => {
-        const cap = 90; // hasta 90% mientras esperamos
+        const cap = 90;
         if (p < cap) {
           const inc = p < 30 ? 2.0 : p < 60 ? 1.2 : 0.6;
           return Math.min(cap, p + inc);
@@ -62,363 +111,707 @@ export default function Home() {
 
   function safeDefaultName(p) {
     const s = (p || "").replace(/\s+/g, " ").trim();
-    return s.length > 60 ? s.slice(0, 57) + "…" : s || "Mi playlist IA";
+    return s.length > 60 ? s.slice(0, 57) + "…" : s || "AI Generated Playlist";
   }
 
-  // ---------------------- Generar (plan + recs) ----------------------
+  // Feedback cooldown management
+  function isFeedbackCooldownActive() {
+    try {
+      const cooldownData = localStorage.getItem('jl_feedback_cooldown');
+      if (!cooldownData) return false;
+      
+      const { expiresAt } = JSON.parse(cooldownData);
+      return new Date() < new Date(expiresAt);
+    } catch (error) {
+      console.error('[FEEDBACK] Error checking cooldown:', error);
+      return false;
+    }
+  }
+
+  function setFeedbackCooldown() {
+    try {
+      const cooldownDays = parseInt(process.env.FEEDBACK_POPUP_COOLDOWN_DAYS) || 7;
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + cooldownDays);
+      
+      localStorage.setItem('jl_feedback_cooldown', JSON.stringify({
+        expiresAt: expiresAt.toISOString()
+      }));
+    } catch (error) {
+      console.error('[FEEDBACK] Error setting cooldown:', error);
+    }
+  }
+
+  function openFeedbackModal(defaultValues) {
+    // Check if feedback is enabled
+    const enabled = (process.env.NEXT_PUBLIC_FEEDBACK_ENABLED ?? 'true').toLowerCase() !== 'false';
+    if (!enabled) return;
+    
+    // Check cooldown
+    if (isFeedbackCooldownActive()) return;
+    
+    // Check if already shown for this playlist
+    if (feedbackShownForId[defaultValues.playlistId]) return;
+    
+    // Set feedback data
+    setFeedbackData(defaultValues);
+    
+    // Mark as shown for this playlist
+    setFeedbackShownForId(prev => ({
+      ...prev,
+      [defaultValues.playlistId]: true
+    }));
+    
+    // Show modal
+    setShowFeedbackModal(true);
+  }
+
+  function handleFeedbackClose() {
+    setShowFeedbackModal(false);
+  }
+
+  function handleFeedbackSubmitted() {
+    setFeedbackCooldown();
+    setShowFeedbackModal(false);
+    // Show success toast
+    setStatusText('¡Gracias por tu feedback! Te ayudará a mejorar las playlists.');
+  }
+
+  // ────────────────────── FALLBACK CLIENT: construir intent si el backend falla ──────────────────────
+  function detectModeFromPrompt(p) {
+    const txt = (p || "").toLowerCase();
+    if (/\b(20\d{2})\b/.test(txt) || txt.includes("festival") || /\b(primavera|sonar|riverland|madcool|groove|coachella|glastonbury|lollapalooza|tomorrowland|download)\b/.test(txt)) {
+      return "festival";
+    }
+    if (/\b(artist|artista|como |del estilo de|like )\b/.test(txt)) return "artist";
+    if (/\b(canción|song|track)\b/.test(txt)) return "song";
+    return "style";
+  }
+  function parseFestivalFromPrompt(p) {
+    const nameYear = p.match(/(.+?)\s+(20\d{2})/i);
+    if (nameYear) {
+      return { name: nameYear[1].trim(), year: Number(nameYear[2]), strict_exact_name: true };
+    }
+    return { name: p.replace(/\b20\d{2}\b/g, "").trim(), year: null, strict_exact_name: false };
+  }
+  function buildHeuristicIntent(p, wanted) {
+    const mode = detectModeFromPrompt(p);
+    const intent = {
+      mode,
+      festival: { name: "", year: null, strict_exact_name: false },
+      seeds: { artists: [], songs: [], genres: [] },
+      constraints: { exclude_artists: [], only_female_groups: false, language: null },
+      target_tracks: Math.max(1, Math.min(Number(wanted) || 50, 200)),
+      cap_per_artist: { hard: 2, soft_pct: 12 },
+      allow_over_cap_for_small_festivals: true,
+      min_popularity: 0,
+      allow_live_remix: true,
+      raw_prompt: p
+    };
+    if (mode === "festival") intent.festival = parseFestivalFromPrompt(p);
+    // heurística sencilla: si el prompt contiene “sin X” exclúyelo
+    const neg = [];
+    const m = p.match(/sin\s+([^\.,;]+)/i);
+    if (m && m[1]) neg.push(m[1].trim());
+    intent.constraints.exclude_artists = neg;
+    return intent;
+  }
+
+  // Generate playlist using new API structure
   async function handleGenerate() {
     if (!prompt.trim()) {
-      alert("Escribe un prompt.");
+      setError(t('errors.enterPrompt'));
       return;
     }
-    // Si no está logueado, forzamos login y retorno aquí
-    if (!session?.accessToken) {
+    
+    // Si no hay sesión, pedimos login y SALIMOS
+    if (!session?.user) {
       await signIn("spotify", { callbackUrl: "/" });
       return;
     }
 
-    const wanted = Number(count) || 50;
+    // Asegurar número y límites 1–200
+    const wanted = Math.max(1, Math.min(200, Number(count) || 50));
+
     setLoading(true);
     setTracks([]);
-    startProgress("🤖 IA pensando… puede tardar unos segundos");
+    setError(null);
+    // Reset playlist creation state for new preview
+    setIsCreated(false);
+    setSpotifyUrl(null);
+    setCreateError(null);
+    startProgress(t('progress.parsingIntent'));
 
     try {
-      bumpPhase("🧠 Interpretando tu prompt…", 20);
-      const planRes = await fetch("/api/plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, count: wanted }),
-      });
-      const plan = await planRes.json();
-      if (!planRes.ok || !plan?.plan) throw new Error("plan-failed");
+      bumpPhase(t('progress.parsingIntent'), 20);
+      
+      // Step 1: Parse intent (con fallback cliente)
+      let intent;
+      try {
+        const intentRes = await fetch("/api/intent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ prompt, target_tracks: wanted }),
+        });
 
+        if (!intentRes.ok) {
+          // leer texto/json y seguir con fallback (NO throw)
+          try {
+            const errJson = await intentRes.json();
+            console.warn("[intent error]", errJson);
+          } catch {
+            const txt = await intentRes.text();
+            console.warn("[intent error text]", txt);
+          }
+          intent = buildHeuristicIntent(prompt, wanted);
+        } else {
+          intent = await intentRes.json();
+        }
+      } catch (e) {
+        console.warn("[intent fetch failed]", e);
+        intent = buildHeuristicIntent(prompt, wanted);
+      }
+      
       bumpPhase(
-        plan.plan.isEvent
-          ? "🔎 Buscando playlists públicas relevantes…"
-          : "🎯 Buscando canciones y artistas…",
+        intent.mode === "festival" 
+          ? t('progress.searchingFestival')
+          : t('progress.findingTracks'),
         40
       );
 
-      const recsRes = await fetch("/api/recs", {
+      // Step 2: Generate playlist
+      // Use demo mode if not authenticated with Spotify
+      const endpoint = session?.user ? "/api/playlist/llm" : "/api/playlist/demo";
+      const playlistRes = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: plan.plan }),
+        cache: "no-store",
+        body: JSON.stringify({ 
+          prompt, 
+          target_tracks: wanted,
+          playlist_name: playlistName || safeDefaultName(prompt)
+        }),
       });
-      const recs = await recsRes.json();
-      if (!recsRes.ok || !recs?.ok) throw new Error("recs-failed");
+      
+      const playlistData = await playlistRes.json().catch(() => ({}));
+      
+      if (!playlistRes.ok || (playlistData && playlistData.ok === false)) {
+        const baseMsg = playlistData?.error || t('errors.failedToGenerate');
+        const sug = playlistData?.suggestion ? ` ${playlistData.suggestion}` : "";
+        
+        // PROMPT 9: Handle standardized NO_SESSION error
+        if (playlistData?.code === 'NO_SESSION' || playlistRes.status === 401) {
+          setError("Please sign in with Spotify to generate playlists. Click the 'Connect with Spotify' button above.");
+        } else if (playlistData?.needsAuth) {
+          setError("Please sign in with Spotify to generate playlists. Click the 'Connect with Spotify' button above.");
+        } else {
+          setError(baseMsg + sug);
+        }
+        
+        setTracks(playlistData?.tracks || []);
+        resetProgress();
+        return;
+      }
 
-      bumpPhase("🎛️ Afinando por género/ritmo…", 70);
+      bumpPhase(t('progress.applyingFilters'), 70);
       await new Promise((r) => setTimeout(r, 300));
 
-      setTracks(recs.tracks || []);
+      setTracks(playlistData?.tracks || []);
       finishProgress();
-      setStatusText(`✔️ Lista generada (${recs.got}/${plan.plan.count})`);
-      if (!playlistName.trim()) setPlaylistName(safeDefaultName(prompt));
+      setStatusText(`${t('progress.completed')} (${(playlistData?.count ?? (playlistData?.tracks?.length || 0))}/${intent.target_tracks})`);
+      
+      // Redirect to Spotify playlist if created
+      if (playlistData?.spotify_playlist_url) {
+        console.log(`[FRONTEND] Redirecting to Spotify playlist: ${playlistData.spotify_playlist_url}`);
+        setSpotifyPlaylistUrl(playlistData.spotify_playlist_url);
+        // Open Spotify playlist in new tab
+        window.open(playlistData.spotify_playlist_url, '_blank');
+        // Also show a success message
+        setStatusText(`${t('progress.completed')} - Redirecting to Spotify...`);
+      }
+      
     } catch (e) {
       console.error(e);
-      resetProgress();
-      alert(
-        "⚠️ Error al generar. Prueba otra vez (haz el prompt más concreto o reduce el nº de canciones)."
-      );
+      setError(e?.message || t('errors.failedToGenerate'));
     } finally {
       setLoading(false);
+      resetProgress(); // Asegurar que el progress se resetee siempre
     }
   }
 
-  // ---------------------- Crear en Spotify ----------------------
+  // Create playlist in Spotify
   async function handleCreate() {
     if (!tracks.length) return;
-    if (!session?.accessToken) {
+    if (!session?.user) {
       await signIn("spotify", { callbackUrl: "/" });
       return;
     }
 
-    setCreating(true);
     try {
-      const nameWithBrand =
-        (playlistName || safeDefaultName(prompt)) + " — by JeyLabbb";
+      setIsCreating(true);
+      setIsCreated(false);
+      setCreateError(null);
+      
+      const baseName = playlistName.trim() || safeDefaultName(prompt);
+      const nameWithBrand = baseName.endsWith(" · by JeyLabbb") ? baseName : baseName + " · by JeyLabbb";
+      
+      console.log(`[UI] playlistName base=${baseName} finalSent=${nameWithBrand}`);
 
-      const res = await fetch("/api/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: nameWithBrand,
-          description: `Generada con IA (demo) — by JeyLabbb · ${prompt}`,
-          public: !!isPublic,
-          // Mandamos ambos por compatibilidad con tu endpoint
-          tracks: tracks.map((t) => t.uri).filter(Boolean),
-          uris: tracks.map((t) => t.uri).filter(Boolean),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "create-failed");
+      // Normalizador robusto de URIs
+      const ID22 = /^[0-9A-Za-z]{22}$/;
+      const toUri = (t) => {
+        if (!t) return null;
+        if (typeof t.uri === 'string' && t.uri.startsWith('spotify:track:')) return t.uri;
+        if (ID22.test(t?.id || '')) return `spotify:track:${t.id}`;
+        const url = (t?.external_urls?.spotify || t?.external_url || '');
+        if (typeof url === 'string' && url.includes('/track/')) {
+          const id = url.split('/track/')[1]?.split('?')[0];
+          return ID22.test(id || '') ? `spotify:track:${id}` : null;
+        }
+        return null;
+      };
 
-      // Abre Spotify con la playlist creada (try app, then web)
-      const webUrl =
-        data.webUrl ||
-        data.url ||
-        data.open_url ||
-        data.external_url ||
-        (data.playlistId
-          ? `https://open.spotify.com/playlist/${data.playlistId}`
-          : "");
-      const appUrl = data.appUrl || (data.playlistId ? `spotify://playlist/${data.playlistId}` : "");
-
-      if (appUrl) {
-        // Primero intentamos app (móvil/desktop)
-        window.open(appUrl, "_blank");
-        // Y también la web como fallback para escritorio
-        if (webUrl) window.open(webUrl, "_blank");
-      } else if (webUrl) {
-        window.open(webUrl, "_blank");
+      const uris = (tracks || []).map(toUri).filter(Boolean).slice(0, 200);
+      console.log('[CLIENT] uris_count=', uris.length);
+      
+      if (uris.length === 0) {
+        throw new Error('No hay URIs válidas para enviar a Spotify');
       }
-
-      alert("✅ Playlist creada en tu Spotify");
+      
+      console.log('[UI] Enviando URIs:', uris.length, 'tracks');
+      
+      const payload = {
+        name: nameWithBrand,
+        description: `AI Generated Playlist · ${prompt}`.slice(0,300),
+        public: true,
+        uris
+      };
+      
+      console.log('[CLIENT] create: uris_count=', Array.isArray(tracks) ? tracks.filter(t=>t?.uri || t?.id).length : 0);
+      
+      const res = await fetch('/api/spotify/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      const data = await res.json();
+      console.log('[CLIENT] create: res.ok=', res.ok, 'payload_ok=', !!data?.ok);
+      
+      // PROMPT 9: Handle standardized NO_SESSION error
+      if (res.status === 401 || data?.code === 'NO_SESSION') {
+        throw new Error("Please sign in with Spotify to create playlists. Click the 'Connect with Spotify' button above.");
+      }
+      
+      if (!res.ok || !data?.ok) throw new Error(data?.error || data?.message || 'Failed to create playlist');
+      
+      // FIXPACK: SOLO ahora marcamos creada y mostramos 'Open in Spotify'
+      setSpotifyUrl(data?.url || `https://open.spotify.com/playlist/${data?.playlistId}`);
+      setIsCreated(true);
+      setPlaylistName(''); // Keep input empty after creation
+      
+      // Abrir Spotify automáticamente
+      if (data?.url) {
+        window.open(data.url, "_blank");
+      }
+      
+      const addedText = data.trackCount ? ` (${data.trackCount} tracks added)` : '';
+      setStatusText(`Playlist creada 🎉 Abriendo Spotify...${addedText}`);
+      
+      // Dispatch event for FeedbackGate
+      window.dispatchEvent(new CustomEvent('playlist:created', { detail: { id: data.playlistId, url: data.playlistUrl } }));
+      
     } catch (e) {
-      console.error(e);
-      alert("⚠️ No se pudo crear en tu Spotify. Inicia sesión de nuevo y reintenta.");
+      console.error('[UI-CREATE] error:', e);
+      setCreateError(e?.message || 'Error al crear playlist');
+      alert(e?.message || 'Error al crear playlist');
     } finally {
-      setCreating(false);
+      setIsCreating(false);
     }
   }
 
+  // Handle refine playlist
+  const handleRefine = async () => {
+    if (!tracks.length) return;
+    
+    setRefining(true);
+    try {
+      // TODO: Implement refine API call
+      console.log('Refining playlist...');
+      // For now, just show a message
+      alert('Refine functionality coming soon!');
+    } catch (error) {
+      console.error('Refine error:', error);
+      alert('Failed to refine playlist');
+    } finally {
+      setRefining(false);
+    }
+  };
+
+  // Handle add more tracks (+5)
+  const handleAddMore = async () => {
+    if (!tracks.length || tracks.length >= 200) return;
+    
+    setAddingMore(true);
+    try {
+      // TODO: Implement add more API call
+      console.log('Adding more tracks...');
+      // For now, just show a message
+      alert('Add more tracks functionality coming soon!');
+    } catch (error) {
+      console.error('Add more error:', error);
+      alert('Failed to add more tracks');
+    } finally {
+      setAddingMore(false);
+    }
+  };
+
+  // Handle remove track
+  const handleRemoveTrack = async (trackId) => {
+    if (!tracks.length) return;
+    
+    setRemoving(true);
+    try {
+      // TODO: Implement remove track API call
+      console.log('Removing track:', trackId);
+      // For now, just remove from local state
+      setTracks(prev => prev.filter(track => track.id !== trackId));
+    } catch (error) {
+      console.error('Remove track error:', error);
+      alert('Failed to remove track');
+    } finally {
+      setRemoving(false);
+    }
+  };
+
   return (
-    <div style={{ maxWidth: 860, margin: "40px auto", padding: "0 16px" }}>
-      {/* Header simple con sesión */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ fontSize: 14, opacity: 0.8 }}>
-          {status === "loading"
-            ? "Comprobando sesión…"
-            : session?.user
-            ? `Sesión iniciada`
-            : "No has iniciado sesión"}
+    <div className="min-h-screen bg-black-base">
+      {/* Header */}
+      <header className="border-b border-gray-dark">
+        <div className="max-w-6xl mx-auto px-6 py-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <div className="text-sm font-bold text-white mb-1">
+                <Link href="/" className="hover:text-cyan-accent transition-colors">JeyLabbb</Link>
+              </div>
+              <h1 className="text-3xl font-bold text-white mb-2">
+                <span className="cyan-accent">AI</span> Playlist Generator
+              </h1>
+              <p className="text-gray-text-secondary">
+                {t('hero.subtitle')}
+              </p>
+            </div>
+            <div className="flex items-center gap-4">
+              <LanguageSwitcher />
+              {session?.user ? (
+                <button
+                  onClick={() => signOut({ callbackUrl: "/" })}
+                  className="spotify-button-secondary"
+                >
+                  {t('auth.signOut')}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowRequestAccessModal(true)}
+                  className="spotify-button"
+                >
+                  {t('auth.connectSpotify')}
+                </button>
+              )}
+            </div>
+          </div>
+          
+          <div className="mt-4 text-sm text-gray-text-secondary">
+            {status === "loading" ? t('auth.checkingSession') : 
+             session?.user ? `${t('auth.connectedAs')} ${session.user.name || session.user.email}` : 
+             t('auth.notConnected')}
+          </div>
         </div>
-        <div>
-          {session?.user ? (
-            <button
-              onClick={() => signOut({ callbackUrl: "/" })}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: "1px solid #111",
-                background: "#fff",
-                cursor: "pointer",
-                fontWeight: 600,
-              }}
-            >
-              Cerrar sesión
-            </button>
-          ) : (
-            <button
-              onClick={() => signIn("spotify", { callbackUrl: "/" })}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: "1px solid #111",
-                background: "#111",
-                color: "#fff",
-                cursor: "pointer",
-                fontWeight: 600,
-              }}
-            >
-              Iniciar sesión con Spotify
-            </button>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-4xl mx-auto px-6 py-12">
+        <div className="space-y-8">
+          
+          {/* Prompt Card */}
+          <div className="spotify-card">
+            <h2 className="text-2xl font-semibold text-white mb-6">
+              {t('prompt.title')}
+            </h2>
+            
+            <textarea
+              rows={4}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder={t('prompt.placeholder')}
+              className="spotify-textarea mb-6"
+            />
+            
+            {/* Example prompts */}
+            <div className="mb-6">
+              <p className="text-sm text-gray-text-secondary mb-3">
+                {t('prompt.examples')}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {examplePrompts.map((example, i) => (
+                  <span
+                    key={i}
+                    className="spotify-chip"
+                    onClick={() => setPrompt(example)}
+                  >
+                    {example}
+                  </span>
+                ))}
+              </div>
+            </div>
+            
+            <div className="flex gap-4 items-center flex-wrap">
+              <div className="flex items-center gap-3">
+                <label className="text-sm text-white font-medium">
+                  {t('prompt.tracksLabel')}
+                </label>
+              <input
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={count}
+                  onChange={(e) => setCount(Number(e.target.value))}
+                  className="spotify-input w-20"
+                />
+              </div>
+              
+              <PromptTips />
+              
+              <button
+                onClick={handleGenerate}
+                disabled={loading || !prompt.trim()}
+                className="spotify-button min-w-[160px]"
+              >
+                {loading ? t('prompt.generating') : t('prompt.generateButton')}
+              </button>
+            </div>
+          </div>
+
+          {/* Progress Card */}
+          {(loading || progress > 0 || error) && (
+            <div className="spotify-card">
+              <h3 className="text-xl font-semibold text-white mb-4">
+                {error ? t('progress.errorTitle') : (progress === 100 ? 'Generado exitosamente' : t('progress.title'))}
+              </h3>
+              
+              {error && (
+                <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4 mb-4 text-red-400">
+                  {error}
+                </div>
+              )}
+              
+              {!error && (
+                <>
+                  <div className="spotify-progress mb-3">
+                    <div 
+                      className="spotify-progress-bar" 
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                  <LoadingStatus 
+                    message={statusText} 
+                    show={loading || (progress > 0 && progress < 100)} 
+                  />
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Playlist Creation Card */}
+          {tracks.length > 0 && (
+            <div className="spotify-card">
+              <h3 className="text-xl font-semibold text-white mb-6">
+                {t('playlist.createTitle')} ({tracks.length} tracks)
+              </h3>
+              
+              <div className="flex gap-4 items-center flex-wrap mb-6">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-sm text-white mb-2">
+                    {t('playlist.nameLabel')}
+                  </label>
+                  <input
+                    type="text"
+                    value={playlistName}
+                    onChange={(e) => setPlaylistName(e.target.value)}
+                    placeholder={safeDefaultName(prompt)}
+                    className="spotify-input"
+                  />
+                </div>
+                
+                
+                {!isCreated ? (
+                  <button
+                    onClick={handleCreate}
+                    disabled={isCreating}
+                    className="spotify-button min-w-[180px]"
+                  >
+                    {isCreating ? t('playlist.creating') : t('playlist.createButton')}
+                  </button>
+                ) : (
+                  <button
+                    disabled={true}
+                    className="spotify-button min-w-[180px]"
+                  >
+                    Playlist creada exitosamente
+                  </button>
+                )}
+                
+                {spotifyUrl && (
+                  <button
+                    onClick={() => window.open(spotifyUrl, '_blank')}
+                    className="spotify-button-secondary min-w-[200px]"
+                  >
+                    🎵 Open in Spotify
+                  </button>
+                )}
+              </div>
+
+              {/* Control Buttons */}
+              <div className="flex gap-3 items-center flex-wrap">
+                <button
+                  onClick={handleRefine}
+                  disabled={refining}
+                  className="spotify-button-secondary min-w-[120px]"
+                >
+                  {refining ? 'Refining...' : '🎛️ Refine'}
+                </button>
+                
+                <button
+                  onClick={handleAddMore}
+                  disabled={addingMore || tracks.length >= 200}
+                  className="spotify-button-secondary min-w-[100px]"
+                >
+                  {addingMore ? 'Adding...' : '+5 Tracks'}
+                </button>
+                
+                <div className="text-sm text-gray-text-secondary">
+                  {tracks.length}/200 tracks
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Results Card */}
+          {tracks.length > 0 && (
+            <div className="spotify-card">
+              <h3 className="text-xl font-semibold text-white mb-6">
+                {t('playlist.tracksTitle')}
+              </h3>
+              
+              <div className="max-h-96 overflow-y-auto">
+                {tracks.map((track, i) => (
+                  <div key={`${track.id}-${i}`} className="spotify-track-item">
+                    <div className="spotify-track-info">
+                      <div className="spotify-track-name">
+                        {track.title || track.name || 'Unknown Track'}
+                      </div>
+                      <div className="spotify-track-artist">
+                        {track.artistNames || '—'}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <a
+                        href={track.open_url || (track.id ? `https://open.spotify.com/track/${track.id}` : "#")}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="spotify-link"
+                      >
+                        Open
+                      </a>
+                      <button
+                        onClick={() => handleRemoveTrack(track.id)}
+                        disabled={removing}
+                        className="text-red-400 hover:text-red-300 text-sm px-2 py-1 rounded transition-colors"
+                        title="Remove track"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!loading && tracks.length === 0 && !error && (
+            <div className="spotify-card text-center py-16">
+              <div className="w-16 h-16 bg-gradient-to-br from-spotify-green to-accent-cyan rounded-2xl mx-auto mb-6 flex items-center justify-center">
+                <div className="w-8 h-8 bg-white rounded-lg"></div>
+              </div>
+              <h3 className="text-xl font-semibold text-white mb-3">
+                {t('empty.title')}
+              </h3>
+              <p className="text-gray-text-secondary max-w-md mx-auto">
+                {t('empty.description')}
+              </p>
+            </div>
           )}
         </div>
-      </div>
+      </main>
 
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>
-        Playlist AI — MVP
-      </h1>
-      <p style={{ opacity: 0.8, marginBottom: 16 }}>
-        Escribe un prompt (ej.: “hardstyle nightcore 80 canciones”, “festival
-        2025”, “para entrenar sin voces, 120-140 bpm”).
-      </p>
+      {/* Epic Section */}
+      <EpicSection />
 
-      <div
-        style={{
-          display: "grid",
-          gap: 12,
-          gridTemplateColumns: "1fr",
-          marginBottom: 12,
-        }}
-      >
-        <textarea
-          rows={3}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Tu prompt aquí…"
-          style={{
-            width: "100%",
-            padding: 12,
-            borderRadius: 8,
-            border: "1px solid #ddd",
-            fontSize: 14,
-          }}
-        />
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <label style={{ fontSize: 14 }}>Nº canciones (1–200):</label>
-          <input
-            type="number"
-            min={1}
-            max={200}
-            value={count}
-            onChange={(e) => setCount(e.target.value)}
-            style={{
-              width: 100,
-              padding: 8,
-              borderRadius: 8,
-              border: "1px solid #ddd",
-              fontSize: 14,
-            }}
-          />
-          <button
-            onClick={handleGenerate}
-            disabled={loading}
-            style={{
-              padding: "10px 14px",
-              borderRadius: 10,
-              border: "1px solid #111",
-              background: loading ? "#f5f5f5" : "#111",
-              color: loading ? "#111" : "#fff",
-              cursor: loading ? "not-allowed" : "pointer",
-              fontWeight: 600,
-            }}
-          >
-            {loading ? "Generando…" : "Generar lista"}
-          </button>
-        </div>
-
-        {/* Barra de progreso */}
-        {loading || progress > 0 ? (
-          <div style={{ marginTop: 4 }}>
-            <div
-              style={{
-                height: 8,
-                background: "#eee",
-                borderRadius: 6,
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  height: "100%",
-                  width: `${progress}%`,
-                  transition: "width .25s linear",
-                  background: "#22c55e",
-                }}
-              />
+      {/* Footer */}
+      <footer className="border-t border-gray-dark py-8">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="text-sm text-gray-text-secondary">
+              © JeyLabbb {new Date().getFullYear()}
             </div>
-            <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
-              {statusText}
+            <div className="flex items-center gap-6">
+              <a 
+                href="https://www.instagram.com/jeylabbb/" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-sm text-gray-text-secondary hover:text-cyan-accent transition-colors"
+              >
+                Instagram
+              </a>
+              <a 
+                href="https://www.tiktok.com/@jeylabbb" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-sm text-gray-text-secondary hover:text-cyan-accent transition-colors"
+              >
+                TikTok
+              </a>
+              <a 
+                href="https://jeylabbb.com" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-sm text-gray-text-secondary hover:text-cyan-accent transition-colors"
+              >
+                Ver otros proyectos
+              </a>
             </div>
           </div>
-        ) : null}
-      </div>
-
-      {/* Opciones de creación */}
-      <div
-        style={{
-          border: "1px solid #eee",
-          borderRadius: 10,
-          padding: 12,
-          marginTop: 12,
-        }}
-      >
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <label style={{ minWidth: 140, fontSize: 14 }}>
-            Nombre de playlist:
-          </label>
-          <input
-            type="text"
-            value={playlistName}
-            onChange={(e) => setPlaylistName(e.target.value)}
-            placeholder="(Usará tu prompt si lo dejas vacío)"
-            style={{
-              flex: 1,
-              padding: 8,
-              borderRadius: 8,
-              border: "1px solid #ddd",
-              fontSize: 14,
-            }}
-          />
-          <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input
-              type="checkbox"
-              checked={isPublic}
-              onChange={(e) => setIsPublic(e.target.checked)}
-            />
-            Pública
-          </label>
-          <button
-            onClick={handleCreate}
-            disabled={!tracks.length || creating}
-            style={{
-              padding: "10px 14px",
-              borderRadius: 10,
-              border: "1px solid #111",
-              background: !tracks.length || creating ? "#f5f5f5" : "#111",
-              color: !tracks.length || creating ? "#111" : "#fff",
-              cursor: !tracks.length || creating ? "not-allowed" : "pointer",
-              fontWeight: 600,
-            }}
-          >
-            {creating ? "Creando…" : "Crear en mi Spotify"}
-          </button>
         </div>
-      </div>
+      </footer>
 
-      {/* Resultados */}
-      <div style={{ marginTop: 18 }}>
-        {tracks.length ? (
-          <div>
-            <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
-              {tracks.length} canciones generadas
-            </h3>
-            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-              {tracks.map((t, i) => (
-                <li
-                  key={t.id || i}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "8px 0",
-                    borderBottom: "1px solid #f0f0f0",
-                  }}
-                >
-                  <div style={{ fontSize: 14 }}>
-                    <strong>{t.name}</strong>{" "}
-                    <span style={{ opacity: 0.8 }}>
-                      — {(t.artists || []).join(", ")}
-                    </span>
-                  </div>
-                  <a
-                    href={t.open_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ fontSize: 12 }}
-                  >
-                    Abrir
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : (
-          <p style={{ opacity: 0.7 }}>
-            No hay resultados todavía. Genera una playlist para ver las
-            canciones aquí.
-          </p>
-        )}
-      </div>
+      {/* Feedback Modal */}
+      <FeedbackModal
+        open={showFeedbackModal}
+        onClose={handleFeedbackClose}
+        onSubmitted={handleFeedbackSubmitted}
+        defaultValues={feedbackData}
+      />
+
+      {/* Feedback Gate */}
+      <FeedbackGate currentPrompt={prompt} />
+      
+      {/* Request Access Modal */}
+      <RequestAccessModal
+        open={showRequestAccessModal}
+        onClose={() => setShowRequestAccessModal(false)}
+      />
     </div>
   );
 }

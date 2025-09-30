@@ -89,7 +89,7 @@ async function fillWithRecommendations({ have, need, accessToken, seeds }) {
   return recs.filter((t) => !haveIds.has(t.id));
 }
 
-export default async function handler(req) {
+async function handler(req) {
   try {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
     if (!token?.accessToken) {

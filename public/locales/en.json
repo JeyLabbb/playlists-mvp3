@@ -1,0 +1,153 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close"
+  },
+  "auth": {
+    "connectSpotify": "Connect Spotify",
+    "signOut": "Sign Out",
+    "connectedAs": "Connected as",
+    "notConnected": "Not connected to Spotify",
+    "checkingSession": "Checking session...",
+    "redirectUriHelp": "Register this exact URI in Spotify Dashboard → Redirect URIs:",
+    "copyUri": "Copy URI"
+  },
+  "hero": {
+    "title": "AI Playlist Generator",
+    "subtitle": "Create perfect playlists with AI. Describe what you want and we'll make it happen.",
+    "description": "Generate personalized playlists using artificial intelligence. From festivals to specific genres, get exactly the music you need."
+  },
+  "prompt": {
+    "title": "What kind of playlist do you want?",
+    "placeholder": "Describe your perfect playlist... e.g., 'festival warm-up for Primavera Sound 2024', 'reggaeton like Bad Bunny but without Bad Bunny', 'girl groups k-pop 2024'",
+    "tracksLabel": "Tracks:",
+    "generateButton": "Generate Playlist",
+    "generating": "Generating...",
+    "examples": "Try these examples:",
+    "example1": "festival warm-up for Primavera Sound 2024",
+    "example2": "reggaeton like Bad Bunny but without Bad Bunny",
+    "example3": "girl groups k-pop 2024",
+    "example4": "hardstyle nightcore 80 tracks",
+    "example5": "for training without vocals, 120-140 bpm",
+    "tipsButton": "Tips"
+  },
+  "progress": {
+    "title": "Generating...",
+    "errorTitle": "Generation Status",
+    "parsingIntent": "Parsing your intent...",
+    "searchingFestival": "Searching festival playlists...",
+    "findingTracks": "Finding tracks and artists...",
+    "applyingFilters": "Applying filters and optimization...",
+    "completed": "Playlist generated"
+  },
+  "playlist": {
+    "createTitle": "Create Playlist",
+    "nameLabel": "Playlist Name:",
+    "namePlaceholder": "(Will use your prompt if empty)",
+    "publicLabel": "Public",
+    "createButton": "Create in Spotify",
+    "creating": "Creating...",
+    "created": "Playlist created in your Spotify!",
+    "tracksTitle": "Generated Tracks"
+  },
+  "errors": {
+    "enterPrompt": "Please enter a prompt",
+    "failedToGenerate": "Failed to generate playlist. Try again with a more specific prompt or fewer tracks.",
+    "failedToCreate": "Could not create playlist in Spotify. Please sign in again and try again.",
+    "notEnoughPlaylists": "Not enough playlists found for",
+    "needAtLeast2": "At least 2 festival playlists are required.",
+    "suggestion": "Try a different year or check the festival name spelling.",
+    "insufficientMaterial": "Only found",
+    "tracksNeed": "tracks, need",
+    "shortfallTooLarge": "Shortfall is too large.",
+    "tryDifferentYear": "Try a different year, reduce the number of tracks, or check the festival name."
+  },
+  "empty": {
+    "title": "Ready to create your playlist?",
+    "description": "Enter a prompt above to get started. The AI will understand your intent and create the perfect playlist for you."
+  },
+  "epic": {
+    "title": "The new era of playlists",
+    "subtitle": "Powered by advanced artificial intelligence",
+    "description": "Experience the most precise and personalized playlist generation ever created.",
+    "feature1": "Instant speed",
+    "feature1Desc": "Generate complete playlists in seconds",
+    "feature2": "Perfect precision",
+    "feature2Desc": "Understands exactly what you want",
+    "feature3": "Total control",
+    "feature3Desc": "Quality rules and advanced filters",
+    "cta": "Start now"
+  },
+  "footer": {
+    "madeWith": "Made with",
+    "by": "by"
+  },
+  "tips": {
+    "title": "How to write a great prompt",
+    "subtitle": "Tips for getting the perfect playlist",
+    "closeButton": "Close",
+    "intro": "Be specific and combine elements for better results. The AI understands context, language, era, and activity.",
+    "proTip": {
+      "title": "💡 Pro tip",
+      "description": "Combine multiple elements: activity + genre + language + era + artists. Example: 'reggaeton for running, 160 BPM, Spanish only, like Bad Bunny but without Bad Bunny'"
+    },
+    "includeArtists": {
+      "title": "🎵 Include reference artists",
+      "description": "Mention 1-2 artists you like so the AI better understands your musical style.",
+      "example": "reggaeton like Bad Bunny and J Balvin"
+    },
+    "specifyLanguage": {
+      "title": "🌍 Specify the language",
+      "description": "If you want music in a specific language, mention it clearly. Also works with 'Spanish only' or 'English only'.",
+      "example": "Spanish pop from the 2000s"
+    },
+    "runningBPM": {
+      "title": "🏃 For running: specify BPM",
+      "description": "Specify the tempo you need for your workout. 120-140 BPM for walking, 150-180 BPM for running.",
+      "example": "music for running at 165 BPM"
+    },
+    "studyInstrumental": {
+      "title": "📚 For studying: ask for instrumental",
+      "description": "If you need concentration, ask for music without vocals. You can also ask for 'lofi' or 'ambient'.",
+      "example": "music for studying, instrumental, no vocals"
+    },
+    "festivalFormat": {
+      "title": "🎪 Festivals: name + year",
+      "description": "For festivals, include the exact name and year. The AI will search for official playlists from that festival.",
+      "example": "warm-up for Primavera Sound 2024"
+    },
+    "excludeArtists": {
+      "title": "❌ Exclude specific artists",
+      "description": "Use 'without' to exclude artists you don't want. Also works with 'except' or 'no'.",
+      "example": "reggaeton like Bad Bunny but without Bad Bunny"
+    },
+    "specificEra": {
+      "title": "⏰ Specify eras",
+      "description": "Mention specific decades or years for music from that era. '80s', '90s', '2000s', '2010s', '2020s'.",
+      "example": "80s pop, 90s rock"
+    },
+    "activityContext": {
+      "title": "🎯 Activity context",
+      "description": "Mention what you'll use the playlist for. The AI will adjust tempo and energy according to the activity.",
+      "example": "music for studying, for running, for a party, for cooking"
+    },
+    "genreCombinations": {
+      "title": "🎨 Combine genres",
+      "description": "You can mix genres for unique results. You can also ask for 'indie' or 'alternative'.",
+      "example": "indie pop with electronic touches"
+    },
+    "moodDescriptors": {
+      "title": "😊 Describe the mood",
+      "description": "Use words that describe the mood you're looking for. 'melancholic', 'epic', 'relaxed', 'energetic', 'nostalgic'.",
+      "example": "melancholic music, epic, relaxed, energetic"
+    }
+  }
+}
+
+

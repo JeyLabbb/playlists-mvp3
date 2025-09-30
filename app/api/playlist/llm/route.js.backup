@@ -1,0 +1,3186 @@
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../../../../lib/auth/config";
+import { storeLastRun } from "../../../../lib/debug/utils";
+// FIXPACK: Importar cliente Spotify unificado y mappers
+import { createSpotifyClient } from "../../../../lib/spotify/client";
+import { mapLLMTrackToUTrack, mapSpotifyTrackToUTrack, cleanTracks } from "../../../../lib/tracks/mapper";
+import { extractFestivalInfo, calculateStringSimilarity } from "../../../../lib/intent/festival";
+import { detectMusicalScene, cleanSpotifyHint } from "../../../../lib/music/scenes";
+import { cleanHint } from "../../../../lib/music/hint";
+import { addAudioFeatures } from "../../../../lib/spotify/audio";
+import { resolveIdsForLLMTracks } from "../../../../lib/spotify/resolve";
+
+// Demo playlist generation function
+async function generateDemoPlaylist(intent, targetSize, startTime) {
+  try {
+    const mockTracks = [];
+    const artists = intent.artists_llm || ['Miles Davis', 'John Coltrane', 'Bill Evans', 'Thelonious Monk', 'Duke Ellington'];
+    
+    // Generate mock tracks based on LLM intent
+    for (let i = 0; i < Math.min(intent.tracks_llm?.length || 0, targetSize); i++) {
+      const track = intent.tracks_llm[i] || {
+        title: `Track ${i + 1}`,
+        artist: artists[i % artists.length]
+      };
+      
+      mockTracks.push({
+        id: `demo_${i}_${Date.now()}`,
+        name: track.title,
+        artists: [track.artist],
+        popularity: Math.floor(Math.random() * 100),
+        album: `${track.artist} Album`,
+        external_urls: { spotify: 'https://open.spotify.com/track/demo' },
+        preview_url: null,
+        uri: `spotify:track:demo_${i}`
+      });
+    }
+
+    // Fill remaining slots with mock tracks
+    while (mockTracks.length < targetSize) {
+      const i = mockTracks.length;
+      const artist = artists[i % artists.length];
+      mockTracks.push({
+        id: `demo_${i}_${Date.now()}`,
+        name: `${artist} - Demo Track ${i + 1}`,
+        artists: [artist],
+        popularity: Math.floor(Math.random() * 100),
+        album: `${artist} Demo Album`,
+        external_urls: { spotify: 'https://open.spotify.com/track/demo' },
+        preview_url: null,
+        uri: `spotify:track:demo_${i}`
+      });
+    }
+
+    // Store run data for debugging
+    const runData = {
+      runId: `demo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      prompt: "demo",
+      targetTracks: targetSize,
+      modo: intent.modo,
+      llmShare: intent.llmShare,
+      llmTracksCount: intent.tracks_llm?.length || 0,
+      spotifyTracksCount: 0,
+      finalTracksCount: mockTracks.length,
+      note: "Demo mode - no Spotify authentication required",
+      duration: Date.now() - startTime,
+      success: true,
+      timestamp: new Date().toISOString()
+    };
+    
+    storeLastRun(runData);
+
+    return NextResponse.json({
+      tracks: mockTracks,
+      metadata: {
+        run_id: runData.runId,
+        intent: intent,
+        llm_tracks: intent.tracks_llm?.length || 0,
+        spotify_tracks: 0,
+        collection_log: {
+          collected: mockTracks.length,
+          final: mockTracks.length
+        },
+        relaxation_steps: [],
+        artist_distribution: mockTracks.reduce((acc, track) => {
+          const artist = track.artists[0];
+          acc[artist] = (acc[artist] || 0) + 1;
+          return acc;
+        }, {}),
+        note: "Demo mode - no Spotify authentication required"
+      }
+    });
+
+  } catch (error) {
+    console.error('[DEMO] Error:', error);
+    return NextResponse.json({ 
+      error: 'Demo generation failed', 
+      details: error.message 
+    }, { status: 500 });
+  }
+}
+
+export async function POST(req) {
+  const startTime = Date.now();
+  try {
+    const { prompt, target_tracks, playlist_name } = await req.json();
+    
+    if (!prompt || typeof prompt !== 'string') {
+      return NextResponse.json(
+        { error: "Prompt is required and must be a string" },
+        { status: 422 }
+      );
+    }
+
+    const targetSize = Math.max(1, Math.min(200, Number(target_tracks) || 50));
+
+    // Step 1: Get intent from LLM
+    console.log(`[LLM-PLAYLIST] Getting intent for: "${prompt}"`);
+    const intentResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/intent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, target_tracks: targetSize })
+    });
+
+    if (!intentResponse.ok) {
+      const errorData = await intentResponse.json().catch(() => ({}));
+      if (intentResponse.status === 429) {
+        return NextResponse.json(
+          { 
+            error: "OpenAI daily rate limit reached",
+            details: "Add a payment method at https://platform.openai.com/account/billing to increase limits",
+            retry_after: "7 hours"
+          },
+          { status: 429 }
+        );
+      }
+      throw new Error(`Failed to get intent from LLM: ${errorData.error || 'Unknown error'}`);
+    }
+
+    const intent = await intentResponse.json();
+    console.log(`[LLM-PLAYLIST] Got intent with ${intent.tracks_llm?.length || 0} tracks`);
+    console.log(`[LLM-PLAYLIST] Intent llmShare: ${intent.llmShare}, source: ${intent.source}`);
+
+    // CONTEXTUAL ANALYSIS - ONLY for NORMAL mode, skip for festivals
+    if (intent.modo === 'normal') {
+      const promptLower = (intent.spotifyHint || '').toLowerCase();
+      let detectedScenes = [];
+      
+      console.log(`[DEBUG] NORMAL MODE - spotifyHint: "${intent.spotifyHint}"`);
+      console.log(`[DEBUG] NORMAL MODE - promptLower: "${promptLower}"`);
+      
+      // Analyze prompt to detect musical scenes (NO selection, just context)
+      if (promptLower.includes('underground') || promptLower.includes('indie') || promptLower.includes('alternativo')) {
+        detectedScenes.push('underground_es');
+      }
+      if (promptLower.includes('trap')) {
+        detectedScenes.push('trap_es', 'trap_intl');
+      }
+      if (promptLower.includes('drill')) {
+        detectedScenes.push('drill_es', 'drill_intl');
+      }
+      if (promptLower.includes('reggaeton') || promptLower.includes('urbano')) {
+        detectedScenes.push('reggaeton_es', 'reggaeton_intl');
+      }
+      if (promptLower.includes('r&b') || promptLower.includes('r&b') || promptLower.includes('soul')) {
+        detectedScenes.push('r&b_es', 'r&b_intl');
+      }
+      if (promptLower.includes('pop') && (promptLower.includes('urbano') || promptLower.includes('moderno'))) {
+        detectedScenes.push('pop_urbano_es', 'pop_urbano_intl');
+      }
+      if (promptLower.includes('lofi') || promptLower.includes('chill') || promptLower.includes('ambient')) {
+        detectedScenes.push('lofi_ambient');
+      }
+      if (promptLower.includes('afrobeat') || promptLower.includes('afro')) {
+        detectedScenes.push('afrobeat_latino');
+      }
+      if (promptLower.includes('latino') || promptLower.includes('latin')) {
+        detectedScenes.push('latino_crossover');
+      }
+      if (promptLower.includes('español') || promptLower.includes('spanish')) {
+        detectedScenes.push('underground_es', 'reggaeton_es', 'pop_urbano_es');
+      }
+      
+      // Log detected scenes for GPT context (NO artist selection)
+      console.log(`[CONTEXTUAL-SCENES] NORMAL MODE: Detected musical scenes: ${detectedScenes.join(', ')}`);
+      console.log(`[CONTEXTUAL-SCENES] NORMAL MODE: GPT now knows the musical context to think within`);
+    } else {
+      console.log(`[CONTEXTUAL-SCENES] ${intent.modo.toUpperCase()} MODE: Skipping contextual analysis, using only Spotify`);
+    }
+    
+    // SPOTIFY STRATEGY: Focus on GPT's selections + newer music
+    console.log(`[SPOTIFY-STRATEGY] Will use GPT's tracks/artists as seeds for newer music`);
+    console.log(`[SPOTIFY-STRATEGY] GPT tracks: ${intent.tracks_llm?.length || 0}, GPT artists: ${intent.artists_llm?.length || 0}`);
+
+    // Step 2: Check Spotify authentication - PROMPT 9: Single source of truth
+    const session = await getServerSession(authOptions);
+    const hasValidSession = !!session?.accessToken;
+    
+    console.log(`[FLOW] session_server=${hasValidSession}`);
+    console.log(`[LLM-PLAYLIST] Session check:`, {
+      hasSession: hasValidSession,
+      hasAccessToken: !!session?.accessToken,
+      userId: session?.user?.id,
+      userEmail: session?.user?.email
+    });
+    
+    if (!hasValidSession) {
+      console.log(`[LLM-PLAYLIST] No Spotify session found, returning 401`);
+      return NextResponse.json({ 
+        ok: false, 
+        code: 'NO_SESSION',
+        message: 'No Spotify session found. Please log in to Spotify.' 
+      }, { status: 401 });
+    }
+    
+    console.log(`[LLM-PLAYLIST] Spotify session found for user: ${session.user?.name}`);
+    
+    // Step 3: Use LLM tracks as the primary source
+    const llmTracks = intent.tracks_llm || [];
+    const llmArtists = intent.artists_llm || [];
+    
+    // Step 4: Convert LLM tracks to our format (only if llmShare > 0)
+    let llmShare = intent.llmShare || 0.7;
+    const tracks = llmShare > 0 ? llmTracks.map((track, index) => ({
+      id: `llm-${index}`,
+      name: track.title,
+      artists: [track.artist],
+      artist_ids: [`llm-artist-${index}`],
+      uri: `spotify:track:llm-${index}`,
+      popularity: 80, // High popularity for LLM suggestions
+      open_url: `https://open.spotify.com/track/llm-${index}`,
+      audio_features: intent.targetFeatures ? {
+        tempo: intent.targetFeatures.tempo || 90,
+        energy: intent.targetFeatures.energy || 0.7,
+        valence: intent.targetFeatures.valence || 0.6,
+        acousticness: intent.targetFeatures.acousticness || 0.2,
+        danceability: intent.targetFeatures.danceability || 0.8,
+        instrumentalness: 0.0
+      } : null
+    })) : [];
+
+    // PR-2: Resolve LLM track IDs/URIs BEFORE seeding for track radio
+    let llmResolved = [];
+    if (llmShare > 0 && tracks.length > 0) {
+      console.log(`[LLM-RESOLVE] Resolving ${tracks.length} LLM tracks for seeding`);
+      llmResolved = await resolveIdsForLLMTracks(session.accessToken, tracks);
+      console.log(`[LLM-RESOLVE] requested=${tracks.length} resolved=${llmResolved.length}`);
+    }
+
+    // Step 5: Use intelligent strategy to get additional tracks from Spotify
+    let additionalTracks = [];
+    
+    // CONTEXTUAL ANALYSIS: ONLY for NORMAL mode, NEVER for festivals
+    const originalPromptLower = prompt.toLowerCase();
+    
+    // FESTIVAL MODE: Skip contextual analysis completely
+    if (intent.modo === 'festival') {
+      console.log(`[CONTEXTUAL-SCENES] FESTIVAL MODE: Skipping contextual analysis, using only Spotify playlist search`);
+    }
+    // NORMAL MODE: Add contextual artists only if needed (DISABLED in strict mode)
+    else if (intent.modo === 'normal' && intent.artists_llm && intent.artists_llm.length < 5) {
+      // PR-1: NORMAL_MODE_STRICT disables scene injections
+      const NORMAL_MODE_STRICT = true; // si true, solo LLM→track_radio(+artist_top)
+      
+      if (!NORMAL_MODE_STRICT) {
+        let contextualArtists = [];
+        
+        // Underground Spanish detection
+        if (originalPromptLower.includes('underground') && originalPromptLower.includes('español')) {
+          contextualArtists = [
+            'Yung Beef', 'Kaydy Cain', 'La Zowi', 'Sticky M.A.', 'Cruz Cafuné', 'Choclock', 'Abhir Hathi',
+            'Soto Asa', 'Israel B', 'Cecilio G', 'Dellafuente', 'Maka', 'Hoke', 'Louis Amoeba',
+            'Ill Pekeño', 'Ergo Pro', 'Dano', 'Recycled J', 'Love Yi', 'Pimp Flaco', 'Kinder Malo',
+            'Albany', 'Bea Pelea', 'Ms Nina', 'Selecta', 'Skyhook', 'Lowlight', 'Elio Toffana',
+            'Ralphie Choo', 'Rusowsky', 'María Escarmiento', 'Paranoid 1966', 'Beny Jr', 'Morad',
+            'Nickzzy', 'Camin', 'JC Reyes', 'Saiko', 'Luna Ki', 'Rojuu'
+          ];
+          console.log(`[CONTEXTUAL-SCENES] NORMAL MODE: Adding ${contextualArtists.length} underground Spanish artists`);
+        }
+        
+        // Reggaeton/Urbano detection
+        else if (originalPromptLower.includes('reggaeton') || originalPromptLower.includes('urbano')) {
+          contextualArtists = [
+            'Lucho RK', 'La Pantera', 'Xiyo y Fernandez', 'Quevedo', 'Saiko', 'John Pollon', 'Cmarí',
+            'LaDiferencia2006', 'Rels B', 'Don Patricio', 'Bejo', 'Santa Salut', 'Natos & Waor',
+            'Dellafuente', 'Recycled J', 'Morad', 'Hard GZ', 'Yung Sarria', 'Albany', 'Kidd Keo',
+            'Sael', 'Abhir Hathi', 'Sero El Malia', 'Omar Montes', 'Lérica', 'RVFV', 'Groovy Ricky',
+            'Delaossa', 'Izaro', 'Ms Nina', 'Ms Dos'
+          ];
+          console.log(`[CONTEXTUAL-SCENES] NORMAL MODE: Adding ${contextualArtists.length} reggaeton/urbano artists`);
+        }
+        
+        // Add contextual artists to existing ones
+        if (contextualArtists.length > 0) {
+          intent.artists_llm = [...new Set([...intent.artists_llm, ...contextualArtists])];
+          console.log(`[CONTEXTUAL-SCENES] NORMAL MODE: Total artists now: ${intent.artists_llm.length}`);
+        }
+      } else {
+        console.log(`[CONTEXTUAL-SCENES] NORMAL MODE STRICT: Scene injections disabled`);
+      }
+    }
+    
+    // FORCE: Override llmShare for festivals/current music
+    if (originalPromptLower.includes('2025') || 
+        originalPromptLower.includes('2024') || 
+        originalPromptLower.includes('festival') || 
+        originalPromptLower.includes('riverland') ||
+        originalPromptLower.includes('coachella') ||
+        originalPromptLower.includes('primavera') ||
+        originalPromptLower.includes('trending') ||
+        originalPromptLower.includes('actual') ||
+        originalPromptLower.includes('viral')) {
+      console.log(`[LLM-PLAYLIST] FORCING: Overriding llmShare = 0 for prompt: "${prompt}"`);
+      llmShare = 0;
+    }
+    
+    console.log(`[SPOTIFY-STRATEGY] Final strategy: ${intent.spotifyStrategy || 'genre_focused'}`);
+    console.log(`[SPOTIFY-STRATEGY] LLM share: ${llmShare}`);
+    console.log(`[SPOTIFY-STRATEGY] GPT tracks: ${intent.tracks_llm?.length || 0}`);
+    console.log(`[SPOTIFY-STRATEGY] GPT artists: ${intent.artists_llm?.length || 0}`);
+    console.log(`[SPOTIFY-STRATEGY] Spotify hint: "${intent.spotifyHint || 'none'}"`);
+    
+    const spotifyTarget = llmShare === 0 ? targetSize : Math.round(targetSize * (1 - llmShare));
+
+    console.log(`[LLM-PLAYLIST] llmShare: ${llmShare}, targetSize: ${targetSize}, spotifyTarget: ${spotifyTarget}`);
+    console.log(`[LLM-PLAYLIST] Session exists: ${!!session}, AccessToken exists: ${!!session?.accessToken}`);
+
+    // Use original tracks from GPT
+    let enhancedTracks = tracks;
+    
+    // Initialize collectionResult properly
+    let collectionResult = null;
+    
+    if (spotifyTarget > 0) {
+      console.log(`[LLM-PLAYLIST] Strategy: ${intent.spotifyStrategy}, Need ${spotifyTarget} tracks from Spotify`);
+      console.log(`[LLM-PLAYLIST] Spotify Hint: ${intent.spotifyHint}`);
+      
+      try {
+        if (intent.modo === 'festival') {
+          // FESTIVAL MODE: Use specific festival playlist search
+          console.log(`[LLM-PLAYLIST] Using FESTIVAL MODE for ${intent.modo}`);
+          additionalTracks = await searchFestivalPlaylists(session.accessToken, intent, spotifyTarget, prompt);
+          collectionResult = {
+            log: { collected: additionalTracks.length, final: additionalTracks.length },
+            relaxationSteps: [],
+            note: "Festival mode - playlist search"
+          };
+        } else {
+          // NORMAL MODE: Use wide collection
+          console.log(`[LLM-PLAYLIST] Using wide collection approach for ${intent.modo} mode`);
+          collectionResult = await wideCollection(session.accessToken, intent, spotifyTarget, llmResolved, llmArtists);
+          additionalTracks = collectionResult.tracks;
+        }
+        
+        // Log collection details
+        console.log(`[LLM-PLAYLIST] Collection log:`, collectionResult.log);
+        if (collectionResult.note) {
+          console.log(`[LLM-PLAYLIST] Note: ${collectionResult.note}`);
+        }
+      } catch (error) {
+        console.warn(`[LLM-PLAYLIST] Collection failed, falling back to simple search:`, error.message);
+        // Fallback to simple search
+        if (intent.modo === 'normal' && tracks.length > 0) {
+          additionalTracks = await intelligentSpotifyFill(session.accessToken, intent, spotifyTarget, tracks, llmArtists);
+        } else {
+          additionalTracks = await simpleTrackSearch(session.accessToken, intent, spotifyTarget, prompt);
+        }
+      }
+    }
+
+    // Step 6: PR-4 - Split/Merge correcto ANTES de hidratar
+    const llmTarget = Math.ceil(targetSize * 0.7);
+    const spTarget = targetSize - llmTarget;
+    
+    // Helper function to take first valid tracks
+    function takeFirstValid(tracks, count) {
+      return (tracks || []).slice(0, count);
+    }
+    
+    const llmChosen = takeFirstValid(llmResolved, llmTarget);
+    const spChosen = takeFirstValid(additionalTracks, spTarget);
+    
+    const finalBeforeHydrate = [...llmChosen, ...spChosen];
+    
+    console.log(`[SPLIT] llmTarget=${llmTarget} spTarget=${spTarget} llmChosen=${llmChosen.length} spChosen=${spChosen.length} final=${finalBeforeHydrate.length}`);
+    
+    // PR-6: Final trace for 70/30 verification
+    console.log(`[FINAL] size=${targetSize} llm=${llmChosen.length} sp=${spChosen.length}`);
+    
+    // BLOQUEO: Filtrar títulos meta/literal del prompt
+    function isMetaTitle(n='') {
+      const s = n.toLowerCase();
+      return s.includes('hazme una playlist') ||
+             s.includes('instrucciones específicas') ||
+             s.includes('buscar tracks') ||
+             s.includes('buscar canciones') ||
+             s.includes('playlist para');
+    }
+    const originalLength = finalBeforeHydrate.length;
+    const filteredTracks = finalBeforeHydrate.filter(t => !isMetaTitle(t?.name || ''));
+    if (filteredTracks.length !== originalLength) {
+      console.log(`[META-FILTER] Removed ${originalLength - filteredTracks.length} meta titles`);
+    }
+    
+    // Use filtered tracks as the final list before hydration
+    let finalTracks = filteredTracks;
+    
+    // HOTFIX: If we don't have enough tracks, fill with LLM tracks (maintain 70/30)
+    if (finalTracks.length < targetSize) {
+      const needed = targetSize - finalTracks.length;
+      console.log(`[LLM-PLAYLIST] Need ${needed} more tracks to reach target of ${targetSize}`);
+      
+      // Use remaining LLM tracks that weren't selected in llmChosen
+      const remainingLLM = llmResolved.slice(llmChosen.length);
+      const llmFallback = takeFirstValid(remainingLLM, needed);
+      
+      if (llmFallback.length > 0) {
+        finalTracks.push(...llmFallback);
+        console.log(`[LLM-PLAYLIST] Added ${llmFallback.length} LLM fallback tracks`);
+      }
+      
+      // If still not enough, we've done our best
+      if (finalTracks.length < targetSize) {
+        console.log(`[LLM-PLAYLIST] Final count: ${finalTracks.length}/${targetSize} (${Math.round(finalTracks.length/targetSize*100)}%)`);
+      }
+    }
+    
+    // HOTFIX: Don't trim after split - maintain 70/30 distribution
+    // const trimmedTracks = finalTracks.slice(0, targetSize); // REMOVED - breaks 70/30
+    
+    // Apply smooth ordering for normal mode
+    if (intent.modo === 'normal' && session?.accessToken) {
+      try {
+        console.log(`[LLM-PLAYLIST] Applying smooth ordering to ${finalTracks.length} tracks`);
+        const orderedTracks = await smoothOrdering(finalTracks, intent.targetFeatures);
+        // Update finalTracks with ordered tracks
+        finalTracks.splice(0, finalTracks.length, ...orderedTracks);
+      } catch (error) {
+        console.warn(`[LLM-PLAYLIST] Smooth ordering failed:`, error.message);
+      }
+    }
+    
+    function isMetaGarbageName(n){
+      const s = (n||'').toLowerCase();
+      return (
+        s.includes('hazme una playlist') ||
+        s.includes('instrucciones específicas') ||
+        s.includes('buscar canciones virales en tiktok') ||
+        s.includes('lofi tracks for working') ||
+        s.includes('jazz instrumental') ||
+        s.includes('study ambient')
+      );
+    }
+const META_TERMS=[ 'hazme una playlist','instrucciones específicas','buscar canciones virales en tiktok','lofi tracks for working','study ambient' ];
+const isMeta=(n)=>{const s=String(n||'').toLowerCase();return META_TERMS.some(m=>s.includes(m));};
+
+// FILTRO QUIRÚRGICO: Evita strings placeholder en búsquedas
+const BAD_HINTS = ['instrucciones específicas','hazme una playlist','buscar canciones virales en tiktok'];
+    function softFilterMeta(tracks){
+      const keep = tracks.filter(t => !isMetaGarbageName(t?.name));
+      return keep.length ? keep : tracks; // nunca devolver 0
+    }
+    
+    // 2) Resolver URIs faltantes con búsqueda puntual (mejor precisión que soltarlo vacío).
+    async function resolveUriIfMissing(spotifyToken, track){
+      if (track?.uri) return track;
+      const qName = encodeURIComponent(track?.name || '');
+      const qArtists = encodeURIComponent((track?.artistNames || []).join(' '));
+      const q = [qName, qArtists].filter(Boolean).join(' ');
+      if (!q) return track;
+      const res = await fetch(`https://api.spotify.com/v1/search?type=track&limit=1&q=${q}`, {
+        headers: { Authorization: `Bearer ${spotifyToken}` }
+      });
+      const js = await res.json();
+      const best = js?.tracks?.items?.[0];
+      if (best){
+        const mapped = mapSpotifyTrackToUTrack(best);
+        return { ...track, id: mapped.id, uri: mapped.uri, artistNames: mapped.artistNames, source: track.source || 'resolved' };
+      }
+      return track;
+    }
+    
+    // 3) Antes de responder al cliente, filtra títulos meta y resuelve URIs/artistas faltantes; si el filtrado deja <60% del target, relájalo.
+    async function finalizeForClient(tracks, token, targetSize){
+      const safe = Array.isArray(tracks) ? tracks.slice(0, targetSize || 50) : [];
+      // Paso A: RESOLVER faltantes primero
+      const resolved = [];
+      for (const t of safe){
+        let tt = t;
+        if (!tt?.artistNames?.length || !tt?.uri){
+          try { tt = await resolveUriIfMissing(token, tt); } catch(e){ console.warn('[RESOLVE-URI] fail', e?.message); }
+        }
+        resolved.push(tt);
+      }
+      // Paso B: FILTRO META ULTRA CONSERVADOR (solo cadenas claramente basura)
+      const filtered = softFilterMeta(resolved);
+      return filtered;
+    }
+    
+    // 4) Tras smooth-ordering, valida los últimos 3; si uno es outlier claro, sustituir por otro candidato válido si hay.
+    function looksOutOfContext(t){
+      const n = (t?.name || '').toLowerCase();
+      return /(rain sounds|white noise|asmr|brown noise|thunder)/i.test(n);
+    }
+    function nudgeTail(list, pool){
+      if (!Array.isArray(list) || list.length===0) return list;
+      const last = list[list.length-1];
+      if (looksOutOfContext(last)){
+        const repl = pool.find(x => x.uri && x.artistNames?.length && !looksOutOfContext(x));
+        if (repl) list[list.length-1] = repl;
+      }
+      return list;
+    }
+    
+    // === Integración en el flujo existente ===
+    // Al final, justo antes de responder al cliente:
+    const prepared = await finalizeForClient(finalTracks, session?.accessToken, targetSize);
+    const ordered = prepared.slice(0, targetSize); // Aplicar smooth ordering si existe
+    const safe = nudgeTail(ordered, prepared.filter(x => x !== ordered[ordered.length-1]));
+    
+    // ANTI-0: justo antes del return final, si tras ordering quedaran 0 por cualquier razón, no devuelvas 0:
+    if (!safe.length) {
+      console.warn('[ANTI-0] Reponiendo con top N de prepared');
+      const fallbackTracks = prepared.slice(0, targetSize || 50);
+    } else {
+      finalTracks.splice(0, finalTracks.length, ...safe);
+    }
+    
+    console.log('[LLM-PLAYLIST] final_after_softFilterMeta=', finalTracks.length);
+    
+    const filteredCount = (finalTracks || []).length;
+    if (filteredCount > 0) {
+      console.log(`[LLM-PLAYLIST] Final tracks: ${filteredCount} (resolved URIs and artists)`);
+    }
+    
+    console.log(`[LLM-PLAYLIST] Final playlist has ${finalTracks.length} tracks (target: ${targetSize})`);
+    
+    // PR-4: Add hydration logs
+    console.log(`[HYDRATE] final_hydrated=${finalTracks.length} valid_uri_count=${finalTracks.filter(t => t.uri && t.uri.startsWith('spotify:track:')).length}`);
+
+    // Calculate artist distribution
+    const artistDistribution = {};
+    finalTracks.forEach(track => {
+        const artistName = getArtistName(track.artists[0]);
+      artistDistribution[artistName] = (artistDistribution[artistName] || 0) + 1;
+    });
+
+    // Store run data for debugging
+    const runData = {
+      runId: `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      prompt,
+      targetTracks: targetSize,
+      modo: intent.modo,
+      llmShare: intent.llmShare,
+      collectionLog: collectionResult?.log || null,
+      relaxationSteps: collectionResult?.relaxationSteps || [],
+      artistDistribution,
+      llmTracksCount: tracks.length,
+      spotifyTracksCount: additionalTracks.length,
+      finalTracksCount: finalTracks?.length ?? 0,
+      note: collectionResult?.note || null,
+      duration: Date.now() - startTime,
+      success: true,
+      timestamp: new Date().toISOString()
+      };
+      
+      storeLastRun(runData);
+
+      // FIXPACK: Crear playlist usando cliente Spotify unificado
+      let spotifyPlaylistUrl = null;
+      let canCreateOnSpotify = false;
+      
+      const hasTracks = Array.isArray(finalTracks) && finalTracks.length > 0;
+      const hasSession = session?.accessToken && session?.user?.id;
+      
+      if (hasSession && hasTracks) {
+        try {
+          const spotifyClient = createSpotifyClient(session);
+          if (spotifyClient) {
+            canCreateOnSpotify = true;
+            
+            // FIXPACK: Usar nombre del usuario, no hardcodeado
+            const finalPlaylistName = `${playlist_name || prompt} · by JeyLabbb`;
+            const playlistDescription = `AI Generated Playlist · by JeyLabbb AI projects`;
+            
+            console.log(`[SPOTIFY-CREATE] Creating playlist: "${finalPlaylistName}"`);
+            
+            // Create playlist using unified client
+            const playlist = await spotifyClient.createPlaylist({
+              name: finalPlaylistName,
+              description: playlistDescription,
+              public: true
+            });
+            
+            spotifyPlaylistUrl = playlist.external_urls.spotify;
+            console.log(`[SPOTIFY-CREATE] Created playlist: ${spotifyPlaylistUrl}`);
+            
+            // Add tracks to playlist
+            const trackUris = allTracks.map(track => track.uri).filter(uri => uri);
+            if (trackUris.length > 0) {
+              await spotifyClient.addTracks(playlist.id, trackUris);
+              console.log(`[SPOTIFY-CREATE] Added ${trackUris.length} tracks to playlist`);
+            }
+          } else {
+            console.warn(`[SPOTIFY-CREATE] Failed to create Spotify client - missing session data`);
+          }
+        } catch (error) {
+          console.error(`[SPOTIFY-CREATE] Error:`, error.message);
+          canCreateOnSpotify = false;
+        }
+      } else if (!hasTracks) {
+        console.log(`[SPOTIFY-CREATE] No tracks - skipping playlist creation`);
+      } else {
+        // Hay tracks pero no hay sesión - dejar que el cliente maneje la creación
+        console.log(`[SPOTIFY-CREATE] Tracks ready: ${finalTracks?.length ?? 0}, but no session - client will handle creation`);
+      }
+
+      // 1) Obtener token unificado
+      const spotifySession = await getServerSession(authOptions);
+      const token = spotifySession?.accessToken || spotifySession?.user?.accessToken || null;
+      
+      console.log('[FLOW] hasTracks=', hasTracks, 'session=', !!spotifySession);
+
+      // 1) Declarar finalTracks correctamente
+      let hydratedTracks = allTracks || [];
+
+      // 2) Filtrar meta sin dejar a 0
+      const filtered = hydratedTracks.filter(t=>!isMeta(t?.name));
+      if(filtered.length === 0) {
+        console.warn('[LLM-PLAYLIST] Meta filter removed all tracks, keeping original');
+        hydratedTracks = allTracks || [];
+      } else {
+        hydratedTracks = filtered;
+      }
+
+      console.log('[LLM-PLAYLIST] finalTracks_count=', hydratedTracks.length);
+
+      // 3) HIDRATAR con Spotify IDs/URIs (root fix) - solo si hay token
+      let hydrated = hydratedTracks;
+      
+      if (process.env.PLAYLIST_TRACE === '1') {
+        console.log('[TRACE:HYDRATE] start', { input: Array.isArray(hydratedTracks) ? hydratedTracks.length : 0 });
+      }
+      
+      try {
+        const { hydrateTracksWithSpotifyIds } = await import('../../../../lib/spotify/resolve');
+        
+        if (token && hydratedTracks.length > 0) {
+          hydrated = await hydrateTracksWithSpotifyIds(hydratedTracks, token);
+          console.log('[LLM-PLAYLIST] valid_uri_count=', hydrated.length, 'of', hydratedTracks.length);
+          
+          if (process.env.PLAYLIST_TRACE === '1') {
+            console.log('[TRACE:HYDRATE] done', {
+              output: Array.isArray(hydrated) ? hydrated.length : 0,
+              withUris: (hydrated||[]).filter(t=>t?.uri && t?.uri.startsWith('spotify:track:')).length
+            });
+          }
+        } else {
+          console.warn('[LLM-PLAYLIST] No token or tracks, skipping hydration');
+        }
+      } catch (error) {
+        console.warn('[LLM-PLAYLIST] Hydration skipped or failed, using original tracks:', error?.message);
+        hydrated = finalTracks; // fallback to original
+        
+        if (process.env.PLAYLIST_TRACE === '1') {
+          console.warn('[TRACE:HYDRATE] fail', error?.message);
+        }
+      }
+
+      // 4) Verificar si hay URIs válidas para creación
+      const validUris = hydrated.filter(t => t?.uri?.startsWith('spotify:track:')).length;
+      if (!token) {
+        console.log('[CREATE] skip: no_session');
+      } else if (validUris === 0) {
+        console.log('[CREATE] skip: no_uris');
+      } else {
+        console.log('[CREATE] proceed: token_ok, uris=', validUris);
+      }
+
+      // 4) NO DESCARTAR por falta de audio features
+      const safeList = hydrated; // no volver a filtrar por features
+
+      // PROMPT 3: HIDRATACIÓN ROBUSTA - Asegurar URIs válidas antes de devolver
+      let hydratedFinalTracks = safeList;
+      if (session?.accessToken) {
+        try {
+          console.log(`[TRACE:HYDRATE] start with ${safeList?.length || 0} tracks`);
+          
+          // Dynamic import to avoid circular dependencies
+          const { hydrateTracksWithSpotifyIds, isValidUri } = await import('../../../../lib/spotify/resolve');
+          
+          // Hydrate tracks with valid Spotify URIs
+          const hydratedTracks = await hydrateTracksWithSpotifyIds(safeList, session.accessToken);
+          
+          // Filter to only tracks with valid URIs
+          const validTracks = hydratedTracks.filter(t => isValidUri(t.uri));
+          
+          console.log(`[VALID] valid_uri_count = ${validTracks.length}/${hydratedTracks.length}`);
+          
+          // If we lost too many tracks, try a relaxed second pass
+          if (validTracks.length < Math.ceil(safeList.length * 0.6) && hydratedTracks.length > validTracks.length) {
+            console.log(`[HYDRATE] Too many tracks lost (${validTracks.length}/${safeList.length}), trying relaxed pass`);
+            
+            // For now, just use what we have - in a real implementation, 
+            // we could try non-exact matching in the resolver
+            hydratedFinalTracks = validTracks;
+          } else {
+            hydratedFinalTracks = validTracks;
+          }
+          
+          console.log(`[TRACE:HYDRATE] end with ${hydratedFinalTracks.length} hydrated tracks`);
+          
+        } catch (error) {
+          console.warn(`[HYDRATE] Error during hydration:`, error.message);
+          // Fallback to original tracks if hydration fails
+          hydratedFinalTracks = safeList;
+        }
+      } else {
+        console.log(`[HYDRATE] No access token, skipping hydration`);
+        hydratedFinalTracks = safeList;
+      }
+
+      // UNIFICAR tracks para asegurar artistNames como strings
+      const unified = (hydratedFinalTracks || []).map(t => {
+        // Detectar si es un track de Spotify por varias señales
+        const isSpotifyTrack = t?.source === 'spotify' || 
+                              t?.track || 
+                              (t?.artists && Array.isArray(t.artists) && t.artists[0]?.id) ||
+                              t?.uri?.startsWith('spotify:track:') ||
+                              t?.id?.match(/^[0-9A-Za-z]{22}$/);
+        
+        return isSpotifyTrack ? mapSpotifyTrackToUTrack(t) : mapLLMTrackToUTrack(t);
+      });
+
+      // PR-4: Split/Merge already done before hydration - no need to repeat
+
+      // TRACE: Bloque no intrusivo para debugging
+      if (process.env.PLAYLIST_TRACE === '1') {
+        try {
+          const trace_sp_top5 = finalTracks.filter(x=>x.source==='spotify').slice(0,5).map(x=>({name:x.name, artistNames:x.artistNames}));
+          const trace_llm_top5 = finalTracks.filter(x=>x.source!=='spotify').slice(0,5).map(x=>({name:x.name, artistNames:x.artistNames}));
+          
+          console.log('[TRACE:LLM]', JSON.stringify({
+            prompt: String(prompt||'').slice(0, 140),
+            counts: {
+              llm: Array.isArray(tracks) ? tracks.length : 0,
+              spotify: Array.isArray(additionalTracks) ? additionalTracks.length : 0,
+              final_before_meta: Array.isArray(finalTracks) ? finalTracks.length : 0,
+              final_after_meta: Array.isArray(finalTracks) ? finalTracks.length : 0,
+            },
+            samples: {
+              llm_top5: trace_llm_top5,
+              sp_top5: trace_sp_top5,
+            }
+          }));
+        } catch (e) {
+          console.warn('[TRACE:LLM] failed', e?.message);
+        }
+      }
+
+      return NextResponse.json({
+        tracks: finalTracks,
+        spotify_playlist_url: spotifyPlaylistUrl,
+        canCreateOnSpotify,
+        metadata: {
+          source: 'llm-first',
+          llm_tracks: tracks.length,
+          spotify_tracks: additionalTracks.length,
+          total_tracks: finalTracks?.length ?? 0,
+          final_tracks: hydratedFinalTracks.length,
+          hydrated_tracks: hydratedFinalTracks.length,
+          collection_log: collectionResult?.log || null,
+          note: collectionResult?.note || null,
+        run_id: runData.runId,
+        intent: {
+          genres: intent.genres || [],
+          artists: intent.artists_llm || [],
+          targetFeatures: intent.targetFeatures || {}
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("LLM Playlist generation error:", error);
+    return NextResponse.json(
+      { error: "Failed to generate playlist", message: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+// FESTIVAL PLAYLIST SEARCH: Search for playlists with specific year
+async function searchFestivalPlaylists(accessToken, intent, targetTracks, originalPrompt) {
+  console.log(`[FESTIVAL-SEARCH] Searching playlists for ${targetTracks} tracks`);
+  
+  try {
+    // Use ORIGINAL PROMPT instead of spotifyHint to avoid GPT additions
+    const prompt = originalPrompt || intent.spotifyHint || '';
+    const allTracks = [];
+    
+    // FIXPACK: Usar extractor de festivales mejorado
+    const festivalInfo = extractFestivalInfo(prompt);
+    const { nombre_limpio: festivalName, ano: year, queries: playlistQueries } = festivalInfo;
+    
+    console.log(`[FESTIVAL-SEARCH] Extracted festival name: "${festivalName}" from prompt: "${prompt}"`);
+    console.log(`[FESTIVAL-SEARCH] Using year: ${year}`);
+    console.log(`[FESTIVAL-SEARCH] Generated ${playlistQueries.length} search queries`);
+    
+    console.log(`[FESTIVAL-SEARCH] Searching ONLY for year ${year} - no other years`);
+    console.log(`[FESTIVAL-SEARCH] Playlist queries:`, playlistQueries);
+    
+    // FIXPACK: Usar cliente Spotify unificado para búsqueda de playlists
+    const spotifyClient = createSpotifyClient({ accessToken, userId: 'festival_search' });
+    if (!spotifyClient) {
+      throw new Error('Failed to create Spotify client for festival search');
+    }
+    
+    const allPlaylists = new Map(); // Use Map to avoid duplicates by ID
+    
+    // Search for playlists using unified client
+    for (const query of playlistQueries.slice(0, 10)) {
+      console.log(`[FESTIVAL-SEARCH] Searching playlists: "${query}"`);
+      
+      try {
+        const playlists = await spotifyClient.searchPlaylists(query, 20);
+        console.log(`[FESTIVAL-SEARCH] Found ${playlists.length} playlists for "${query}"`);
+        
+        // FIXPACK: Filtrar playlists usando similitud de strings mejorada
+        const festivalYearFilteredPlaylists = playlists.filter(playlist => {
+          if (!playlist || !playlist.name) return false;
+          const playlistName = playlist.name.toLowerCase();
+          const festivalLower = festivalName.toLowerCase();
+          
+          // Must contain year
+          const hasYear = playlistName.includes(year);
+          
+          // FIXPACK: Usar similitud de strings en lugar de matching estricto
+          const similarity = calculateStringSimilarity(festivalLower, playlistName);
+          const hasGoodSimilarity = similarity >= 0.6; // 60% similarity threshold
+          
+          return hasYear && hasGoodSimilarity;
+        });
+        
+        console.log(`[FESTIVAL-SEARCH] After festival+year filter (${festivalName} ${year}): ${festivalYearFilteredPlaylists.length} playlists`);
+        
+        // Sort by followers (most popular first) and add to collection
+        festivalYearFilteredPlaylists
+          .sort((a, b) => (b.followers?.total || 0) - (a.followers?.total || 0))
+          .forEach(playlist => {
+            if (!allPlaylists.has(playlist.id)) {
+              allPlaylists.set(playlist.id, playlist);
+            }
+          });
+      } catch (error) {
+        console.warn(`[FESTIVAL-SEARCH] Failed to search for "${query}":`, error.message);
+      }
+    }
+    
+    console.log(`[FESTIVAL-SEARCH] Total unique playlists found: ${allPlaylists.size}`);
+    
+    // Sort playlists by followers (most popular first) and get tracks
+    const playlistArray = Array.from(allPlaylists.values())
+      .sort((a, b) => (b.followers?.total || 0) - (a.followers?.total || 0));
+    
+    console.log(`[FESTIVAL-SEARCH] Playlists sorted by popularity:`, playlistArray.slice(0, 5).map(p => ({name: p.name, followers: p.followers?.total || 0})));
+    
+    // TRACE: Initialize tracking
+    const trace = {
+      candidatos_total: 0,
+      interseccion: 0,
+      relleno_playlist_top: 0,
+      round_robin: 0,
+      final: 0,
+      playlists_encontradas: allPlaylists.size,
+      playlists_procesadas: 0
+    };
+    
+    for (const playlist of playlistArray.slice(0, 15)) { // Get from top 15 playlists
+      if (!playlist || !playlist.id || !playlist.name) {
+        console.log(`[FESTIVAL-SEARCH] Skipping invalid playlist:`, playlist);
+        continue;
+      }
+      
+      console.log(`[FESTIVAL-SEARCH] Getting tracks from playlist: "${playlist.name}"`);
+      
+      // FIXPACK: Usar cliente unificado para obtener tracks de playlists
+      try {
+        const tracks = await spotifyClient.getPlaylistTracks(playlist.id, 200, 0);
+        console.log(`[FESTIVAL-SEARCH] Found ${tracks.length} tracks in playlist "${playlist.name}"`);
+        
+        // FIXPACK: Filtrar tracks por año y mapear a formato unificado
+        tracks.forEach(track => {
+          if (track && track.id) {
+            // Filtrar tracks por año: solo incluir si el álbum es del año correcto o no hay info de año
+            const albumYear = track.album?.release_date?.substring(0, 4);
+            const trackYear = track.release_date?.substring(0, 4);
+            
+            // Incluir si:
+            // 1. No hay info de año (asumimos que es relevante)
+            // 2. El año del álbum coincide con el año solicitado
+            // 3. El año del track coincide con el año solicitado
+            const isCorrectYear = !albumYear || !trackYear || 
+                                 albumYear === year || 
+                                 trackYear === year;
+            
+            if (isCorrectYear) {
+              // FIXPACK: Mapear a formato unificado usando mapper
+              const mappedTrack = mapSpotifyTrackToUTrack(track);
+              allTracks.push({
+                ...mappedTrack,
+                artist_ids: track.artists?.map(a => a.id) || [],
+                albumYear: albumYear,
+                trackYear: trackYear
+              });
+            }
+          }
+        });
+      } catch (error) {
+        console.warn(`[FESTIVAL-SEARCH] Failed to get tracks from playlist ${playlist.id}:`, error.message);
+      }
+    }
+    
+    // Update trace with total candidates
+    trace.candidatos_total = allTracks.length;
+    trace.playlists_procesadas = playlistArray.slice(0, 15).length;
+    
+    // Sort by popularity and return requested amount
+    allTracks.sort((a, b) => b.popularity - a.popularity);
+    
+    // Count track repetitions and prioritize tracks that appear in multiple playlists
+    const trackCounts = {};
+    allTracks.forEach(track => {
+      trackCounts[track.id] = (trackCounts[track.id] || 0) + 1;
+    });
+    
+    console.log(`[FESTIVAL-SEARCH] Track repetition counts:`, Object.entries(trackCounts).slice(0, 10));
+    
+    // Create unique tracks with repetition count - DEDUPLICATE BY ID
+    const uniqueTracks = [];
+    const seenTracks = new Set();
+    
+    allTracks.forEach(track => {
+      if (track && track.id && !seenTracks.has(track.id)) {
+        seenTracks.add(track.id);
+        uniqueTracks.push({
+          ...track,
+          repetitionCount: trackCounts[track.id] || 1
+        });
+      }
+    });
+    
+    // Sort by repetition count (descending) then popularity (descending)
+    uniqueTracks.sort((a, b) => {
+      if (a.repetitionCount !== b.repetitionCount) {
+        return b.repetitionCount - a.repetitionCount; // More repetitions first
+      }
+      return b.popularity - a.popularity; // Then by popularity
+    });
+    
+    // STEP 1: Detect festival size and determine strategy
+    const totalPlaylists = allPlaylists.size;
+    const isSmallFestival = totalPlaylists <= 2; // Small festival if 2 or fewer playlists
+    
+    console.log(`[FESTIVAL-SEARCH] Festival size detection: ${totalPlaylists} playlists found - ${isSmallFestival ? 'SMALL' : 'LARGE'} festival`);
+    
+    let relevantTracks;
+    let finalTracks = [];
+    
+    if (isSmallFestival) {
+      // SMALL FESTIVAL: Use ALL tracks, detect main artists (3+ tracks)
+      relevantTracks = uniqueTracks;
+      console.log(`[FESTIVAL-SEARCH] Small festival: Using ALL ${relevantTracks.length} tracks`);
+      
+      // Detect main artists (those with 3+ tracks OR solo tracks)
+      const artistTrackCounts = {};
+      const soloArtistTracks = {}; // Track artists who appear alone (no collaborations)
+      
+      relevantTracks.forEach(track => {
+        const artistName = getArtistName(track.artists[0]);
+        artistTrackCounts[artistName] = (artistTrackCounts[artistName] || 0) + 1;
+        
+        // Check if this is a solo track (only one artist, no collaborations)
+        if (track.artists.length === 1) {
+          soloArtistTracks[artistName] = (soloArtistTracks[artistName] || 0) + 1;
+        }
+      });
+      
+      // Main artists: those with 3+ tracks OR those with solo tracks (any amount)
+      const mainArtists = Object.keys(artistTrackCounts).filter(artist => {
+        const hasSoloTracks = soloArtistTracks[artist] > 0;
+        const hasManyTracks = artistTrackCounts[artist] >= 3;
+        return hasManyTracks || hasSoloTracks;
+      });
+      
+      console.log(`[FESTIVAL-SEARCH] Main artists (3+ tracks OR solo tracks):`, mainArtists);
+      console.log(`[FESTIVAL-SEARCH] Solo artists:`, Object.entries(soloArtistTracks).filter(([,count]) => count > 0));
+      console.log(`[FESTIVAL-SEARCH] Artist track counts:`, Object.entries(artistTrackCounts).sort((a, b) => b[1] - a[1]));
+      
+      // 3-BY-3 DISTRIBUTION: Only from main artists
+      const tracksPerBatch = 3;
+      const artistQueues = {};
+      const selectedTrackIds = new Set();
+      
+      // Group tracks by main artists only
+      relevantTracks.forEach(track => {
+        const artistName = getArtistName(track.artists[0]);
+        if (mainArtists.includes(artistName)) {
+          if (!artistQueues[artistName]) {
+            artistQueues[artistName] = [];
+          }
+          artistQueues[artistName].push(track);
+        }
+      });
+      
+      // Sort each artist's queue by popularity (best tracks first)
+      Object.keys(artistQueues).forEach(artist => {
+        artistQueues[artist].sort((a, b) => b.popularity - a.popularity);
+      });
+      
+      // Get main artists sorted by total tracks available
+      const artists = mainArtists.sort((a, b) => 
+        (artistQueues[b]?.length || 0) - (artistQueues[a]?.length || 0)
+      );
+      
+      console.log(`[FESTIVAL-SEARCH] Main artists available:`, artists);
+      
+      // DYNAMIC: Add tracks from main artists with dynamic limits
+      const totalPlaylists = allPlaylists.size;
+      let maxTracksPerArtist;
+      
+      if (totalPlaylists <= 3) {
+        // SMALL FESTIVAL: Allow more tracks per artist (up to 5-6)
+        maxTracksPerArtist = Math.max(4, Math.floor(targetTracks / 8));
+      } else if (totalPlaylists <= 8) {
+        // MEDIUM FESTIVAL: Moderate limit (3-4 tracks per artist)
+        maxTracksPerArtist = Math.max(3, Math.floor(targetTracks / 12));
+      } else {
+        // LARGE FESTIVAL: Strict variety (2-3 tracks per artist)
+        maxTracksPerArtist = Math.max(2, Math.floor(targetTracks / 15));
+      }
+      
+      console.log(`[FESTIVAL-SEARCH] Small festival limits: Max ${maxTracksPerArtist} tracks per artist`);
+      
+      for (const artist of artists) {
+        if (finalTracks.length >= targetTracks) break;
+        
+        const artistTracks = artistQueues[artist] || [];
+        let tracksAdded = 0;
+        
+        for (const track of artistTracks) {
+          if (tracksAdded >= maxTracksPerArtist || finalTracks.length >= targetTracks) break;
+          if (!selectedTrackIds.has(track.id)) {
+            finalTracks.push(track);
+            selectedTrackIds.add(track.id);
+            tracksAdded++;
+          }
+        }
+        
+        if (tracksAdded > 0) {
+          console.log(`[FESTIVAL-SEARCH] Added ${tracksAdded} tracks from ${artist}`);
+        }
+      }
+      
+      // Fill remaining by getting tracks from each artist's PROFILE (not from playlist)
+      if (finalTracks.length < targetTracks) {
+        console.log(`[FESTIVAL-SEARCH] Filling remaining ${targetTracks - finalTracks.length} tracks from artist profiles`);
+        
+        // Get all artists from the playlist and sort by track count (most tracks first)
+        const artistTrackCounts = {};
+        relevantTracks.forEach(track => {
+          const artistName = getArtistName(track.artists[0]);
+          artistTrackCounts[artistName] = (artistTrackCounts[artistName] || 0) + 1;
+        });
+        
+        // Use artists that have 3+ tracks OR solo tracks for filling
+        const soloArtistTracks = {};
+        relevantTracks.forEach(track => {
+          if (track.artists.length === 1) {
+            const artistName = getArtistName(track.artists[0]);
+            soloArtistTracks[artistName] = (soloArtistTracks[artistName] || 0) + 1;
+          }
+        });
+        
+        const allArtists = Object.entries(artistTrackCounts)
+          .filter(([artistName, count]) => {
+            const hasSoloTracks = soloArtistTracks[artistName] > 0;
+            const hasManyTracks = count >= 3;
+            return hasManyTracks || hasSoloTracks;
+          })
+          .sort(([,a], [,b]) => b - a)
+          .map(([artistName]) => artistName);
+        
+        const artistCounts = {};
+        finalTracks.forEach(track => {
+          const artistName = getArtistName(track.artists[0]);
+          artistCounts[artistName] = (artistCounts[artistName] || 0) + 1;
+        });
+        
+        console.log(`[FESTIVAL-SEARCH] Artists sorted by track count:`, allArtists.slice(0, 10).map(name => `${name} (${artistTrackCounts[name]} tracks)`));
+        
+        // For each artist, get up to 3 more tracks from their PROFILE (not playlist)
+        for (const artistName of allArtists) {
+          if (finalTracks.length >= targetTracks) break;
+          
+          const currentCount = artistCounts[artistName] || 0;
+          if (currentCount >= 3) continue; // Already have 3 from this artist
+          
+          // Find artist ID from the tracks we already have
+          const artistTrack = relevantTracks.find(track => track.artists[0] === artistName);
+          if (!artistTrack || !artistTrack.artist_ids || artistTrack.artist_ids.length === 0) continue;
+          
+          const artistId = artistTrack.artist_ids[0];
+          
+          try {
+            // Get artist's top tracks from their PROFILE
+            const artistTracksResponse = await fetch(`https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=from_token`, {
+              headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            
+            if (artistTracksResponse.ok) {
+              const artistTracksData = await artistTracksResponse.json();
+              const artistTracks = artistTracksData.tracks || [];
+              
+              // Filter out tracks we already have and sort by popularity
+              const newTracks = artistTracks
+                .filter(track => !selectedTrackIds.has(track.id))
+                .sort((a, b) => b.popularity - a.popularity);
+              
+              const tracksToAdd = Math.min(3 - currentCount, newTracks.length, targetTracks - finalTracks.length);
+              
+              for (let i = 0; i < tracksToAdd; i++) {
+                if (finalTracks.length >= targetTracks) break;
+                
+                const track = newTracks[i];
+                finalTracks.push({
+                  id: track.id,
+                  name: track.name,
+                  artists: track.artists.map(a => a.name),
+                  artist_ids: track.artists.map(a => a.id),
+                  uri: track.uri,
+                  popularity: track.popularity,
+                  open_url: track.external_urls.spotify,
+                  audio_features: null,
+                  albumYear: track.album?.release_date?.substring(0, 4),
+                  trackYear: track.release_date?.substring(0, 4)
+                });
+                selectedTrackIds.add(track.id);
+                artistCounts[artistName] = (artistCounts[artistName] || 0) + 1;
+              }
+              
+              if (tracksToAdd > 0) {
+                console.log(`[FESTIVAL-SEARCH] Added ${tracksToAdd} tracks from ${artistName}'s profile`);
+              }
+            }
+          } catch (error) {
+            console.log(`[FESTIVAL-SEARCH] Error getting tracks from ${artistName}'s profile:`, error.message);
+          }
+        }
+      }
+      
+      trace.interseccion = finalTracks.length;
+      console.log(`[FESTIVAL-SEARCH] Selected ${finalTracks.length} tracks from main artists`);
+      
+    } else {
+      // LARGE FESTIVAL: Use intersection (tracks appearing in 2+ playlists)
+      relevantTracks = uniqueTracks.filter(track => track.repetitionCount >= 2);
+      trace.interseccion = relevantTracks.length;
+      console.log(`[FESTIVAL-SEARCH] Large festival: Using ${relevantTracks.length} intersection tracks (appear in 2+ playlists)`);
+      
+      // SMART SELECTION: Ensure artist variety from intersection tracks
+      console.log(`[FESTIVAL-SEARCH] Smart selection from ${relevantTracks.length} intersection tracks`);
+      
+      const selectedTrackIds = new Set();
+      const artistCounts = {};
+      
+      // DYNAMIC LIMITS: More tracks per artist for small festivals, fewer for large ones
+      const totalPlaylists = allPlaylists.size;
+      let maxTracksPerArtist;
+      
+      if (totalPlaylists <= 3) {
+        // SMALL FESTIVAL: Allow more tracks per artist (up to 5-6)
+        maxTracksPerArtist = Math.max(4, Math.floor(targetTracks / 8));
+        console.log(`[FESTIVAL-SEARCH] Small festival (${totalPlaylists} playlists): Max ${maxTracksPerArtist} tracks per artist`);
+      } else if (totalPlaylists <= 8) {
+        // MEDIUM FESTIVAL: Moderate limit (3-4 tracks per artist)
+        maxTracksPerArtist = Math.max(3, Math.floor(targetTracks / 12));
+        console.log(`[FESTIVAL-SEARCH] Medium festival (${totalPlaylists} playlists): Max ${maxTracksPerArtist} tracks per artist`);
+      } else {
+        // LARGE FESTIVAL: Strict variety (2-3 tracks per artist)
+        maxTracksPerArtist = Math.max(2, Math.floor(targetTracks / 15));
+        console.log(`[FESTIVAL-SEARCH] Large festival (${totalPlaylists} playlists): Max ${maxTracksPerArtist} tracks per artist`);
+      }
+      
+      // Sort by repetition count first, then popularity
+      const sortedTracks = relevantTracks.sort((a, b) => {
+        if (a.repetitionCount !== b.repetitionCount) {
+          return b.repetitionCount - a.repetitionCount;
+        }
+        return b.popularity - a.popularity;
+      });
+      
+      // Select tracks ensuring artist variety
+      for (const track of sortedTracks) {
+        if (finalTracks.length >= targetTracks) break;
+        
+        const artistName = getArtistName(track.artists[0]);
+        const currentArtistCount = artistCounts[artistName] || 0;
+        
+        // Add track if we haven't exceeded the limit for this artist
+        if (currentArtistCount < maxTracksPerArtist) {
+          finalTracks.push(track);
+          selectedTrackIds.add(track.id);
+          artistCounts[artistName] = currentArtistCount + 1;
+        }
+      }
+      
+      console.log(`[FESTIVAL-SEARCH] Selected ${finalTracks.length} tracks with artist variety (max ${maxTracksPerArtist} per artist)`);
+      console.log(`[FESTIVAL-SEARCH] Artist distribution:`, Object.entries(artistCounts).sort((a, b) => b[1] - a[1]).slice(0, 10));
+    }
+    
+    // STEP 3: Fill with tracks from most popular playlists (in order)
+    if (finalTracks.length < targetTracks) {
+      console.log(`[FESTIVAL-SEARCH] Filling with tracks from most popular playlists (${finalTracks.length}/${targetTracks})`);
+      
+      // Get playlists sorted by popularity (most popular first)
+      const sortedPlaylists = Array.from(allPlaylists.values()).sort((a, b) => 
+        (b.followers?.total || 0) - (a.followers?.total || 0)
+      );
+      
+      const alreadySelectedIds = new Set(finalTracks.map(t => t.id));
+      
+      // Fill from most popular playlists with artist variety
+      const fillArtistCounts = {};
+      
+      // Use same dynamic limits for filling
+      const totalPlaylists = allPlaylists.size;
+      let maxFillTracksPerArtist;
+      
+      if (totalPlaylists <= 3) {
+        // SMALL FESTIVAL: Allow more tracks per artist in filling too
+        maxFillTracksPerArtist = Math.max(2, Math.floor((targetTracks - finalTracks.length) / 10));
+      } else if (totalPlaylists <= 8) {
+        // MEDIUM FESTIVAL: Moderate limit for filling
+        maxFillTracksPerArtist = Math.max(1, Math.floor((targetTracks - finalTracks.length) / 15));
+      } else {
+        // LARGE FESTIVAL: Strict variety in filling
+        maxFillTracksPerArtist = Math.max(1, Math.floor((targetTracks - finalTracks.length) / 20));
+      }
+      
+      console.log(`[FESTIVAL-SEARCH] Fill limits: Max ${maxFillTracksPerArtist} tracks per artist in filling`);
+      
+      for (const playlist of sortedPlaylists) {
+        if (finalTracks.length >= targetTracks) break;
+        
+        console.log(`[FESTIVAL-SEARCH] Filling from playlist: "${playlist.name}" (${playlist.followers?.total || 0} followers)`);
+        
+        // Get tracks from this playlist, excluding already selected ones
+        const playlistTracks = allTracks.filter(track => 
+          !alreadySelectedIds.has(track.id)
+        );
+        
+        // Sort by popularity
+        playlistTracks.sort((a, b) => b.popularity - a.popularity);
+        
+        // Add tracks with artist variety consideration
+        for (const track of playlistTracks) {
+          if (finalTracks.length >= targetTracks) break;
+          
+          const artistName = getArtistName(track.artists[0]);
+          const currentArtistCount = fillArtistCounts[artistName] || 0;
+          
+          // Add track if we haven't exceeded the limit for this artist in filling
+          if (currentArtistCount < maxFillTracksPerArtist) {
+            finalTracks.push(track);
+            alreadySelectedIds.add(track.id);
+            fillArtistCounts[artistName] = currentArtistCount + 1;
+          }
+        }
+        
+        console.log(`[FESTIVAL-SEARCH] Added tracks from "${playlist.name}", total: ${finalTracks.length}/${targetTracks}`);
+      }
+      
+      trace.relleno_playlist_top = finalTracks.length - trace.interseccion;
+      console.log(`[FESTIVAL-SEARCH] Added ${trace.relleno_playlist_top} tracks from most popular playlists`);
+    }
+    
+    // Final trace update
+    trace.final = finalTracks.length;
+    
+    // Log final artist distribution
+    const finalArtistCounts = {};
+    finalTracks.forEach(track => {
+      const artistName = getArtistName(track.artists[0]);
+      finalArtistCounts[artistName] = (finalArtistCounts[artistName] || 0) + 1;
+    });
+    
+    console.log(`[FESTIVAL-SEARCH] Final artist distribution:`, Object.entries(finalArtistCounts).sort((a, b) => b[1] - a[1]).slice(0, 15));
+    console.log(`[FESTIVAL-SEARCH] Total unique artists: ${Object.keys(finalArtistCounts).length}`);
+    console.log(`[FESTIVAL-SEARCH] TRACE:`, trace);
+    console.log(`[FESTIVAL-SEARCH] Final result: ${finalTracks.length}/${targetTracks} tracks`);
+    
+    // FALLBACK INTELIGENTE: Si no hay suficientes tracks, buscar por artistas
+    if (finalTracks.length < targetTracks) {
+      console.log(`[FESTIVAL-SEARCH] Not enough tracks (${finalTracks.length}/${targetTracks}), implementing artist fallback`);
+      
+      // Contar SOLO artistas principales (primer artista de cada track)
+      const artistCounts = {};
+      allTracks.forEach(track => {
+        const artistName = getArtistName(track.artists[0]);
+        artistCounts[artistName] = (artistCounts[artistName] || 0) + 1;
+      });
+      
+      // STEP 4: Use ONLY main artists (first artist of each track), filter out collaborators
+      const relevantArtists = Object.entries(artistCounts)
+        .filter(([artist, count]) => count >= 2) // Solo artistas que aparecen en 2+ tracks
+        .sort((a, b) => b[1] - a[1]) // Ordenar por frecuencia
+        .map(([artist]) => artist); // Use only main artists
+      
+      console.log(`[FESTIVAL-SEARCH] Found ${relevantArtists.length} relevant artists:`, relevantArtists.slice(0, 10));
+      
+      if (relevantArtists.length > 0) {
+        console.log(`[FESTIVAL-SEARCH] Using ALL ${relevantArtists.length} artists to complete playlist`);
+        
+        // Use artists in batches of 5 (Spotify limit) until we reach target
+        let remainingTracks = targetTracks - finalTracks.length;
+        let artistIndex = 0;
+        
+        while (remainingTracks > 0 && artistIndex < relevantArtists.length) {
+          // Get next batch of 5 artists
+          const artistBatch = relevantArtists.slice(artistIndex, artistIndex + 5);
+          const batchSize = Math.min(remainingTracks, 100); // Get more tracks per request
+          
+          const recUrl = `https://api.spotify.com/v1/recommendations?seed_artists=${artistBatch.join(',')}&limit=${batchSize}&market=from_token`;
+          
+          console.log(`[FESTIVAL-SEARCH] Getting ${batchSize} recommendations for artists: ${artistBatch.join(', ')}`);
+          
+          const recResponse = await fetch(recUrl, {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (recResponse.ok) {
+            const recData = await recResponse.json();
+            const recommendedTracks = recData.tracks || [];
+            
+            console.log(`[FESTIVAL-SEARCH] Got ${recommendedTracks.length} recommended tracks from batch`);
+            
+            // SIMPLE LOGIC: Use ALL recommended tracks until we reach target
+            const variedTracks = [];
+            
+            for (const track of recommendedTracks) {
+              // Use ALL tracks until we reach the target
+              if (variedTracks.length < remainingTracks) {
+                variedTracks.push({
+                  id: track.id,
+                  name: track.name,
+                  artists: track.artists.map(a => a.name),
+                  popularity: track.popularity || 0,
+                  album: track.album?.name || 'Unknown Album',
+                  external_urls: track.external_urls,
+                  preview_url: track.preview_url
+                });
+              }
+            }
+            
+            finalTracks.push(...variedTracks);
+            remainingTracks = targetTracks - finalTracks.length;
+            
+            console.log(`[FESTIVAL-SEARCH] Added ${variedTracks.length} tracks from batch. Total: ${finalTracks.length}, Remaining: ${remainingTracks}`);
+            
+            // If we've reached the target, break
+            if (remainingTracks <= 0) break;
+          }
+          
+          artistIndex += 5; // Move to next batch
+        }
+        
+        console.log(`[FESTIVAL-SEARCH] Final artist fallback completed. Total tracks: ${finalTracks.length}`);
+      }
+    }
+    
+    // NO DIRECT TRACK SEARCH FALLBACK - Better to have fewer tracks than generic ones
+    if (finalTracks.length < targetTracks) {
+      console.log(`[FESTIVAL-SEARCH] Final result: ${finalTracks.length}/${targetTracks} tracks (preferring quality over quantity)`);
+    }
+    
+    return finalTracks.slice(0, targetTracks);
+    
+  } catch (error) {
+    console.error(`[FESTIVAL-SEARCH] Error:`, error.message);
+    return [];
+  }
+}
+
+// PR-3: Track radio collection with frequency and recency scoring
+async function collectFromTrackRadios(accessToken, llmResolved, spotifyTarget) {
+  console.log(`[RADIO] Starting track radio collection for ${spotifyTarget} target`);
+  
+  if (!Array.isArray(llmResolved) || llmResolved.length === 0) {
+    console.log(`[RADIO] No resolved LLM tracks available for seeding`);
+    return [];
+  }
+  
+  // Select K seeds: clamp(ceil(spotifyTarget/3), 3, 10)
+  const k = Math.min(Math.max(Math.ceil(spotifyTarget / 3), 3), 10);
+  console.log(`[RADIO] Selecting ${k} seeds from ${llmResolved.length} resolved tracks`);
+  
+  // Select diverse seeds by artist (balance different artists)
+  const artistCounts = {};
+  const selectedSeeds = [];
+  
+  // Sort by artist diversity and recency if available
+  const sortedTracks = [...llmResolved].sort((a, b) => {
+    // Prioritize tracks with valid IDs
+    if (a.id && !b.id) return -1;
+    if (!a.id && b.id) return 1;
+    
+    // If both have IDs, prefer more recent (if album info available)
+    if (a.album?.release_date && b.album?.release_date) {
+      return new Date(b.album.release_date) - new Date(a.album.release_date);
+    }
+    
+    return 0;
+  });
+  
+  for (const track of sortedTracks) {
+    if (selectedSeeds.length >= k) break;
+    if (!track.id || !track.uri) continue;
+    
+    const artistName = track.artistNames?.[0] || 'Unknown';
+    const currentCount = artistCounts[artistName] || 0;
+    
+    // Prefer tracks from artists we haven't used much
+    if (currentCount < 2) {
+      selectedSeeds.push(track);
+      artistCounts[artistName] = currentCount + 1;
+    }
+  }
+  
+  // If we still need more seeds, add any remaining valid tracks
+  if (selectedSeeds.length < k) {
+    for (const track of sortedTracks) {
+      if (selectedSeeds.length >= k) break;
+      if (!track.id || !track.uri) continue;
+      if (selectedSeeds.some(s => s.id === track.id)) continue;
+      
+      selectedSeeds.push(track);
+    }
+  }
+  
+  console.log(`[RADIO] Selected ${selectedSeeds.length} seeds:`, selectedSeeds.map(s => `${s.name} by ${s.artistNames?.[0] || 'Unknown'}`));
+  
+  if (selectedSeeds.length === 0) {
+    console.log(`[RADIO] No valid seeds found, skipping track radio`);
+    return [];
+  }
+  
+  // Collect recommendations for each seed
+  const allCandidates = [];
+  const trackFrequency = new Map(); // Track ID -> frequency across radios
+  
+  for (const seed of selectedSeeds) {
+    try {
+      // Validate seed ID format (22 chars base62)
+      if (!seed.id || !/^[0-9A-Za-z]{22}$/.test(seed.id)) {
+        console.warn(`[RADIO] Invalid seed ID format for "${seed.name}": ${seed.id}`);
+        continue;
+      }
+      
+      // Try without market first, then with market if needed
+      const radioUrl = `https://api.spotify.com/v1/recommendations?seed_tracks=${seed.id}&limit=20`;
+      const response = await fetch(radioUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const tracks = data.tracks || [];
+        
+        console.log(`[RADIO] Got ${tracks.length} recommendations for seed "${seed.name}"`);
+        
+        for (const track of tracks) {
+          if (!track.id || !track.uri) continue;
+          
+          // Count frequency across radios
+          const currentFreq = trackFrequency.get(track.id) || 0;
+          trackFrequency.set(track.id, currentFreq + 1);
+          
+          // Add track with metadata
+          allCandidates.push({
+            id: track.id,
+            uri: track.uri,
+            name: track.name,
+            artists: track.artists || [],
+            artistNames: track.artists?.map(a => a.name) || [],
+            album: track.album || {},
+            popularity: track.popularity || 0,
+            external_urls: track.external_urls,
+            preview_url: track.preview_url,
+            release_date: track.album?.release_date
+          });
+        }
+      } else {
+        console.warn(`[RADIO] seed="${seed.id}" status=${response.status}`);
+        // Don't break the loop, continue with other seeds
+      }
+    } catch (error) {
+      console.warn(`[RADIO] Error getting recommendations for seed "${seed.name}":`, error.message);
+    }
+  }
+  
+  console.log(`[RADIO] Collected ${allCandidates.length} candidates from ${selectedSeeds.length} seeds`);
+  
+  if (allCandidates.length === 0) {
+    console.log(`[RADIO] No candidates collected, returning empty array`);
+    return [];
+  }
+  
+  // Deduplicate by track ID and calculate scores
+  const uniqueCandidates = [];
+  const seenIds = new Set();
+  
+  for (const track of allCandidates) {
+    if (seenIds.has(track.id)) continue;
+    seenIds.add(track.id);
+    
+    // Calculate recency boost (2 if within 18 months, 0 otherwise)
+    let recencyBoost = 0;
+    if (track.release_date) {
+      const releaseDate = new Date(track.release_date);
+      const eighteenMonthsAgo = new Date();
+      eighteenMonthsAgo.setMonth(eighteenMonthsAgo.getMonth() - 18);
+      
+      if (releaseDate >= eighteenMonthsAgo) {
+        recencyBoost = 2;
+      }
+    }
+    
+    // Calculate frequency score
+    const freqAcrossRadios = trackFrequency.get(track.id) || 1;
+    
+    // Final score: freqAcrossRadios * 3 + recencyBoost
+    const score = (freqAcrossRadios * 3) + recencyBoost;
+    
+    uniqueCandidates.push({
+      ...track,
+      score,
+      freqAcrossRadios,
+      recencyBoost
+    });
+  }
+  
+  // Sort by score descending and cut to spotifyTarget
+  uniqueCandidates.sort((a, b) => b.score - a.score);
+  const finalTracks = uniqueCandidates.slice(0, spotifyTarget);
+  
+  // Log top 5 for debugging
+  const top5 = finalTracks.slice(0, 5).map(t => ({
+    name: t.name,
+    artist: t.artistNames?.[0] || 'Unknown',
+    release_date: t.release_date || 'Unknown',
+    score: t.score,
+    freq: t.freqAcrossRadios
+  }));
+  
+  console.log(`[RADIO] seeds=${selectedSeeds.length} candidates=${allCandidates.length} chosen=${finalTracks.length}`);
+  console.log(`[RADIO] top5=`, top5);
+  
+  return finalTracks;
+}
+
+// WIDE COLLECTION: Gather 150-300 candidates before filtering
+async function wideCollection(accessToken, intent, targetTracks, llmTracks = [], llmArtists = []) {
+  console.log(`[WIDE-COLLECTION] Gathering 150-300 candidates for ${targetTracks} target`);
+  
+  // CONTEXTUAL ANALYSIS - Always execute to give GPT musical context
+  const promptLower = (intent.spotifyHint || '').toLowerCase();
+  let detectedScenes = [];
+  
+  console.log(`[DEBUG] spotifyHint: "${intent.spotifyHint}"`);
+  console.log(`[DEBUG] promptLower: "${promptLower}"`);
+  
+  // Analyze prompt to detect musical scenes (NO selection, just context)
+  if (promptLower.includes('underground') || promptLower.includes('indie') || promptLower.includes('alternativo')) {
+    detectedScenes.push('underground_es');
+  }
+  if (promptLower.includes('trap')) {
+    detectedScenes.push('trap_es', 'trap_intl');
+  }
+  if (promptLower.includes('drill')) {
+    detectedScenes.push('drill_es', 'drill_intl');
+  }
+  if (promptLower.includes('reggaeton') || promptLower.includes('urbano')) {
+    detectedScenes.push('reggaeton_es', 'reggaeton_intl');
+  }
+  if (promptLower.includes('r&b') || promptLower.includes('r&b') || promptLower.includes('soul')) {
+    detectedScenes.push('r&b_es', 'r&b_intl');
+  }
+  if (promptLower.includes('pop') && (promptLower.includes('urbano') || promptLower.includes('moderno'))) {
+    detectedScenes.push('pop_urbano_es', 'pop_urbano_intl');
+  }
+  if (promptLower.includes('lofi') || promptLower.includes('chill') || promptLower.includes('ambient')) {
+    detectedScenes.push('lofi_ambient');
+  }
+  if (promptLower.includes('afrobeat') || promptLower.includes('afro')) {
+    detectedScenes.push('afrobeat_latino');
+  }
+  if (promptLower.includes('latino') || promptLower.includes('latin')) {
+    detectedScenes.push('latino_crossover');
+  }
+  if (promptLower.includes('español') || promptLower.includes('spanish')) {
+    detectedScenes.push('underground_es', 'reggaeton_es', 'pop_urbano_es');
+  }
+  
+  // Log detected scenes for GPT context (NO artist selection)
+  console.log(`[CONTEXTUAL-SCENES] Detected musical scenes: ${detectedScenes.join(', ')}`);
+  console.log(`[CONTEXTUAL-SCENES] GPT now knows the musical context to think within`);
+  
+  // SPOTIFY STRATEGY: Focus on GPT's selections + newer music
+  console.log(`[SPOTIFY-STRATEGY] Will use GPT's tracks/artists as seeds for newer music`);
+  console.log(`[SPOTIFY-STRATEGY] GPT tracks: ${llmTracks.length}, GPT artists: ${llmArtists.length}`);
+  
+  const allCandidates = [];
+  const seenTracks = new Set();
+  const collectionLog = {
+    collected: 0,
+    after_features: 0,
+    after_filters: 0,
+    after_caps: 0,
+    after_relaxation: 0,
+    final: 0
+  };
+  
+  try {
+    // STEP 1: Collect from multiple sources
+    // PR-1: NORMAL MODE STRICT - Solo track radio desde LLM
+    const NORMAL_MODE_STRICT = true; // si true, solo LLM→track_radio(+artist_top)
+    const isNormalMode = intent.modo === 'normal';
+    const isFestivalMode = intent.modo === 'festival' || intent.modo === 'festival_year_focused';
+    const isCurrentMode = intent.modo === 'current_focused';
+    
+    let sources;
+    if (isNormalMode && NORMAL_MODE_STRICT) {
+      // PR-1: NORMAL MODE STRICT - Solo track radio y artist top desde LLM
+      console.log(`[NORMAL] strict=true sources=track_radio(+artist_top)`);
+      sources = [
+        { name: 'llm_tracks', tracks: llmTracks },
+        { name: 'track_radio', tracks: await collectFromTrackRadios(accessToken, llmTracks, targetTracks) },
+        { name: 'artist_top', tracks: await collectArtistTopTracks(accessToken, llmTracks) }
+      ];
+    } else {
+      // Modo normal anterior o otros modos
+      sources = [
+        { name: 'llm_tracks', tracks: llmTracks },
+        { name: 'track_radio', tracks: await collectFromTrackRadios(accessToken, llmTracks, targetTracks) },
+        { name: 'artist_top', tracks: await collectArtistTopTracks(accessToken, llmTracks) },
+        { name: 'artist_radio', tracks: await collectArtistRadio(accessToken, llmArtists, intent) },
+        // DESACTIVAR genre_search en modo NORMAL
+        ...(isNormalMode ? [] : [{ name: 'genre_search', tracks: await collectGenreSearch(accessToken, intent) }]),
+        // DESACTIVAR playlist_search en modo NORMAL, solo en festival/actualidad
+        ...((isFestivalMode || isCurrentMode) ? [{ name: 'playlist_search', tracks: await collectPlaylistTracks(accessToken, intent) }] : []),
+        { name: 'recommendations', tracks: await collectRecommendations(accessToken, intent, llmArtists) }
+      ];
+    }
+    
+    // Combine all sources with deduplication
+    for (const source of sources) {
+      if (source.tracks && Array.isArray(source.tracks)) {
+        source.tracks.forEach(track => {
+          if (track && track.id && !seenTracks.has(track.id)) {
+            seenTracks.add(track.id);
+            allCandidates.push({
+              ...track,
+              source: source.name
+            });
+          }
+        });
+        console.log(`[WIDE-COLLECTION] ${source.name}: ${source.tracks.length} tracks`);
+      }
+    }
+    
+    collectionLog.collected = allCandidates.length;
+    console.log(`[WIDE-COLLECTION] Total candidates collected: ${allCandidates.length}`);
+    
+    // STEP 2: Apply audio features filtering
+    const tracksWithFeatures = await addAudioFeatures(accessToken, allCandidates);
+    collectionLog.after_features = tracksWithFeatures.length;
+    console.log('[AUDIO] features applied:', Array.isArray(tracksWithFeatures) ? tracksWithFeatures.filter(t => t?.audio_features).length : 0);
+    
+    // STEP 3: Apply initial filters
+    const filteredTracks = applyInitialFilters(tracksWithFeatures, intent);
+    collectionLog.after_filters = filteredTracks.length;
+    
+    // STEP 4: Apply adaptive dynamic caps
+    const cappedTracks = applyAdaptiveRoundRobin(filteredTracks, targetTracks, intent.modo);
+    collectionLog.after_caps = cappedTracks.length;
+    
+    // STEP 5: Apply relaxation ladder if needed
+    let finalTracks = cappedTracks;
+    const relaxationSteps = [];
+    
+    if (finalTracks.length < targetTracks) {
+      console.log(`[WIDE-COLLECTION] Need ${targetTracks - finalTracks.length} more tracks, applying relaxation ladder`);
+      const relaxationResult = await applyRelaxationLadder(accessToken, allCandidates, finalTracks, targetTracks, intent);
+      finalTracks = relaxationResult.tracks;
+      relaxationSteps.push(...relaxationResult.steps);
+    }
+    
+    collectionLog.after_relaxation = finalTracks.length;
+    collectionLog.final = finalTracks.length;
+    
+    console.log(`[WIDE-COLLECTION] Collection log:`, collectionLog);
+    
+    // PR-6: [SOURCES] trace for verification
+    const sourcesSummary = {};
+    for (const source of sources) {
+      if (source.tracks && Array.isArray(source.tracks)) {
+        sourcesSummary[source.name] = source.tracks.length;
+      }
+    }
+    console.log(`[SOURCES]`, sourcesSummary);
+    
+    return {
+      tracks: finalTracks,
+      log: collectionLog,
+      relaxationSteps,
+      note: finalTracks.length < targetTracks - 5 ? 
+        `Scarcity detected: only ${finalTracks.length}/${targetTracks} tracks available in catalog` : 
+        null
+    };
+    
+  } catch (error) {
+    console.error(`[WIDE-COLLECTION] Error:`, error.message);
+    return { tracks: [], log: collectionLog, note: `Collection failed: ${error.message}` };
+  }
+}
+
+
+// COLLECT TRACK RADIO: Get recommendations for each LLM track
+async function collectTrackRadio(accessToken, llmTracks, intent) {
+  const radioTracks = [];
+  const seenIds = new Set();
+  
+  // PROMPT 5: Use LLM tracks that already have valid Spotify IDs
+  const validLLMTracks = llmTracks.filter(t => t?.id && /^[0-9A-Za-z]{22}$/.test(t.id)).slice(0, 5);
+  
+  console.log(`[TRACK-RADIO] Found ${validLLMTracks.length} LLM tracks with valid Spotify IDs`);
+  
+  if (validLLMTracks.length === 0) {
+    console.log(`[TRACK-RADIO] No LLM tracks with valid Spotify IDs found, skipping track-radio`);
+    return [];
+  }
+  
+  // For each LLM track with valid ID, get recommendations
+  for (const track of validLLMTracks) {
+    try {
+      const radioUrl = `https://api.spotify.com/v1/recommendations?seed_tracks=${track.id}&limit=20&market=from_token`;
+      
+      const response = await fetch(radioUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const tracks = data.tracks || [];
+        
+        // Order by album.release_date desc (newest first)
+        tracks.sort((a, b) => {
+          const dateA = new Date(a.album?.release_date || '1900-01-01');
+          const dateB = new Date(b.album?.release_date || '1900-01-01');
+          return dateB - dateA;
+        });
+        
+        // Add tracks with deduplication
+        for (const recTrack of tracks) {
+          if (recTrack?.id && !seenIds.has(recTrack.id)) {
+            radioTracks.push(recTrack);
+            seenIds.add(recTrack.id);
+          }
+        }
+        
+        console.log(`[TRACK-RADIO] Got ${tracks.length} recommendations for seed "${track.name || track.title}"`);
+      } else {
+        console.warn(`[TRACK-RADIO] Failed to get recommendations for seed "${track.name || track.title}":`, response.status);
+      }
+    } catch (error) {
+      console.warn(`[TRACK-RADIO] Error getting recommendations for seed "${track.name || track.title}":`, error.message);
+    }
+  }
+  
+  console.log(`[TRACK-RADIO] seeds=${validLLMTracks.length} ids, total_added=${radioTracks.length}`);
+  return radioTracks;
+}
+
+// PR-5: COLLECT ARTIST TOP TRACKS - Only from LLM resolved artists, prioritize recent
+async function collectArtistTopTracks(accessToken, llmResolved) {
+  const topTracks = [];
+  
+  // Extract unique artists from llmResolved
+  const artistNames = new Set();
+  for (const track of llmResolved) {
+    if (track.artistNames && Array.isArray(track.artistNames)) {
+      track.artistNames.forEach(artist => artistNames.add(artist));
+    }
+  }
+  
+  const uniqueArtists = Array.from(artistNames).slice(0, 5); // Max 5 artists
+  console.log(`[ARTIST-TOP] artists_in=${uniqueArtists.length} from llmResolved`);
+  
+  let recentCount = 0;
+  const sixMonthsAgo = new Date();
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+  
+  for (const artist of uniqueArtists) {
+    try {
+      // Search for artist
+      const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(artist)}&type=artist&limit=1&market=from_token`;
+      const searchResponse = await fetch(searchUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (searchResponse.ok) {
+        const searchData = await searchResponse.json();
+        const artists = searchData.artists?.items || [];
+        
+        if (artists.length > 0) {
+          const artistId = artists[0].id;
+          // Get top tracks
+          const topTracksUrl = `https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=from_token`;
+          const topResponse = await fetch(topTracksUrl, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          });
+          
+          if (topResponse.ok) {
+            const topData = await topResponse.json();
+            const artistTracks = topData.tracks || [];
+            
+            // Sort by release date (most recent first) and limit to 3 per artist
+            const sortedTracks = artistTracks.sort((a, b) => {
+              const dateA = new Date(a.album?.release_date || '1900-01-01');
+              const dateB = new Date(b.album?.release_date || '1900-01-01');
+              return dateB - dateA; // Most recent first
+            });
+            
+            // Take max 3 tracks per artist
+            const tracksToAdd = sortedTracks.slice(0, 3);
+            
+            // Count recent tracks (within 6 months)
+            const recentTracks = tracksToAdd.filter(track => {
+              const releaseDate = new Date(track.album?.release_date || '1900-01-01');
+              return releaseDate >= sixMonthsAgo;
+            });
+            
+            recentCount += recentTracks.length;
+            topTracks.push(...tracksToAdd);
+            console.log(`[ARTIST-TOP] Got ${tracksToAdd.length} tracks for ${artist} (${recentTracks.length} recent)`);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`[ARTIST-TOP] Failed for artist ${artist}:`, error.message);
+    }
+  }
+  
+  console.log(`[ARTIST-TOP] artists_in=${uniqueArtists.length} tracks_out=${topTracks.length} recent>=6 months=${recentCount}`);
+  return topTracks;
+}
+
+// COLLECT ARTIST RADIO: Get recommendations based on artists
+async function collectArtistRadio(accessToken, llmArtists, intent) {
+  const radioTracks = [];
+  
+  for (const artist of llmArtists.slice(0, 5)) {
+    try {
+      // Search for artist
+      const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(artist)}&type=artist&limit=1&market=from_token`;
+      const searchResponse = await fetch(searchUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (searchResponse.ok) {
+        const searchData = await searchResponse.json();
+        const artists = searchData.artists?.items || [];
+        
+        if (artists.length > 0) {
+          const artistId = artists[0].id;
+          let radioUrl = `https://api.spotify.com/v1/recommendations?seed_artists=${artistId}&limit=20&market=from_token`;
+          
+          // PRIORITIZE NEWER MUSIC: Filter out very old tracks
+          radioUrl += `&min_popularity=20`; // This helps get more recent tracks
+          
+          // Add genre/language constraints from intent
+          if (intent.criterios?.idiomas?.includes('español')) {
+            radioUrl += `&seed_genres=spanish,latino,reggaeton,flamenco`;
+          }
+          
+          const response = await fetch(radioUrl, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            radioTracks.push(...(data.tracks || []));
+            console.log(`[ARTIST-RADIO] Got ${data.tracks?.length || 0} newer tracks for artist: ${artist}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`[ARTIST-RADIO] Failed for artist ${artist}:`, error.message);
+    }
+  }
+  
+  return radioTracks;
+}
+
+// COLLECT GENRE SEARCH: Search for tracks by genre
+async function collectGenreSearch(accessToken, intent) {
+  const genreTracks = [];
+  
+  try {
+    const genres = intent.criterios?.generos || [];
+    const hint = cleanHint(intent.spotifyHint || intent.promptLower || '');
+    const safeHint = hint || 'lofi jazz instrumental';
+    console.log('[HINT] raw=', intent.spotifyHint || intent.promptLower, 'clean=', safeHint);
+    console.log('[GENRE-SEARCH] cleanHint result:', hint, 'safeHint:', safeHint);
+    
+    // FIXPACK: No usar spotifyHint literal como query para evitar pistas genéricas
+    const queries = [
+      ...genres,
+      'hits',
+      'trending'
+    ];
+    
+    // Solo añadir safeHint si no está vacío
+    if (safeHint) {
+      queries.push(safeHint);
+    }
+    
+    // FIXPACK: Mapear spotifyHint a términos controlados
+    const originalHint = intent.spotifyHint?.toLowerCase() || '';
+    if (originalHint.includes('jazz')) queries.push('jazz music', 'modern jazz', 'jazz fusion');
+    if (originalHint.includes('lofi')) queries.push('lofi hip hop', 'lofi beats', 'chill lofi');
+    if (originalHint.includes('instrumental')) queries.push('instrumental music', 'instrumental jazz');
+    if (originalHint.includes('relajante') || originalHint.includes('relaxing')) queries.push('relaxing music', 'ambient music');
+    if (originalHint.includes('trabajar') || originalHint.includes('work')) queries.push('focus music', 'study music', 'work music');
+    
+    // Add language-specific queries if Spanish is requested
+    if (intent.criterios?.idiomas?.includes('español')) {
+      queries.push('música española', 'pop español', 'rock español', 'reggaeton', 'flamenco');
+    }
+    
+    // Add contextual artist seeds based on prompt analysis (not just underground)
+    const promptLower = (intent.spotifyHint || '').toLowerCase();
+    const shouldAddContextualArtists = 
+      promptLower.includes('underground') || 
+      promptLower.includes('trap') || 
+      promptLower.includes('drill') || 
+      promptLower.includes('reggaeton') || 
+      promptLower.includes('urbano') || 
+      promptLower.includes('r&b') || 
+      promptLower.includes('pop urbano') || 
+      promptLower.includes('lofi') || 
+      promptLower.includes('afrobeat') || 
+      promptLower.includes('latino') ||
+      promptLower.includes('español') ||
+      promptLower.includes('spanish');
+    
+    if (shouldAddContextualArtists) {
+      const undergroundArtists = [
+        // ESPAÑA UNDERGROUND GENERAL (40 artistas únicos)
+        'Yung Beef', 'Kaydy Cain', 'La Zowi', 'Sticky M.A.', 'Cruz Cafuné', 'Choclock', 'Abhir Hathi',
+        'Soto Asa', 'Israel B', 'Cecilio G', 'Dellafuente', 'Maka', 'Hoke', 'Louis Amoeba',
+        'Ill Pekeño', 'Ergo Pro', 'Dano', 'Recycled J', 'Love Yi', 'Pimp Flaco', 'Kinder Malo',
+        'Albany', 'Bea Pelea', 'Ms Nina', 'Selecta', 'Skyhook', 'Lowlight', 'Elio Toffana',
+        'Ralphie Choo', 'Rusowsky', 'María Escarmiento', 'Paranoid 1966', 'Beny Jr', 'Morad',
+        'Nickzzy', 'Camin', 'JC Reyes', 'Saiko', 'Luna Ki', 'Rojuu',
+        
+        // ESPAÑA TRAP UNDERGROUND (35 artistas únicos)
+        'Kidd Keo', 'Aleesha', 'Delaossa', 'Easy-S', 'Kaze',
+        
+        // ESPAÑA DRILL (35 artistas únicos)
+        'El Bobe', 'Yung Sarria', 'Dowaa', 'Rakeem', 'El Estepario Siberiano', 'La Pantera',
+        'Original Elias', 'C.R.O', 'Khaled', 'Neelo', 'Drago200', 'Rapsusklei', 'Neea',
+        'Ben Yart', 'Maikel Delacalle', 'H Roto', 'Omvs', 'Sokez', 'El Jincho', 'Rvfv',
+        'Juseph', 'Quevedo', 'KayBlack ES', 'Swit Eme',
+        
+        // ESPAÑA UNDERGROUND EXTRA MICRO (30 artistas únicos)
+        'MDA', 'ladiferencia2006', 'John Pollon', 'Bon Calso', 'Biberon', 'Seimon', 'Guxo',
+        'Métrika', 'Vampi', 'ThatKid', 'GlorySixVain', 'Tarchi', 'UGLY', 'Saramalacara',
+        'Shinova', 'LaBlackie', 'Pekado', 'Orslok', 'Coastcity2000', 'Carzé', 'UnaiManso',
+        'Olaff', 'Kyotto', 'Juicy Bae',
+        
+        // ESPAÑA REGGAETON URBANO (30 artistas únicos)
+        'Lucho RK', 'Xiyo y Fernandez', 'Rels B', 'Don Patricio', 'Bejo', 'Santa Salut',
+        'Natos & Waor', 'Hard GZ', 'Sael', 'Sero El Malia', 'Omar Montes', 'Lérica',
+        'Groovy Ricky', 'Izaro', 'Ms Dos',
+        
+        // LATIN TRAP ESP (25 artistas únicos)
+        'C. Tangana', 'Young Cister', 'Juancho Marqués', 'Snow Tha Product',
+        
+        // ESPAÑA R&B URBANO (30 artistas únicos)
+        'Raí García', 'Carla Morrison', 'Pablo Chill-E', 'Linn da Quebrada', 'Mushkaa',
+        'Ani Queen', 'Cauty', 'Zuria Vega', 'Paul Cooks', 'Lizeth Selene', 'Nathy Peluso',
+        'DNGRS', 'Saham', 'Rag da Boo', 'Slow Maysa', 'Zeuh', 'Freyta', 'Venizzle',
+        
+        // ESPAÑA POP URBANO (30 artistas únicos)
+        'Rosalía', 'Alizzz', 'Lola Índigo', 'Ana Mena', 'Aitana', 'Mamá Silvia',
+        'Guitarricadelafuente', 'Nil Moliner', 'Alice Wonder', 'Julia Medina', 'Marta Soto',
+        'Sinsinati', 'Eva Ruiz', 'Belén Aguilera', 'Julia xlf', 'Björn African',
+        'Dvicio', 'Revolvería', 'Georgina', 'Irene Reyes', 'Leïti Sene', 'Brisa Fenoy',
+        'Sen Senra', 'María Becerra',
+        
+        // ESPAÑA RAP CONSCIENTE (20 artistas únicos)
+        'Sombra Alor', 'Sharif', 'ZPU', 'Kase.O', 'Sho-Hai', 'Ayax', 'Foyone',
+        'LíricoPlus', 'El Chojin', 'Los Chikos del Maíz', 'Intelecto Urbano',
+        'Kase.O + Xhelazz', 'Kase.O + Toteking', 'Muerdo', 'ToteKing'
+      ];
+      
+      // Add specific underground artist searches
+      undergroundArtists.slice(0, 8).forEach(artist => {
+        queries.push(`artist:${artist}`, artist);
+      });
+      
+      // Add Riverland-specific genre queries
+      queries.push(
+        'reggaeton underground', 'trap español', 'urban español', 'electronic español',
+        'edm español', 'techno español', 'house español', 'dubstep español'
+      );
+      
+      // CONTEXTOS DE ESCENAS: Solo para contexto LLM, NO para búsquedas Spotify
+      console.log(`[GENRE-SEARCH] Detected underground Spanish context (LLM only)`);
+    }
+    
+    // Add activity-specific queries
+    if (intent.criterios?.actividad) {
+      const activity = intent.criterios.actividad.toLowerCase();
+      if (activity.includes('viaje') || activity.includes('coche')) {
+        queries.push('road trip', 'viaje', 'conducir', 'carretera');
+      } else if (activity.includes('fiesta') || activity.includes('baile')) {
+        queries.push('party', 'fiesta', 'bailable', 'dance');
+      } else if (activity.includes('estudiar') || activity.includes('trabajar')) {
+        queries.push('study', 'focus', 'concentración', 'trabajo');
+      } else if (activity.includes('relaj') || activity.includes('chill')) {
+        queries.push('chill', 'relax', 'calm', 'tranquilo');
+      }
+    }
+    
+    for (const query of queries.slice(0, 5)) {
+      const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=30&market=from_token`;
+      const response = await fetch(searchUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        genreTracks.push(...(data.tracks?.items || []));
+        console.log(`[GENRE-SEARCH] Found ${data.tracks?.items?.length || 0} tracks for "${query}"`);
+      }
+    }
+  } catch (error) {
+    console.warn(`[GENRE-SEARCH] Failed:`, error.message);
+  }
+  
+  return genreTracks;
+}
+
+// COLLECT PLAYLIST TRACKS: Search for playlists and extract tracks
+async function collectPlaylistTracks(accessToken, intent) {
+  const playlistTracks = [];
+  
+  try {
+    const hint = cleanHint(intent.spotifyHint || intent.promptLower || '');
+    const safeHint = hint || 'lofi jazz instrumental';
+    console.log('[HINT] raw=', intent.spotifyHint || intent.promptLower, 'clean=', safeHint);
+    console.log('[PLAYLIST-TRACKS] cleanHint result:', hint, 'safeHint:', safeHint);
+    
+    // FIXPACK: No usar spotifyHint literal como query para evitar pistas genéricas
+    const queries = [
+      'hits',
+      'trending',
+      'top 50'
+    ];
+    
+    // Solo añadir safeHint si no está vacío
+    if (safeHint) {
+      queries.push(safeHint);
+    }
+    
+    // FIXPACK: Mapear spotifyHint a términos controlados
+    const originalHint = intent.spotifyHint?.toLowerCase() || '';
+    if (originalHint.includes('jazz')) queries.push('jazz music', 'modern jazz', 'jazz fusion');
+    if (originalHint.includes('lofi')) queries.push('lofi hip hop', 'lofi beats', 'chill lofi');
+    if (originalHint.includes('instrumental')) queries.push('instrumental music', 'instrumental jazz');
+    if (originalHint.includes('relajante') || originalHint.includes('relaxing')) queries.push('relaxing music', 'ambient music');
+    if (originalHint.includes('trabajar') || originalHint.includes('work')) queries.push('focus music', 'study music', 'work music');
+    
+    // Add context-specific playlist queries
+    if (intent.criterios?.actividad) {
+      const activity = intent.criterios.actividad.toLowerCase();
+      if (activity.includes('viaje') || activity.includes('coche')) {
+        queries.push('road trip', 'viaje', 'conducir', 'carretera');
+      } else if (activity.includes('fiesta') || activity.includes('baile')) {
+        queries.push('party', 'fiesta', 'bailable', 'dance');
+      } else if (activity.includes('estudiar') || activity.includes('trabajar')) {
+        queries.push('study', 'focus', 'concentración', 'trabajo');
+      } else if (activity.includes('relaj') || activity.includes('chill')) {
+        queries.push('chill', 'relax', 'calm', 'tranquilo');
+      }
+    }
+    
+    // Add language-specific queries
+    if (intent.criterios?.idiomas?.includes('español')) {
+      queries.push('música española', 'pop español', 'rock español', 'reggaeton', 'flamenco');
+    }
+    
+    // Add underground Spanish playlist queries (Riverland style)
+    if (intent.spotifyHint?.toLowerCase().includes('underground')) {
+      queries.push(
+        // RIVERLAND STYLE QUERIES
+        'riverland 2024', 'riverland 2025', 'riverland lineup', 'riverland artists',
+        'underground español', 'música underground española', 'indie español',
+        'reggaeton underground', 'trap español', 'urban español',
+        'música independiente española', 'festival underground español',
+        'electronic español', 'edm español', 'techno español'
+      );
+      // CONTEXTOS DE ESCENAS: Solo para contexto LLM, NO para búsquedas Spotify
+      console.log(`[PLAYLIST-TRACKS] Detected underground Spanish context (LLM only)`);
+    }
+    
+    for (const query of queries.slice(0, 5)) {
+      const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=playlist&limit=10&market=from_token`;
+      const response = await fetch(searchUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const playlists = data.playlists?.items || [];
+        
+        for (const playlist of playlists.slice(0, 3)) {
+          if (!playlist || !playlist.id) {
+            console.warn(`[PLAYLIST-TRACKS] Skipping invalid playlist:`, playlist);
+            continue;
+          }
+          
+          const tracksUrl = `https://api.spotify.com/v1/playlists/${playlist.id}/tracks?limit=20&market=from_token`;
+          const tracksResponse = await fetch(tracksUrl, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          });
+          
+          if (tracksResponse.ok) {
+            const tracksData = await tracksResponse.json();
+            const tracks = tracksData.items?.map(item => item.track).filter(track => track && track.id) || [];
+            playlistTracks.push(...tracks);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`[PLAYLIST-TRACKS] Failed:`, error.message);
+  }
+  
+  return playlistTracks;
+}
+
+// COLLECT RECOMMENDATIONS: Get recommendations using ONLY LLM seeds
+async function collectRecommendations(accessToken, intent, llmArtists) {
+  const recTracks = [];
+  
+  try {
+    // SEEDS SOLO DEL LLM: Buscar artistIds de los artistas del LLM
+    const artistIds = [];
+    for (const artist of llmArtists.slice(0, 5)) {
+      try {
+        const searchResponse = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(artist)}&type=artist&limit=1&market=from_token`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        
+        if (searchResponse.ok) {
+          const searchData = await searchResponse.json();
+          if (searchData.artists?.items?.[0]) {
+            artistIds.push(searchData.artists.items[0].id);
+          }
+        }
+      } catch (error) {
+        console.warn(`[RECOMMENDATIONS] Could not search for artist "${artist}":`, error.message);
+      }
+    }
+    
+    console.log(`[SEEDS] artists=${artistIds.length}, tracks=0`);
+    
+    // Solo proceder si tenemos seeds del LLM
+    if (artistIds.length === 0) {
+      console.log(`[RECOMMENDATIONS] No LLM artist seeds found, skipping recommendations`);
+      return recTracks;
+    }
+    
+    // Construir URL con SOLO seeds del LLM (sin genres ni contextos)
+    let recUrl = `https://api.spotify.com/v1/recommendations?limit=50&market=from_token&seed_artists=${artistIds.join(',')}`;
+    
+    // Hacer la petición de recomendaciones
+    const response = await fetch(recUrl, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      recTracks.push(...(data.tracks || []));
+      console.log(`[RECOMMENDATIONS] Got ${data.tracks?.length || 0} tracks using LLM seeds only`);
+    }
+  } catch (error) {
+    console.warn(`[RECOMMENDATIONS] Failed:`, error.message);
+  }
+  
+  console.log(`[RECOMMENDATIONS] Returning ${recTracks.length} tracks`);
+  return recTracks;
+}
+
+
+
+
+
+// APPLY INITIAL FILTERS: Basic filtering before relaxation
+function applyInitialFilters(tracks, intent) {
+  return tracks.filter(track => {
+    // HOTFIX: Don't filter out tracks without audio features (403 fallback)
+    // if (!track.audio_features) return false;
+    
+    // Basic quality filters
+    if (track.popularity < 10) return false;
+    
+    // Only apply audio feature filters if features are available
+    if (track.audio_features) {
+      if (track.audio_features.tempo < 50 || track.audio_features.tempo > 200) return false;
+    }
+    
+    // Genre filters if specified
+    if (intent.criterios?.generos && intent.criterios.generos.length > 0) {
+      // This would need genre detection, for now just pass
+    }
+    
+    return true;
+  });
+}
+
+// APPLY RELAXATION LADDER: Gradually relax constraints to reach target
+async function applyRelaxationLadder(accessToken, allCandidates, currentTracks, targetTracks, intent) {
+  console.log(`[RELAXATION-LADDER] Starting with ${currentTracks.length}/${targetTracks} tracks`);
+  
+  let finalTracks = [...currentTracks];
+  const seenTracks = new Set(finalTracks.map(t => t.id));
+  const steps = [];
+  
+  // STEP 1: Expand searches with synonyms and ES↔EN
+  if (finalTracks.length < targetTracks) {
+    console.log(`[RELAXATION-LADDER] Step 1: Expanding searches`);
+    const expandedTracks = await expandSearches(accessToken, intent);
+    const beforeCount = finalTracks.length;
+    
+    for (const track of expandedTracks) {
+      if (!seenTracks.has(track.id) && finalTracks.length < targetTracks) {
+        seenTracks.add(track.id);
+        finalTracks.push(track);
+      }
+    }
+    
+    const addedCount = finalTracks.length - beforeCount;
+    steps.push(`Step 1: Expanded searches - Added ${addedCount} tracks (${finalTracks.length}/${targetTracks})`);
+  }
+  
+  // STEP 2: Lower soft thresholds
+  if (finalTracks.length < targetTracks) {
+    console.log(`[RELAXATION-LADDER] Step 2: Lowering soft thresholds`);
+    const beforeCount = finalTracks.length;
+    const relaxedTracks = allCandidates.filter(track => {
+      if (!track.audio_features || seenTracks.has(track.id)) return false;
+      
+      // Lower thresholds
+      const relaxedValence = track.audio_features.valence >= 0.2; // Was 0.4
+      const relaxedAcousticness = track.audio_features.acousticness >= 0.1; // Was 0.3
+      const relaxedDanceability = track.audio_features.danceability >= 0.3; // Was 0.5
+      
+      return relaxedValence && relaxedAcousticness && relaxedDanceability;
+    });
+    
+    for (const track of relaxedTracks) {
+      if (finalTracks.length < targetTracks) {
+        seenTracks.add(track.id);
+        finalTracks.push(track);
+      }
+    }
+    
+    const addedCount = finalTracks.length - beforeCount;
+    steps.push(`Step 2: Lowered soft thresholds - Added ${addedCount} tracks (${finalTracks.length}/${targetTracks})`);
+  }
+  
+  // STEP 3: Open feature windows
+  if (finalTracks.length < targetTracks) {
+    console.log(`[RELAXATION-LADDER] Step 3: Opening feature windows`);
+    const targetFeatures = intent.targetFeatures || {};
+    
+    const windowedTracks = allCandidates.filter(track => {
+      if (!track.audio_features || seenTracks.has(track.id)) return false;
+      
+      const tempoWindow = !targetFeatures.tempo || 
+        Math.abs(track.audio_features.tempo - targetFeatures.tempo) <= 15;
+      const energyWindow = !targetFeatures.energy || 
+        Math.abs(track.audio_features.energy - targetFeatures.energy) <= 0.1;
+      
+      return tempoWindow && energyWindow;
+    });
+    
+    for (const track of windowedTracks) {
+      if (finalTracks.length < targetTracks) {
+        seenTracks.add(track.id);
+        finalTracks.push(track);
+      }
+    }
+  }
+  
+  // STEP 4: Allow edits/remix (not live)
+  if (finalTracks.length < targetTracks) {
+    console.log(`[RELAXATION-LADDER] Step 4: Allowing edits/remix`);
+    const remixTracks = allCandidates.filter(track => {
+      if (!track.audio_features || seenTracks.has(track.id)) return false;
+      
+      const name = track.name.toLowerCase();
+      const isRemix = name.includes('remix') || name.includes('edit') || name.includes('version');
+      const isLive = name.includes('live') || name.includes('concert');
+      
+      return isRemix && !isLive;
+    });
+    
+    for (const track of remixTracks) {
+      if (finalTracks.length < targetTracks) {
+        seenTracks.add(track.id);
+        finalTracks.push(track);
+      }
+    }
+  }
+  
+  // STEP 5: Lift caps +1
+  if (finalTracks.length < targetTracks) {
+    console.log(`[RELAXATION-LADDER] Step 5: Lifting caps +1`);
+    const uniqueArtists = new Set(finalTracks.map(t => getArtistName(t.artists[0]))).size;
+    const liftedCap = calculateDynamicCaps(targetTracks, uniqueArtists, intent.modo) + 1;
+    
+    const artistCounts = {};
+    const liftedTracks = [];
+    
+    for (const track of finalTracks) {
+      const artistName = getArtistName(track.artists[0]);
+      const currentCount = artistCounts[artistName] || 0;
+      
+      if (currentCount < liftedCap) {
+        liftedTracks.push(track);
+        artistCounts[artistName] = currentCount + 1;
+      }
+    }
+    
+    finalTracks = liftedTracks;
+  }
+  
+  // STEP 6: Editorial playlists as last resort
+  if (finalTracks.length < targetTracks) {
+    console.log(`[RELAXATION-LADDER] Step 6: Editorial playlists (last resort)`);
+    const editorialTracks = await collectEditorialPlaylists(accessToken, intent);
+    
+    for (const track of editorialTracks) {
+      if (!seenTracks.has(track.id) && finalTracks.length < targetTracks) {
+        seenTracks.add(track.id);
+        finalTracks.push(track);
+      }
+    }
+  }
+  
+  console.log(`[RELAXATION-LADDER] Final result: ${finalTracks.length}/${targetTracks} tracks`);
+  return { tracks: finalTracks, steps };
+}
+
+// EXPAND SEARCHES: Use synonyms and ES↔EN translations
+async function expandSearches(accessToken, intent) {
+  const expandedTracks = [];
+  
+  try {
+    const baseQuery = intent.spotifyHint || 'popular music';
+    const synonyms = {
+      'jazz': ['jazz music', 'jazz fusion', 'smooth jazz', 'bebop', 'swing'],
+      'rock': ['rock music', 'classic rock', 'alternative rock', 'indie rock', 'hard rock'],
+      'pop': ['pop music', 'popular music', 'top 40', 'mainstream', 'hit songs'],
+      'electronic': ['electronic music', 'edm', 'dance music', 'techno', 'house'],
+      'hip hop': ['hip hop', 'rap', 'urban music', 'trap', 'r&b']
+    };
+    
+    const queries = [baseQuery];
+    
+    // Add synonyms
+    for (const [genre, syns] of Object.entries(synonyms)) {
+      if (baseQuery.toLowerCase().includes(genre)) {
+        queries.push(...syns);
+      }
+    }
+    
+    // Add ES↔EN translations
+    const translations = {
+      'música': 'music',
+      'canciones': 'songs',
+      'hits': 'hits',
+      'popular': 'popular',
+      'clásico': 'classic',
+      'moderno': 'modern',
+      'actual': 'current',
+      'trending': 'trending'
+    };
+    
+    for (const [es, en] of Object.entries(translations)) {
+      if (baseQuery.toLowerCase().includes(es)) {
+        queries.push(baseQuery.toLowerCase().replace(es, en));
+      }
+    }
+    
+    // Search with expanded queries
+    for (const query of queries.slice(0, 10)) {
+      const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=20&market=from_token`;
+      const response = await fetch(searchUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        expandedTracks.push(...(data.tracks?.items || []));
+      }
+    }
+  } catch (error) {
+    console.warn(`[EXPAND-SEARCHES] Failed:`, error.message);
+  }
+  
+  return expandedTracks;
+}
+
+// COLLECT EDITORIAL PLAYLISTS: Get tracks from editorial playlists
+async function collectEditorialPlaylists(accessToken, intent) {
+  const editorialTracks = [];
+  
+  try {
+    const editorialQueries = [
+      'Spotify',
+      'Today\'s Top Hits',
+      'Global Top 50',
+      'Viral 50',
+      'New Music Friday',
+      'Discover Weekly',
+      'Release Radar'
+    ];
+    
+    for (const query of editorialQueries) {
+      const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=playlist&limit=5&market=from_token`;
+      const response = await fetch(searchUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const playlists = data.playlists?.items || [];
+        
+        for (const playlist of playlists.slice(0, 2)) {
+          if (!playlist || !playlist.id) {
+            console.warn(`[EDITORIAL-PLAYLISTS] Skipping invalid playlist:`, playlist);
+            continue;
+          }
+          
+          const tracksUrl = `https://api.spotify.com/v1/playlists/${playlist.id}/tracks?limit=30&market=from_token`;
+          const tracksResponse = await fetch(tracksUrl, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          });
+          
+          if (tracksResponse.ok) {
+            const tracksData = await tracksResponse.json();
+            const tracks = tracksData.items?.map(item => item.track).filter(track => track && track.id) || [];
+            editorialTracks.push(...tracks);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`[EDITORIAL-PLAYLISTS] Failed:`, error.message);
+  }
+  
+  return editorialTracks;
+}
+
+// SAFE ARTIST NAME EXTRACTION: Handle both string and object artist formats
+function getArtistName(artist) {
+  if (typeof artist === 'string') {
+    return artist;
+  }
+  if (artist && typeof artist === 'object' && artist.name) {
+    return artist.name;
+  }
+  return 'Unknown';
+}
+
+// DYNAMIC ARTIST CAPS: Intelligent caps based on playlist size and artist count
+function calculateDynamicCaps(targetTracks, uniqueArtists, mode = 'normal') {
+  // PROMPT 10: Caps dinámicos por modo
+  let maxPerArtist;
+  
+  switch (mode) {
+    case 'normal':
+      maxPerArtist = Math.max(2, Math.ceil(targetTracks / 20));
+      break;
+    case 'festival':
+    case 'festival_year_focused':
+      maxPerArtist = Math.max(3, Math.ceil(targetTracks / 10));
+      break;
+    case 'current_focused':
+    case 'viral':
+      maxPerArtist = Math.max(3, Math.ceil(targetTracks / 12));
+      break;
+    default:
+      maxPerArtist = Math.max(2, Math.ceil(targetTracks / 20));
+  }
+  
+  console.log(`[CAPS] mode=${mode} maxPerArtist=${maxPerArtist} targetTracks=${targetTracks}`);
+  
+  return maxPerArtist;
+}
+
+// ADAPTIVE ROUND-ROBIN: Increases caps if target not reached (up to 3 rounds)
+function applyAdaptiveRoundRobin(tracks, targetTracks, mode = 'normal') {
+  console.log(`[ADAPTIVE-ROUND-ROBIN] Starting with ${tracks.length} tracks, target: ${targetTracks}`);
+  
+  let maxPerArtist = calculateDynamicCaps(targetTracks, 0, mode);
+  let finalTracks = [];
+  let rounds = 0;
+  const maxRounds = 3;
+  
+  while (finalTracks.length < targetTracks && rounds < maxRounds) {
+    rounds++;
+    console.log(`[ADAPTIVE-ROUND-ROBIN] Round ${rounds}, maxPerArtist: ${maxPerArtist}`);
+    
+    // Reset for this round
+    finalTracks = [];
+    const artistCounts = {};
+    const artistQueues = {};
+    
+    // Group tracks by artist
+    tracks.forEach(track => {
+      const artistName = track.artists?.[0] || 'Unknown';
+      if (!artistQueues[artistName]) {
+        artistQueues[artistName] = [];
+        artistCounts[artistName] = 0;
+      }
+      artistQueues[artistName].push(track);
+    });
+    
+    // Round-robin selection with current cap
+    const artists = Object.keys(artistQueues);
+    let artistIndex = 0;
+    
+    while (finalTracks.length < targetTracks && artists.length > 0) {
+      const currentArtist = artists[artistIndex];
+      const currentCount = artistCounts[currentArtist] || 0;
+      
+      if (currentCount < maxPerArtist && artistQueues[currentArtist].length > 0) {
+        // Add track from this artist
+        const track = artistQueues[currentArtist].shift();
+        finalTracks.push(track);
+        artistCounts[currentArtist] = currentCount + 1;
+        
+        // If this artist is exhausted, remove from rotation
+        if (artistQueues[currentArtist].length === 0) {
+          artists.splice(artistIndex, 1);
+          if (artistIndex >= artists.length) artistIndex = 0;
+          continue;
+        }
+      }
+      
+      // Move to next artist
+      artistIndex = (artistIndex + 1) % artists.length;
+      
+      // If all artists are at their cap, break
+      const allAtCap = artists.every(artist => (artistCounts[artist] || 0) >= maxPerArtist);
+      if (allAtCap) break;
+    }
+    
+    console.log(`[ADAPTIVE-ROUND-ROBIN] Round ${rounds} result: ${finalTracks.length}/${targetTracks} tracks`);
+    
+    // If we reached the target, we're done
+    if (finalTracks.length >= targetTracks) {
+      break;
+    }
+    
+    // If not, increase cap by 1 for next round
+    if (rounds < maxRounds) {
+      maxPerArtist += 1;
+      console.log(`[ADAPTIVE-ROUND-ROBIN] Target not reached, increasing cap to ${maxPerArtist} for next round`);
+    }
+  }
+  
+  console.log(`[CAPS] mode=${mode} maxPerArtist=${maxPerArtist} rounds=${rounds} final=${finalTracks.length}`);
+  
+  return finalTracks;
+}
+
+// SIMPLE ROUND-ROBIN: 3 tracks per artist max, then cycle through artists
+function applyIntelligentRoundRobin(tracks, targetTracks, maxPerArtist) {
+  console.log(`[SIMPLE-ROUND-ROBIN] Distributing ${tracks.length} tracks with max ${maxPerArtist} per artist`);
+  
+  const artistCounts = {};
+  const finalTracks = [];
+  const artistQueues = {};
+  
+  // Group tracks by artist
+  tracks.forEach(track => {
+    const artistName = track.artists[0] || 'Unknown';
+    if (!artistQueues[artistName]) {
+      artistQueues[artistName] = [];
+    }
+    artistQueues[artistName].push(track);
+  });
+  
+  // Sort each artist's queue by popularity (best tracks first)
+  Object.keys(artistQueues).forEach(artist => {
+    artistQueues[artist].sort((a, b) => b.popularity - a.popularity);
+  });
+  
+  // Get artists sorted by total tracks available (most tracks first)
+  const artists = Object.keys(artistQueues).sort((a, b) => 
+    artistQueues[b].length - artistQueues[a].length
+  );
+  
+  console.log(`[SIMPLE-ROUND-ROBIN] Artists sorted by track count:`, artists.slice(0, 10));
+  
+  // SIMPLE LOGIC: Add tracks one by one, respecting the 3 per artist limit
+  for (let i = 0; i < tracks.length && finalTracks.length < targetTracks; i++) {
+    const track = tracks[i];
+    const artistName = track.artists[0] || 'Unknown';
+    const currentCount = artistCounts[artistName] || 0;
+    
+    if (currentCount < maxPerArtist) {
+      finalTracks.push(track);
+      artistCounts[artistName] = currentCount + 1;
+      
+      if (finalTracks.length % 10 === 0) {
+        console.log(`[SIMPLE-ROUND-ROBIN] Added ${finalTracks.length}/${targetTracks} tracks`);
+      }
+    }
+  }
+  
+  console.log(`[SIMPLE-ROUND-ROBIN] Final distribution:`, Object.entries(artistCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([artist, count]) => `${artist}: ${count}`)
+    .join(', '));
+  
+  return finalTracks;
+}
+
+// ROUND-ROBIN DISTRIBUTION: Avoid clusters of same artist
+function applyRoundRobinDistribution(tracks, targetTracks, maxTracksPerArtist) {
+  console.log(`[ROUND-ROBIN] Distributing ${tracks.length} tracks with max ${maxTracksPerArtist} per artist`);
+  
+  const artistCounts = {};
+  const finalTracks = [];
+  const artistQueues = {};
+  
+  // Group tracks by artist
+  tracks.forEach(track => {
+    const artistName = track.artists[0] || 'Unknown';
+    if (!artistQueues[artistName]) {
+      artistQueues[artistName] = [];
+    }
+    artistQueues[artistName].push(track);
+  });
+  
+  // Sort each artist's queue by popularity (best tracks first)
+  Object.keys(artistQueues).forEach(artist => {
+    artistQueues[artist].sort((a, b) => b.popularity - a.popularity);
+  });
+  
+  // Round-robin selection
+  const artists = Object.keys(artistQueues);
+  let artistIndex = 0;
+  
+  while (finalTracks.length < targetTracks && artists.length > 0) {
+    const currentArtist = artists[artistIndex];
+    const currentCount = artistCounts[currentArtist] || 0;
+    
+    if (currentCount < maxTracksPerArtist && artistQueues[currentArtist].length > 0) {
+      // Add track from this artist
+      const track = artistQueues[currentArtist].shift();
+      finalTracks.push(track);
+      artistCounts[currentArtist] = currentCount + 1;
+      
+      // If this artist is exhausted, remove from rotation
+      if (artistQueues[currentArtist].length === 0) {
+        artists.splice(artistIndex, 1);
+        if (artistIndex >= artists.length) artistIndex = 0;
+        continue;
+      }
+    }
+    
+    // Move to next artist
+    artistIndex = (artistIndex + 1) % artists.length;
+    
+    // If all artists are at their cap, break
+    const allAtCap = artists.every(artist => (artistCounts[artist] || 0) >= maxTracksPerArtist);
+    if (allAtCap) break;
+  }
+  
+  console.log(`[ROUND-ROBIN] Final distribution:`, Object.entries(artistCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([artist, count]) => `${artist}: ${count}`)
+    .join(', '));
+  
+  return finalTracks;
+}
+
+// SCORING WITH PENALTIES: Penalize excess per artist, bonus for diversity
+function scoreTrackDistribution(tracks) {
+  const artistCounts = {};
+  tracks.forEach(track => {
+    const artistName = track.artists[0] || 'Unknown';
+    artistCounts[artistName] = (artistCounts[artistName] || 0) + 1;
+  });
+  
+  const totalTracks = tracks.length;
+  const uniqueArtists = Object.keys(artistCounts).length;
+  const counts = Object.values(artistCounts);
+  
+  // Calculate diversity score (higher is better)
+  const diversityScore = uniqueArtists / totalTracks;
+  
+  // Calculate penalty for artist dominance (lower is better)
+  const maxTracksPerArtist = Math.max(...counts);
+  const dominancePenalty = maxTracksPerArtist / totalTracks;
+  
+  // Calculate variance penalty (lower variance is better)
+  const mean = totalTracks / uniqueArtists;
+  const variance = counts.reduce((sum, count) => sum + Math.pow(count - mean, 2), 0) / uniqueArtists;
+  const variancePenalty = variance / (mean * mean);
+  
+  const finalScore = diversityScore - dominancePenalty - (variancePenalty * 0.1);
+  
+  console.log(`[SCORING] Diversity: ${diversityScore.toFixed(3)}, Dominance: ${dominancePenalty.toFixed(3)}, Variance: ${variancePenalty.toFixed(3)}, Final: ${finalScore.toFixed(3)}`);
+  
+  return {
+    score: finalScore,
+    diversity: diversityScore,
+    dominance: dominancePenalty,
+    variance: variancePenalty,
+    artistCounts
+  };
+}
+
+// SMOOTH ORDERING: Create intro → body → outro curve with minimal BPM jumps
+async function smoothOrdering(tracks, targetFeatures = {}) {
+  console.log(`[SMOOTH-ORDERING] Ordering ${tracks.length} tracks with smooth curve`);
+  
+  // Declarar accessToken local para smooth ordering
+  const spotifySession = await getServerSession(authOptions);
+  const token = spotifySession?.accessToken || spotifySession?.user?.accessToken || null;
+  const accessToken = token; // Para compatibilidad con smooth ordering
+  
+  let featuresOk = 0;
+  let fallback = false;
+  
+  try {
+    // PROMPT 8: Intenta cargar audio features en batches de 100
+    const trackIds = tracks.map(t => t.id).filter(Boolean);
+    if (trackIds.length === 0) {
+      console.warn(`[SMOOTH-ORDERING] No valid track IDs found, using stable order`);
+      fallback = true;
+    } else {
+      // Procesar en batches de 100
+      const batches = [];
+      for (let i = 0; i < trackIds.length; i += 100) {
+        batches.push(trackIds.slice(i, i + 100));
+      }
+      
+      let allAudioFeatures = [];
+      for (const batch of batches) {
+        try {
+          const featuresResponse = await fetch(`https://api.spotify.com/v1/audio-features?ids=${batch.join(',')}`, {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (featuresResponse.ok) {
+            const featuresData = await featuresResponse.json();
+            const batchFeatures = featuresData.audio_features || [];
+            allAudioFeatures.push(...batchFeatures);
+            featuresOk += batchFeatures.filter(f => f && f.tempo && f.tempo > 0).length;
+          } else {
+            console.warn(`[SMOOTH-ORDERING] Batch failed: ${featuresResponse.status}`);
+            allAudioFeatures.push(...new Array(batch.length).fill(null));
+          }
+        } catch (batchError) {
+          console.warn(`[SMOOTH-ORDERING] Batch error:`, batchError.message);
+          allAudioFeatures.push(...new Array(batch.length).fill(null));
+        }
+      }
+      
+      // Add audio features to tracks
+      const tracksWithFeatures = tracks.map((track, index) => ({
+        ...track,
+        audio_features: allAudioFeatures[index] || null
+      }));
+      
+      // Si tenemos suficientes features válidos, usar smooth ordering
+      if (featuresOk >= Math.ceil(tracks.length * 0.3)) { // Al menos 30% con features
+        console.log(`[SMOOTH-ORDERING] features_ok=${featuresOk}, fallback=false`);
+        
+        // Filtrar tracks con features válidos para el ordenado
+        const validTracks = tracksWithFeatures.filter(track => 
+          track.audio_features && 
+          track.audio_features.tempo && 
+          track.audio_features.tempo > 0
+        );
+        
+        // Ordenar por tempo para progresión suave de BPM
+        validTracks.sort((a, b) => a.audio_features.tempo - b.audio_features.tempo);
+        
+        // Crear estructura intro → body → outro
+        const totalTracks = validTracks.length;
+        const introSize = Math.max(1, Math.floor(totalTracks * 0.1)); // 10% intro
+        const outroSize = Math.max(1, Math.floor(totalTracks * 0.1)); // 10% outro
+        const bodySize = totalTracks - introSize - outroSize; // 80% body
+        
+        const introTracks = validTracks.slice(0, introSize);
+        const bodyTracks = validTracks.slice(introSize, introSize + bodySize);
+        const outroTracks = validTracks.slice(introSize + bodySize);
+        
+        // Shuffle body tracks for variety (but keep tempo progression)
+        const shuffledBodyTracks = [...bodyTracks].sort(() => Math.random() - 0.5);
+        
+        // Combinar: intro (lento) → body (variado) → outro (lento)
+        const orderedTracks = [...introTracks, ...shuffledBodyTracks, ...outroTracks];
+        
+        console.log(`[SMOOTH-ORDERING] Created curve: ${introTracks.length} intro + ${shuffledBodyTracks.length} body + ${outroTracks.length} outro`);
+        
+        return orderedTracks;
+      } else {
+        fallback = true;
+      }
+    }
+    
+  } catch (error) {
+    console.warn(`[SMOOTH-ORDERING] Error:`, error.message);
+    fallback = true;
+  }
+  
+  // PROMPT 8: Fallback a orden estable si features no están disponibles
+  if (fallback) {
+    console.log(`[SMOOTH-ORDERING] features_ok=${featuresOk}, fallback=true`);
+    console.log(`[SMOOTH-ORDERING] features unavailable, falling back to stable order`);
+    
+    // Orden estable: LLM primero, luego Spotify por release_date desc
+    const stableOrdered = [...tracks].sort((a, b) => {
+      // LLM tracks primero
+      const aIsLLM = a.source !== 'spotify';
+      const bIsLLM = b.source !== 'spotify';
+      
+      if (aIsLLM && !bIsLLM) return -1;
+      if (!aIsLLM && bIsLLM) return 1;
+      
+      // Si ambos son del mismo tipo, ordenar Spotify por release_date desc
+      if (!aIsLLM && !bIsLLM) {
+        const dateA = new Date(a.album?.release_date || '1900-01-01');
+        const dateB = new Date(b.album?.release_date || '1900-01-01');
+        return dateB - dateA;
+      }
+      
+      return 0;
+    });
+    
+    return stableOrdered;
+  }
+  
+  return tracks;
+}
+
+// INTELLIGENT SPOTIFY FILL for normal prompts (30% remaining coherent and recent)
+async function intelligentSpotifyFill(accessToken, intent, targetTracks, llmTracks = [], llmArtists = []) {
+  console.log(`[SPOTIFY-FILL] Filling ${targetTracks} tracks for normal prompt`);
+  console.log(`[SPOTIFY-FILL] LLM provided: ${llmTracks.length} tracks, ${llmArtists.length} artists`);
+  
+  try {
+    const allTracks = [];
+    const seenTracks = new Set();
+    
+    // STEP 1: Radio de Canción for each LLM track
+    if (llmTracks.length > 0) {
+      console.log(`[SPOTIFY-FILL] Getting radio tracks for ${llmTracks.length} LLM tracks`);
+      
+      for (const track of llmTracks.slice(0, 5)) { // Limit to 5 tracks to avoid too many API calls
+        try {
+          const radioUrl = `https://api.spotify.com/v1/recommendations?seed_tracks=${track.id}&limit=10&market=from_token`;
+          
+          // Add target features if available
+          let enhancedUrl = radioUrl;
+          if (intent.targetFeatures) {
+            enhancedUrl += `&target_tempo=${intent.targetFeatures.tempo || 120}`;
+            enhancedUrl += `&target_energy=${intent.targetFeatures.energy || 0.6}`;
+            enhancedUrl += `&target_valence=${intent.targetFeatures.valence || 0.6}`;
+            enhancedUrl += `&target_danceability=${intent.targetFeatures.danceability || 0.7}`;
+            enhancedUrl += `&target_acousticness=${intent.targetFeatures.acousticness || 0.3}`;
+          }
+          
+          const radioResponse = await fetch(enhancedUrl, {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (radioResponse.ok) {
+            const radioData = await radioResponse.json();
+            const radioTracks = radioData.tracks || [];
+            
+            console.log(`[SPOTIFY-FILL] Got ${radioTracks.length} radio tracks for "${track.name}"`);
+            
+            // Add radio tracks with deduplication
+            radioTracks.forEach(radioTrack => {
+              if (radioTrack && radioTrack.id && !seenTracks.has(radioTrack.id)) {
+                seenTracks.add(radioTrack.id);
+                allTracks.push({
+                  id: radioTrack.id,
+                  name: radioTrack.name,
+                  artists: radioTrack.artists.map(a => a.name),
+                  artist_ids: radioTrack.artists.map(a => a.id),
+                  uri: radioTrack.uri,
+                  popularity: radioTrack.popularity,
+                  open_url: radioTrack.external_urls.spotify,
+                  audio_features: null,
+                  source: 'track_radio'
+                });
+              }
+            });
+          }
+        } catch (error) {
+          console.warn(`[SPOTIFY-FILL] Radio failed for track "${track.name}":`, error.message);
+        }
+      }
+    }
+    
+    // STEP 2: Top Tracks + Radio de Artista for LLM artists
+    if (llmArtists.length > 0 && allTracks.length < targetTracks) {
+      console.log(`[SPOTIFY-FILL] Getting artist tracks for ${llmArtists.length} LLM artists`);
+      
+      for (const artist of llmArtists.slice(0, 5)) { // Limit to 5 artists
+        try {
+          // Get artist ID first
+          const artistSearchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(artist)}&type=artist&limit=1&market=from_token`;
+          const artistSearchResponse = await fetch(artistSearchUrl, {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (artistSearchResponse.ok) {
+            const artistSearchData = await artistSearchResponse.json();
+            const artists = artistSearchData.artists?.items || [];
+            
+            if (artists.length > 0) {
+              const artistId = artists[0].id;
+              console.log(`[SPOTIFY-FILL] Found artist "${artist}" with ID: ${artistId}`);
+              
+              // Get top tracks
+              const topTracksUrl = `https://api.spotify.com/v1/artists/${artistId}/top-tracks?market=from_token`;
+              const topTracksResponse = await fetch(topTracksUrl, {
+                headers: {
+                  'Authorization': `Bearer ${accessToken}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+              
+              if (topTracksResponse.ok) {
+                const topTracksData = await topTracksResponse.json();
+                const topTracks = topTracksData.tracks || [];
+                
+                console.log(`[SPOTIFY-FILL] Got ${topTracks.length} top tracks for "${artist}"`);
+                
+                // Add top tracks with deduplication
+                topTracks.forEach(track => {
+                  if (track && track.id && !seenTracks.has(track.id)) {
+                    seenTracks.add(track.id);
+                    allTracks.push({
+                      id: track.id,
+                      name: track.name,
+                      artists: track.artists.map(a => a.name),
+                      artist_ids: track.artists.map(a => a.id),
+                      uri: track.uri,
+                      popularity: track.popularity,
+                      open_url: track.external_urls.spotify,
+                      audio_features: null,
+                      source: 'artist_top'
+                    });
+                  }
+                });
+                
+                // Get artist radio (recommendations based on artist)
+                const artistRadioUrl = `https://api.spotify.com/v1/recommendations?seed_artists=${artistId}&limit=10&market=from_token`;
+                const artistRadioResponse = await fetch(artistRadioUrl, {
+                  headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                  }
+                });
+                
+                if (artistRadioResponse.ok) {
+                  const artistRadioData = await artistRadioResponse.json();
+                  const artistRadioTracks = artistRadioData.tracks || [];
+                  
+                  console.log(`[SPOTIFY-FILL] Got ${artistRadioTracks.length} artist radio tracks for "${artist}"`);
+                  
+                  // Add artist radio tracks with deduplication
+                  artistRadioTracks.forEach(track => {
+                    if (track && track.id && !seenTracks.has(track.id)) {
+                      seenTracks.add(track.id);
+                      allTracks.push({
+                        id: track.id,
+                        name: track.name,
+                        artists: track.artists.map(a => a.name),
+                        artist_ids: track.artists.map(a => a.id),
+                        uri: track.uri,
+                        popularity: track.popularity,
+                        open_url: track.external_urls.spotify,
+                        audio_features: null,
+                        source: 'artist_radio'
+                      });
+                    }
+                  });
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.warn(`[SPOTIFY-FILL] Artist processing failed for "${artist}":`, error.message);
+        }
+      }
+    }
+    
+    // STEP 3: Apply quality filters and recent priority
+    console.log(`[SPOTIFY-FILL] Applying quality filters to ${allTracks.length} tracks`);
+    
+    // Filter out explicit content if not requested
+    const filteredTracks = allTracks.filter(track => {
+      // Add explicit filter here if needed
+      return true; // For now, keep all tracks
+    });
+    
+    // Prioritize recent tracks (last 2 years)
+    const currentYear = new Date().getFullYear();
+    const recentTracks = filteredTracks.filter(track => {
+      // This would need track release date, which we don't have in current structure
+      // For now, prioritize by popularity (newer tracks tend to be more popular)
+      return track.popularity > 30; // Filter out very old/unpopular tracks
+    });
+    
+    // Sort by popularity (recent tracks tend to be more popular)
+    recentTracks.sort((a, b) => b.popularity - a.popularity);
+    
+    // STEP 4: Apply adaptive dynamic caps and round-robin distribution
+    console.log(`[SPOTIFY-FILL] Applying adaptive distribution for normal mode`);
+    
+    // Apply adaptive round-robin distribution to avoid clusters
+    let finalTracks = applyAdaptiveRoundRobin(recentTracks, targetTracks, 'normal');
+    
+    // Score the distribution for quality assessment
+    const scoring = scoreTrackDistribution(finalTracks);
+    
+    console.log(`[SPOTIFY-FILL] Final result: ${finalTracks.length}/${targetTracks} tracks`);
+    console.log(`[SPOTIFY-FILL] Distribution score: ${scoring.score.toFixed(3)} (diversity: ${scoring.diversity.toFixed(3)}, dominance: ${scoring.dominance.toFixed(3)})`);
+    
+    return finalTracks;
+    
+  } catch (error) {
+    console.error(`[SPOTIFY-FILL] Error:`, error.message);
+    return [];
+  }
+}
+
+// SIMPLE FUNCTION: Just search for tracks using the hint
+async function simpleTrackSearch(accessToken, intent, targetTracks, originalPrompt = '') {
+  console.log(`[SIMPLE-SEARCH] Searching for ${targetTracks} tracks`);
+  console.log(`[SIMPLE-SEARCH] Hint: ${intent.spotifyHint}`);
+  
+  try {
+    const hint = intent.spotifyHint || 'popular music';
+    const allTracks = [];
+    
+    // Generate simple search queries based on the hint
+    let queries = [];
+    
+    // For festivals, search for playlists first, then extract tracks
+    // Detect ANY festival by checking for "festival" + year pattern
+    // Check if this is a festival prompt - MORE AGGRESSIVE DETECTION
+    const hintLower = intent.spotifyHint?.toLowerCase() || '';
+    const promptLower = originalPrompt.toLowerCase();
+    
+    // Detect festival by multiple criteria
+    const isFestival = (
+      hintLower.includes('festival') || 
+      promptLower.includes('festival') ||
+      hintLower.includes('2024') || 
+      hintLower.includes('2025') || 
+      hintLower.includes('2026') ||
+      promptLower.includes('2024') ||
+      promptLower.includes('2025') ||
+      promptLower.includes('2026')
+    );
+    
+    if (isFestival) {
+      console.log(`[SIMPLE-SEARCH] Festival detected (hint: ${hintLower}, prompt: ${promptLower}), searching playlists first`);
+      return await searchFestivalPlaylists(accessToken, intent, targetTracks, originalPrompt);
+    } else if (intent.spotifyHint?.toLowerCase().includes('jazz') && intent.spotifyHint?.toLowerCase().includes('techno')) {
+              queries = ['jazz electronic', 'nu jazz', 'electronic jazz', 'jazz dance', 'bonobo', 'st germain', 'jazz techno'];
+            } else if (intent.spotifyHint?.toLowerCase().includes('jazz')) {
+              queries = ['jazz music', 'modern jazz', 'jazz fusion', 'contemporary jazz'];
+            } else if (intent.spotifyHint?.toLowerCase().includes('rock')) {
+              queries = ['rock music', 'classic rock', 'alternative rock', 'indie rock'];
+            } else if (intent.spotifyHint?.toLowerCase().includes('viral') || intent.spotifyHint?.toLowerCase().includes('tiktok')) {
+              queries = ['viral hits 2024', 'trending music 2024', 'popular songs 2024', 'top 50 2024', 'hits 2024'];
+            } else {
+              queries = [hint, 'popular music', 'top hits'];
+            }
+    
+    console.log(`[SIMPLE-SEARCH] Search queries:`, queries);
+    
+    // Search for tracks directly
+    for (const query of queries.slice(0, 5)) { // More queries
+      console.log(`[SIMPLE-SEARCH] Searching tracks: "${query}"`);
+      
+      const searchResponse = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=50&market=from_token`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (searchResponse.ok) {
+        const searchData = await searchResponse.json();
+        const tracks = searchData.tracks?.items || [];
+        console.log(`[SIMPLE-SEARCH] Found ${tracks.length} tracks for "${query}"`);
+        
+        // Add tracks to our collection
+        tracks.forEach(track => {
+          if (track && track.id && !allTracks.find(t => t.id === track.id)) {
+            allTracks.push({
+              id: track.id,
+              name: track.name,
+              artists: track.artists.map(a => a.name),
+              artist_ids: track.artists.map(a => a.id),
+              uri: track.uri,
+              popularity: track.popularity,
+              open_url: track.external_urls.spotify,
+              audio_features: null
+            });
+          }
+        });
+      } else {
+        console.warn(`[SIMPLE-SEARCH] Search failed for "${query}":`, searchResponse.status);
+      }
+    }
+    
+    // Sort by popularity
+    allTracks.sort((a, b) => b.popularity - a.popularity);
+    
+    const resultTracks = allTracks.slice(0, targetTracks);
+    console.log(`[SIMPLE-SEARCH] Returning ${resultTracks.length} tracks (${allTracks.length} total found)`);
+    
+    return resultTracks;
+    
+  } catch (error) {
+    console.error(`[SIMPLE-SEARCH] Error:`, error.message);
+    return [];
+  }
+}

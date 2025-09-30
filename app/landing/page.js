@@ -1,8 +1,6 @@
 "use client";
 import { useState } from "react";
 
-export const metadata = { title: "Apúntate — Playlist AI" };
-
 export default function Page() {
   const [email, setEmail] = useState("");
   const [name, setName]   = useState("");

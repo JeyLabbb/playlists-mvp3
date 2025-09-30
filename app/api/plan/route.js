@@ -99,7 +99,7 @@ export async function POST(req){
       return NextResponse.json({ ok:true, plan: makeHeuristicPlan(prompt, want), source:"heuristic-no-key" });
     }
 
-    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+    const model = process.env.OPENAI_MODEL || "gpt-4.1";
     const system = `
 Eres un planificador musical. Devuelve SOLO JSON válido:
 {

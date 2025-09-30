@@ -1,6 +1,9 @@
 import NextAuth from "next-auth";
 import SpotifyProvider from "next-auth/providers/spotify";
 
+const isDev = process.env.NODE_ENV !== "production";
+const DEV_REDIRECT_URI = "http://localhost:3000/api/auth/callback/spotify";
+
 async function refreshAccessToken(token) {
   try {
     const params = new URLSearchParams({
@@ -41,8 +44,11 @@ export const authOptions = {
           scope:
             "user-read-email user-read-private playlist-modify-public playlist-modify-private",
           show_dialog: false,
+          // en dev fuerza la misma redirect que has registrado
+          redirect_uri: isDev ? DEV_REDIRECT_URI : undefined,
         },
       },
+      checks: ["pkce", "state"],
     }),
   ],
   secret: process.env.NEXTAUTH_SECRET,
@@ -51,13 +57,16 @@ export const authOptions = {
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
+        // account.expires_at (segundos) -> ms
+        const expMs = account.expires_at
+          ? account.expires_at * 1000
+          : Date.now() + (account.expires_in ?? 3600) * 1000;
+
         return {
           ...token,
           accessToken: account.access_token,
           refreshToken: account.refresh_token ?? token.refreshToken,
-          expiresAt: account.expires_at
-            ? account.expires_at * 1000
-            : Date.now() + (account.expires_in ?? 3600) * 1000,
+          expiresAt: expMs,
         };
       }
       if ((token.expiresAt ?? 0) - 60_000 > Date.now()) return token;
@@ -70,17 +79,16 @@ export const authOptions = {
       return session;
     },
 
-    // 🔁 Fuerza volver a tu app tras el login (no quedarse en Spotify)
     async redirect({ url, baseUrl }) {
       try {
         const u = new URL(url, baseUrl);
         if (u.origin === baseUrl) return u.toString();
       } catch {}
-      return baseUrl; // home de la app
+      return baseUrl;
     },
   },
 
-  pages: { signIn: "/" }, // si alguna vez muestra sign-in, será la home
+  pages: { signIn: "/" },
 };
 
 const handler = NextAuth(authOptions);

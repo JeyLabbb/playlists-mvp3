@@ -1,0 +1,163 @@
+'use client';
+import { useState } from 'react';
+import { signIn } from 'next-auth/react';
+
+type Props = {
+  open: boolean;
+  onClose: () => void;
+};
+
+export default function RequestAccessModal({ open, onClose }: Props) {
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!fullName.trim() || fullName.trim().length < 2) {
+      setError('El nombre debe tener al menos 2 caracteres');
+      return;
+    }
+    
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Por favor ingresa un email válido');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+
+    try {
+      const response = await fetch('/api/allowlist/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName: fullName.trim(), email })
+      });
+
+      if (response.ok) {
+        setSuccess(true);
+        setTimeout(() => {
+          onClose();
+          setSuccess(false);
+          setFullName('');
+          setEmail('');
+        }, 2000);
+      } else {
+        setError('No se pudo enviar la solicitud. Inténtalo de nuevo.');
+      }
+    } catch (err) {
+      setError('No se pudo enviar la solicitud. Inténtalo de nuevo.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAlreadyRequested = () => {
+    onClose();
+    signIn('spotify');
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4">
+      <div className="relative w-full max-w-md rounded-2xl bg-black-surface p-6 shadow-2xl">
+        <div className="relative rounded-2xl border border-gray-dark bg-black-surface p-5">
+          <div className="flex items-start justify-between mb-6">
+            <div>
+              <h3 className="text-xl font-semibold text-white">Solicitar acceso al Early Access</h3>
+              <p className="mt-1 text-sm text-gray-text-secondary">
+                Para entrar con Spotify necesitamos activar tu email primero.
+              </p>
+            </div>
+          </div>
+
+          {success ? (
+            <div className="text-center py-8">
+              <div className="w-16 h-16 bg-spotify-green rounded-full mx-auto mb-4 flex items-center justify-center">
+                <span className="text-2xl">✓</span>
+              </div>
+              <h4 className="text-lg font-semibold text-white mb-2">Solicitud enviada</h4>
+              <p className="text-gray-text-secondary">
+                Te avisaremos cuando te activemos.
+              </p>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Nombre completo
+                </label>
+                <input
+                  type="text"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Tu nombre completo"
+                  className="w-full rounded-lg border border-gray-dark bg-black-surface p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+                  required
+                  minLength={2}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white mb-2">
+                  Email de tu cuenta de Spotify
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="tu@email.com"
+                  className="w-full rounded-lg border border-gray-dark bg-black-surface p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+                  required
+                />
+                <p className="mt-1 text-xs text-gray-text-secondary">
+                  Usa el mismo email de tu cuenta de Spotify.
+                </p>
+              </div>
+
+              {error && (
+                <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm">
+                  {error}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 pt-4">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="spotify-button"
+                >
+                  {submitting ? 'Enviando...' : 'Solicitar acceso'}
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={handleAlreadyRequested}
+                  className="spotify-button-secondary"
+                >
+                  Ya he solicitado acceso
+                </button>
+                
+                <p className="text-xs text-gray-text-secondary text-center mt-2">
+                  (Si aún no te hemos activado, no funcionará)
+                </p>
+                
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="text-sm text-gray-text-secondary hover:text-white transition-colors mt-2"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
