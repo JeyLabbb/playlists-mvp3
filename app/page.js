@@ -217,6 +217,69 @@ export default function Home() {
     return intent;
   }
 
+  // Generate playlist with regular endpoint (for mobile)
+  async function generatePlaylistRegular(prompt, wanted, playlistName) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        console.log('[FRONTEND] Starting regular playlist generation');
+        
+        // Step 1: Get intent
+        bumpPhase(t('progress.generatingIntent'), 20);
+        setStatusText(t('progress.generatingIntent'));
+        
+        const intentRes = await fetch("/api/intent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({ prompt, target_tracks: wanted }),
+        });
+
+        if (!intentRes.ok) {
+          throw new Error("Failed to generate intent");
+        }
+
+        const intent = await intentRes.json();
+        
+        // Step 2: Generate playlist
+        bumpPhase(t('progress.findingTracks'), 40);
+        setStatusText(t('progress.findingTracks'));
+        
+        const playlistRes = await fetch("/api/playlist/llm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          body: JSON.stringify({
+            prompt,
+            target_tracks: wanted,
+            playlist_name: playlistName || safeDefaultName(prompt),
+            intent: intent
+          }),
+        });
+
+        if (!playlistRes.ok) {
+          throw new Error("Failed to generate playlist");
+        }
+
+        const playlistData = await playlistRes.json();
+        
+        if (playlistData.tracks && playlistData.tracks.length > 0) {
+          setTracks(playlistData.tracks);
+          finishProgress();
+          setStatusText(`${t('progress.completed')} (${playlistData.tracks.length}/${wanted})`);
+          resolve(playlistData);
+        } else {
+          throw new Error("No tracks generated");
+        }
+        
+      } catch (error) {
+        console.error('[FRONTEND] Regular generation failed:', error);
+        setError(error.message);
+        resetProgress();
+        reject(error);
+      }
+    });
+  }
+
   // Generate playlist using streaming SSE
   async function generatePlaylistWithStreaming(prompt, wanted, playlistName) {
     return new Promise((resolve, reject) => {
@@ -488,10 +551,19 @@ export default function Home() {
       const isProduction = process.env.NODE_ENV === 'production';
       const endpoint = session?.user ? "/api/playlist/llm" : "/api/playlist/demo";
       
-      // Use streaming SSE for both mobile and desktop - SAME LOGIC
+      // Detect mobile and use appropriate method
+      const isMobile = /Mobile|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
       if (session?.user) {
-        // Both mobile and desktop use streaming - EXACTLY THE SAME
-        await generatePlaylistWithStreaming(prompt, wanted, playlistName);
+        if (isMobile) {
+          // Mobile: Use regular endpoint (EventSource doesn't work well on mobile)
+          console.log('[FRONTEND] Mobile detected - using regular endpoint');
+          await generatePlaylistRegular(prompt, wanted, playlistName);
+        } else {
+          // Desktop: Use streaming
+          console.log('[FRONTEND] Desktop detected - using streaming');
+          await generatePlaylistWithStreaming(prompt, wanted, playlistName);
+        }
       } else {
         // Use regular fetch for demo or development
         const playlistRes = await fetch(endpoint, {
