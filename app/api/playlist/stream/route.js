@@ -217,7 +217,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
         
         // Add delay between chunks for better UX
         if (totalYielded < llmTarget) {
-          await new Promise(resolve => setTimeout(resolve, 12000)); // 12 second delay
+          await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
         }
         
         if (totalYielded >= llmTarget) {
@@ -308,7 +308,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           
           // Add delay between chunks for better UX
           if (totalYielded < remaining) {
-            await new Promise(resolve => setTimeout(resolve, 15000)); // 15 second delay
+            await new Promise(resolve => setTimeout(resolve, 8000)); // 8 second delay
           }
         }
         
@@ -461,7 +461,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         
         // Add delay between chunks for better UX
         if (totalYielded < remaining) {
-          await new Promise(resolve => setTimeout(resolve, 15000)); // 15 second delay
+          await new Promise(resolve => setTimeout(resolve, 8000)); // 8 second delay
         }
       }
       
@@ -613,26 +613,34 @@ export async function GET(request) {
         }, 8000);
         
         // Set up timeout
+        let isClosed = false;
         const timeout = setTimeout(() => {
+          if (isClosed) return;
+          isClosed = true;
+          
           console.log(`[STREAM:${traceId}] Timeout reached, sending partial results`);
           clearInterval(heartbeatInterval);
           
-          if (allTracks.length > 0) {
-            controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
-              tracks: allTracks,
-              totalSoFar: allTracks.length,
-              partial: true,
-              reason: 'timeout'
-            })}\n\n`));
-          } else {
-            controller.enqueue(encoder.encode(`event: ERROR\ndata: ${JSON.stringify({
-              error: 'Timeout without results',
-              totalSoFar: 0
-            })}\n\n`));
+          try {
+            if (allTracks.length > 0) {
+              controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+                tracks: allTracks,
+                totalSoFar: allTracks.length,
+                partial: true,
+                reason: 'timeout'
+              })}\n\n`));
+            } else {
+              controller.enqueue(encoder.encode(`event: ERROR\ndata: ${JSON.stringify({
+                error: 'Timeout without results',
+                totalSoFar: 0
+              })}\n\n`));
+            }
+            
+            controller.close();
+          } catch (error) {
+            console.log(`[STREAM:${traceId}] Controller already closed during timeout`);
           }
-          
-          controller.close();
-        }, 55000);
+        }, 120000); // 2 minutes timeout
         
         // Main processing
         (async () => {
@@ -669,12 +677,20 @@ export async function GET(request) {
             for await (const chunk of yieldLLMChunks(accessToken, intent, target_tracks, traceId)) {
               allTracks = [...allTracks, ...chunk];
               
-              controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
-                tracks: chunk,
-                totalSoFar: allTracks.length,
-                target: target_tracks,
-                progress: Math.round((allTracks.length / target_tracks) * 100)
-              })}\n\n`));
+              try {
+                controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
+                  tracks: chunk,
+                  totalSoFar: allTracks.length,
+                  target: target_tracks,
+                  progress: Math.round((allTracks.length / target_tracks) * 100)
+                })}\n\n`));
+              } catch (error) {
+                if (error.code === 'ERR_INVALID_STATE') {
+                  console.log(`[STREAM:${traceId}] Controller closed, stopping LLM chunk processing`);
+                  break;
+                }
+                throw error;
+              }
               
               console.log(`[STREAM:${traceId}] LLM chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
             }
@@ -826,15 +842,23 @@ export async function GET(request) {
                    console.log(`[STREAM:${traceId}] Final tracks count: ${allTracks.length}`);
                    console.log(`[STREAM:${traceId}] Final tracks sample:`, allTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
                    
-                   controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
-                     tracks: allTracks,
-                     totalSoFar: allTracks.length,
-                     partial: false,
-                     duration: Date.now() - startTime
-                   })}\n\n`));
-                   
-                   console.log(`[STREAM:${traceId}] Final result sent, closing connection`);
-                   controller.close();
+                   try {
+                     controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+                       tracks: allTracks,
+                       totalSoFar: allTracks.length,
+                       partial: false,
+                       duration: Date.now() - startTime
+                     })}\n\n`));
+                     
+                     console.log(`[STREAM:${traceId}] Final result sent, closing connection`);
+                     controller.close();
+                   } catch (error) {
+                     if (error.code === 'ERR_INVALID_STATE') {
+                       console.log(`[STREAM:${traceId}] Controller already closed, skipping final result`);
+                     } else {
+                       throw error;
+                     }
+                   }
             
           } catch (error) {
             console.error(`[STREAM:${traceId}] Processing error:`, error);
@@ -927,26 +951,34 @@ export async function POST(request) {
         }, 8000);
         
         // Set up timeout
+        let isClosed = false;
         const timeout = setTimeout(() => {
+          if (isClosed) return;
+          isClosed = true;
+          
           console.log(`[STREAM:${traceId}] Timeout reached, sending partial results`);
           clearInterval(heartbeatInterval);
           
-          if (allTracks.length > 0) {
-            controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
-              tracks: allTracks,
-              totalSoFar: allTracks.length,
-              partial: true,
-              reason: 'timeout'
-            })}\n\n`));
-          } else {
-            controller.enqueue(encoder.encode(`event: ERROR\ndata: ${JSON.stringify({
-              error: 'Timeout without results',
-              totalSoFar: 0
-            })}\n\n`));
+          try {
+            if (allTracks.length > 0) {
+              controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+                tracks: allTracks,
+                totalSoFar: allTracks.length,
+                partial: true,
+                reason: 'timeout'
+              })}\n\n`));
+            } else {
+              controller.enqueue(encoder.encode(`event: ERROR\ndata: ${JSON.stringify({
+                error: 'Timeout without results',
+                totalSoFar: 0
+              })}\n\n`));
+            }
+            
+            controller.close();
+          } catch (error) {
+            console.log(`[STREAM:${traceId}] Controller already closed during timeout`);
           }
-          
-          controller.close();
-        }, 55000);
+        }, 120000); // 2 minutes timeout
         
         // Main processing
         (async () => {
@@ -983,12 +1015,20 @@ export async function POST(request) {
             for await (const chunk of yieldLLMChunks(accessToken, intent, target_tracks, traceId)) {
               allTracks = [...allTracks, ...chunk];
               
-              controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
-                tracks: chunk,
-                totalSoFar: allTracks.length,
-                target: target_tracks,
-                progress: Math.round((allTracks.length / target_tracks) * 100)
-              })}\n\n`));
+              try {
+                controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
+                  tracks: chunk,
+                  totalSoFar: allTracks.length,
+                  target: target_tracks,
+                  progress: Math.round((allTracks.length / target_tracks) * 100)
+                })}\n\n`));
+              } catch (error) {
+                if (error.code === 'ERR_INVALID_STATE') {
+                  console.log(`[STREAM:${traceId}] Controller closed, stopping LLM chunk processing`);
+                  break;
+                }
+                throw error;
+              }
               
               console.log(`[STREAM:${traceId}] LLM chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
             }
@@ -1140,15 +1180,23 @@ export async function POST(request) {
                    console.log(`[STREAM:${traceId}] Final tracks count: ${allTracks.length}`);
                    console.log(`[STREAM:${traceId}] Final tracks sample:`, allTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
                    
-                   controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
-                     tracks: allTracks,
-                     totalSoFar: allTracks.length,
-                     partial: false,
-                     duration: Date.now() - startTime
-                   })}\n\n`));
-                   
-                   console.log(`[STREAM:${traceId}] Final result sent, closing connection`);
-                   controller.close();
+                   try {
+                     controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+                       tracks: allTracks,
+                       totalSoFar: allTracks.length,
+                       partial: false,
+                       duration: Date.now() - startTime
+                     })}\n\n`));
+                     
+                     console.log(`[STREAM:${traceId}] Final result sent, closing connection`);
+                     controller.close();
+                   } catch (error) {
+                     if (error.code === 'ERR_INVALID_STATE') {
+                       console.log(`[STREAM:${traceId}] Controller already closed, skipping final result`);
+                     } else {
+                       throw error;
+                     }
+                   }
             
           } catch (error) {
             console.error(`[STREAM:${traceId}] Processing error:`, error);
