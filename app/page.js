@@ -488,10 +488,18 @@ export default function Home() {
       const isProduction = process.env.NODE_ENV === 'production';
       const endpoint = session?.user ? "/api/playlist/llm" : "/api/playlist/demo";
       
-      if (session?.user) {
-        // Use streaming SSE always (both production and development)
+      // Use streaming SSE for desktop, fallback to regular endpoint for mobile
+      const isMobile = /Mobile|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      console.log(`[FRONTEND] Device detection - Mobile: ${isMobile}, User-Agent: ${navigator.userAgent.substring(0, 100)}`);
+      
+      if (session?.user && !isMobile) {
+        // Desktop: Use streaming
+        console.log('[FRONTEND] Using streaming endpoint for desktop');
         await generatePlaylistWithStreaming(prompt, wanted, playlistName);
       } else {
+        // Mobile or no session: Use regular endpoint
+        console.log(`[FRONTEND] Using regular endpoint - Mobile: ${isMobile}, Session: ${!!session?.user}`);
         // Use regular fetch for demo or development
         const playlistRes = await fetch(endpoint, {
           method: "POST",
