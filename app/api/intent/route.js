@@ -126,6 +126,8 @@ FILTROS AVANZADOS POR OYENTES MENSUALES (APLICAR EN TODOS LOS MODOS):
 - EN TODOS LOS MODOS: Si hay condición de oyentes mensuales, marca en filtered_artists o pasa la condición
 - Spotify puede filtrar por oyentes mensuales en cualquier modo
 - NO importa si no se respeta el 70% LLM / 30% Spotify si hay condición de oyentes
+- COMPENSACIÓN: Si Spotify filtra y quita tracks, debe buscar tracks extras para compensar y llegar al número solicitado
+- Los tracks extras deben cumplir las condiciones de oyentes mensuales ya superadas
 
 DETECCIÓN DE MODOS:
 - Analiza el prompt completo para entender la intención
