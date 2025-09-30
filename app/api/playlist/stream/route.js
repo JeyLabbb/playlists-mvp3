@@ -57,9 +57,9 @@ function notExcluded(track, exclusions){
     .map(x => (x || '').toLowerCase());
 
   // artista vetado
-  if (banned_artists.some(b => artistNames.includes(b.toLowerCase()))) return false;
+  if (banned_artists.some(b => artistNames.includes((b || '').toLowerCase()))) return false;
   // término vetado en el título
-  if (banned_terms.some(t => name.includes(t.toLowerCase()))) return false;
+  if (banned_terms.some(t => name.includes((t || '').toLowerCase()))) return false;
 
   return true;
 }
