@@ -1,5 +1,5 @@
 // web/app/api/playlist/llm/route.js
-// Clean orchestration for playlist generation
+// Clean orchestration for playlist generation with streaming to avoid timeouts
 
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -61,7 +61,27 @@ function notExcluded(track, exclusions){
 }
 
 /**
- * Main playlist generation handler
+ * Generate a chunk of playlist tracks
+ */
+async function generatePlaylistChunk(accessToken, intent, chunkSize, traceId, mode, offset = 0) {
+  console.log(`[TRACE:${traceId}] Generating chunk: ${chunkSize} tracks, offset: ${offset}, mode: ${mode}`);
+  
+  switch (mode) {
+    case 'NORMAL':
+      return await generateNormalPlaylist(accessToken, intent, chunkSize, traceId);
+    case 'VIRAL':
+      return await generateViralPlaylist(accessToken, intent, chunkSize, traceId);
+    case 'FESTIVAL':
+      return await generateFestivalPlaylist(accessToken, intent, chunkSize, traceId);
+    case 'ARTIST_STYLE':
+      return await generateArtistStylePlaylist(accessToken, intent, chunkSize, traceId);
+    default:
+      return await generateNormalPlaylist(accessToken, intent, chunkSize, traceId);
+  }
+}
+
+/**
+ * Main playlist generation handler with streaming to avoid timeouts
  */
 export async function POST(request) {
   const traceId = crypto.randomUUID();
@@ -74,7 +94,7 @@ export async function POST(request) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
     
-    console.log(`[TRACE:${traceId}] Starting playlist generation for: "${prompt}"`);
+    console.log(`[TRACE:${traceId}] Starting streaming playlist generation for: "${prompt}"`);
     
     // Get session and access token
     const session = await getServerSession(authOptions);
@@ -97,69 +117,190 @@ export async function POST(request) {
     // Log exclusions
     console.log(`[EXCLUDE] banned_artists=${intent?.exclusions?.banned_artists?.length||0} banned_terms=${intent?.exclusions?.banned_terms?.length||0}`);
     
-    // Determine mode and generate playlist
+    // Determine mode
     const mode = determineMode(intent, prompt);
     console.log(`[TRACE:${traceId}] Mode determined: ${mode}`);
     
-    let finalTracks = [];
+    // Create streaming response
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          // Send initial response with metadata
+          const initialResponse = {
+            ok: true,
+            mode,
+            target_tracks,
+            streaming: true,
+            tracks: [],
+            count: 0,
+            status: 'generating'
+          };
+          
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(initialResponse)}\n\n`));
+          
+          // Generate tracks in chunks
+          const chunkSize = Math.min(20, Math.ceil(target_tracks / 3)); // First chunk is 20 or 1/3 of target
+          console.log(`[TRACE:${traceId}] Starting with chunk size: ${chunkSize}`);
+          
+          let allTracks = [];
+          let currentChunk = 0;
+          
+          // Generate first chunk
+          const firstChunk = await generatePlaylistChunk(accessToken, intent, chunkSize, traceId, mode, 0);
+          allTracks = [...firstChunk];
+          
+          // Send first chunk
+          const firstChunkResponse = {
+            ok: true,
+            mode,
+            target_tracks,
+            streaming: true,
+            tracks: allTracks,
+            count: allTracks.length,
+            status: 'generating',
+            chunk: 1,
+            progress: Math.round((allTracks.length / target_tracks) * 100)
+          };
+          
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(firstChunkResponse)}\n\n`));
+          console.log(`[TRACE:${traceId}] Sent first chunk: ${allTracks.length} tracks`);
+          
+          // Generate remaining chunks in parallel
+          const remainingTracks = target_tracks - allTracks.length;
+          if (remainingTracks > 0) {
+            const remainingChunks = Math.ceil(remainingTracks / chunkSize);
+            const chunkPromises = [];
+            
+            for (let i = 1; i <= remainingChunks; i++) {
+              const chunkStart = i * chunkSize;
+              const chunkTarget = Math.min(chunkSize, target_tracks - chunkStart);
+              
+              chunkPromises.push(
+                generatePlaylistChunk(accessToken, intent, chunkTarget, traceId, mode, chunkStart)
+                  .then(chunkTracks => ({ chunkIndex: i, tracks: chunkTracks }))
+              );
+            }
+            
+            // Process chunks as they complete
+            const chunkResults = await Promise.allSettled(chunkPromises);
+            
+            for (const result of chunkResults) {
+              if (result.status === 'fulfilled') {
+                const { chunkIndex, tracks } = result.value;
+                allTracks = [...allTracks, ...tracks];
+                
+                // Send chunk update
+                const chunkResponse = {
+                  ok: true,
+                  mode,
+                  target_tracks,
+                  streaming: true,
+                  tracks: allTracks,
+                  count: allTracks.length,
+                  status: 'generating',
+                  chunk: chunkIndex + 1,
+                  progress: Math.round((allTracks.length / target_tracks) * 100)
+                };
+                
+                controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(chunkResponse)}\n\n`));
+                console.log(`[TRACE:${traceId}] Sent chunk ${chunkIndex + 1}: ${allTracks.length} total tracks`);
+              }
+            }
+          }
+          
+          // Ensure we have the target number of tracks
+          if (allTracks.length < target_tracks) {
+            console.warn(`[TRACE:${traceId}] Only got ${allTracks.length}/${target_tracks} tracks - this should not happen with exact count requirement`);
+          } else if (allTracks.length > target_tracks) {
+            allTracks = allTracks.slice(0, target_tracks);
+            console.log(`[TRACE:${traceId}] Trimmed to exact target: ${target_tracks}`);
+          }
+          
+          // Apply audio features (optional, non-blocking)
+          const idsOrUris = allTracks.map((t) => t.uri || t.trackUri || t.id).filter(Boolean);
+          const featuresMap = await fetchAudioFeaturesSafe(accessToken, idsOrUris);
+          const tracksWithFeatures = allTracks.map(track => ({
+            ...track,
+            audio_features: featuresMap[track.id] || null
+          }));
+          
+          // Apply smooth ordering if we have features
+          const orderedTracks = applySmoothOrdering(tracksWithFeatures);
+          
+          // Final validation
+          const validTracks = orderedTracks.filter(t => t.id && t.uri && t.name);
+          console.log(`[TRACE:${traceId}] Final validation: ${validTracks.length}/${target_tracks} tracks`);
+          
+          // Enrich artists with Spotify
+          const enriched = await enrichArtistsWithSpotify(validTracks, accessToken);
+          
+          // Store for debugging
+          try {
+            await storeLastRun({
+              prompt,
+              target_tracks,
+              final_tracks: enriched.length,
+              mode,
+              duration: Date.now() - startTime,
+              success: true
+            });
+          } catch (e) {
+            console.warn(`[TRACE:${traceId}] Failed to store debug data:`, e.message);
+          }
+          
+          // Send final response
+          const finalResponse = {
+            ok: true,
+            mode,
+            target_tracks,
+            streaming: false,
+            tracks: enriched,
+            count: enriched.length,
+            status: 'completed',
+            progress: 100,
+            duration: Date.now() - startTime
+          };
+          
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(finalResponse)}\n\n`));
+          controller.close();
+          
+        } catch (error) {
+          console.error(`[TRACE:${traceId}] Streaming error:`, error);
+          
+          const errorResponse = {
+            ok: false,
+            error: error.message || 'Playlist generation failed',
+            streaming: false,
+            status: 'error'
+          };
+          
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(errorResponse)}\n\n`));
+          controller.close();
+        }
+      }
+    });
     
-    switch (mode) {
-      case 'NORMAL':
-        finalTracks = await generateNormalPlaylist(accessToken, intent, target_tracks, traceId);
-        break;
-      case 'VIRAL':
-        finalTracks = await generateViralPlaylist(accessToken, intent, target_tracks, traceId);
-        break;
-      case 'FESTIVAL':
-        finalTracks = await generateFestivalPlaylist(accessToken, intent, target_tracks, traceId);
-        break;
-      case 'ARTIST_STYLE':
-        finalTracks = await generateArtistStylePlaylist(accessToken, intent, target_tracks, traceId);
-        break;
-      default:
-        finalTracks = await generateNormalPlaylist(accessToken, intent, target_tracks, traceId);
-    }
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
     
-    // Ensure we have the target number of tracks - CRITICAL REQUIREMENT
-    if (finalTracks.length < target_tracks) {
-      console.warn(`[TRACE:${traceId}] Only got ${finalTracks.length}/${target_tracks} tracks - this should not happen with exact count requirement`);
-      // This should not happen with the new exact count system, but log for debugging
-    } else if (finalTracks.length > target_tracks) {
-      finalTracks = finalTracks.slice(0, target_tracks);
-      console.log(`[TRACE:${traceId}] Trimmed to exact target: ${target_tracks}`);
-    }
-    
-        // Apply audio features (optional, non-blocking)
-        const idsOrUris = finalTracks.map((t) => t.uri || t.trackUri || t.id).filter(Boolean);
-        const featuresMap = await fetchAudioFeaturesSafe(accessToken, idsOrUris);
-    const tracksWithFeatures = finalTracks.map(track => ({
-      ...track,
-      audio_features: featuresMap[track.id] || null
-    }));
-    
-    // Apply smooth ordering if we have features
-    const orderedTracks = applySmoothOrdering(tracksWithFeatures);
-    
-    // Final validation
-    const validTracks = orderedTracks.filter(t => t.id && t.uri && t.name);
-    console.log(`[TRACE:${traceId}] Final validation: ${validTracks.length}/${target_tracks} tracks`);
-    
-    // Store for debugging
-    try {
-      await storeLastRun({
-        prompt,
-        target_tracks,
-        final_tracks: validTracks.length,
-        mode,
-        duration: Date.now() - startTime,
-        success: true
-      });
-    } catch (e) {
-      console.warn(`[TRACE:${traceId}] Failed to store debug data:`, e.message);
-    }
-    
-    // Enriquecer artistas con Spotify antes de responder
-    async function enrichArtistsWithSpotify(tracks, accessToken) {
+  } catch (error) {
+    console.error(`[TRACE:${traceId}] Fatal error:`, error);
+    return NextResponse.json({ 
+      error: error.message || 'Internal server error',
+      ok: false 
+    }, { status: 500 });
+  }
+}
+
+/**
+ * Enrich artists with Spotify metadata
+ */
+async function enrichArtistsWithSpotify(tracks, accessToken) {
       // IDs a pedir para los que no tengan artista claro
       const needIdx = [];
       const ids = [];
@@ -436,44 +577,6 @@ export async function POST(request) {
     }
 
     // Construir items finales para el cliente - ULTRA SIMPLE
-    const clientItems = filteredTracks.map((t) => {
-      const uri = t.uri || t.trackUri || null;
-      const id = toTrackId(uri || t.id);
-      const name = t.name || t.track?.name || 'Sin título';
-      const artistNames = t.artistNames || 'Artista desconocido'; // ← Ya viene como string de normalizeTrack
-      return { 
-        id, 
-        uri, 
-        name, 
-        artistNames, 
-        image: t.image, 
-        album: t.album 
-      };
-    });
-
-    return NextResponse.json({
-      ok: true,
-      tracks: clientItems,
-      count: clientItems.length,
-      target: target_tracks,
-      mode,
-      metadata: {
-        source: 'llm-first',
-        llm_tracks: intent.tracks_llm?.length || 0,
-        spotify_tracks: clientItems.length - (intent.tracks_llm?.length || 0),
-        final_tracks: clientItems.length,
-        duration: Date.now() - startTime
-      }
-    });
-    
-  } catch (error) {
-    console.error(`[TRACE:${traceId}] Playlist generation error:`, error);
-    return NextResponse.json(
-      { error: "Internal server error", message: error.message },
-      { status: 500 }
-    );
-  }
-}
 
 /**
  * Gets intent from LLM
