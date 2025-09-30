@@ -193,7 +193,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
 }
 
 /**
- * Generator for Spotify tracks in chunks - guarantees exact remaining count
+ * Generator for Spotify tracks in chunks - guarantees exact remaining count for all modes
  */
 async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
   console.log(`[STREAM:${traceId}] Starting Spotify phase, remaining: ${remaining}`);
@@ -254,70 +254,135 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       return;
     }
     
-    // Normal Spotify recommendations with multiple attempts
-    const llmArtists = intent.artists_llm || [];
+    // Mode-specific Spotify generation
+    let spotifyTracks = [];
     
-    while (totalYielded < remaining && attempts < maxAttempts) {
-      attempts++;
-      console.log(`[STREAM:${traceId}] Spotify attempt ${attempts}/${maxAttempts}, need: ${remaining - totalYielded}`);
+    if (mode === 'VIRAL') {
+      // VIRAL mode: Use consensus from popular playlists
+      console.log(`[STREAM:${traceId}] VIRAL mode: Using playlist consensus`);
       
       try {
-        const spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining - totalYielded);
-        const filtered = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+        const llmChosen = intent.tracks_llm || [];
+        const spChosen = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining);
         
-        if (filtered.length > 0) {
-          // Yield in chunks
-          for (let i = 0; i < filtered.length && totalYielded < remaining; i += chunkSize) {
-            const chunk = filtered.slice(i, i + chunkSize);
-            const toYield = chunk.slice(0, remaining - totalYielded);
-            totalYielded += toYield.length;
-            
-            if (toYield.length > 0) {
-              chunkCounter++;
-              console.log(`[STREAM:${traceId}] Spotify chunk ${chunkCounter} yielded: ${toYield.length} tracks, total: ${totalYielded}/${remaining}`);
-              yield toYield;
-              
-              // Add delay between chunks for better UX
-              if (totalYielded < remaining) {
-                await new Promise(resolve => setTimeout(resolve, 15000)); // 15 second delay
-              }
-            }
-            
-            if (totalYielded >= remaining) break;
-          }
+        let finalTracks = dedupeById([...(llmChosen||[]), ...(spChosen||[])]).filter(track => notExcluded(track, intent.exclusions));
+        
+        // Fill with more tracks if needed
+        if(finalTracks.length < remaining) {
+          const moreFromSpotify = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining - finalTracks.length);
+          finalTracks = [...finalTracks, ...moreFromSpotify.filter(t => !finalTracks.find(x=>x.id===t.id))];
         }
         
-        // If we still need more tracks, try with broader search terms
-        if (totalYielded < remaining && attempts < maxAttempts) {
-          console.log(`[STREAM:${traceId}] Still need ${remaining - totalYielded} tracks, trying broader search...`);
-          llmArtists.push('pop', 'rock', 'electronic', 'hip hop'); // Add generic terms
+        if(finalTracks.length < remaining){
+          const extraNeed = remaining - finalTracks.length;
+          const extraTracks = await radioFromRelatedTop(accessToken, ['pop', 'hip hop', 'electronic'], extraNeed);
+          finalTracks = [...finalTracks, ...extraTracks.filter(t => !finalTracks.find(x=>x.id===t.id))];
         }
         
-      } catch (error) {
-        console.error(`[STREAM:${traceId}] Error in Spotify attempt ${attempts}:`, error);
+        spotifyTracks = finalTracks.slice(0, remaining);
+        console.log(`[VIRAL] Generated ${spotifyTracks.length}/${remaining} tracks`);
+      } catch (err) {
+        console.error('[VIRAL] Error:', err);
+        spotifyTracks = [];
+      }
+      
+    } else if (mode === 'FESTIVAL') {
+      // FESTIVAL mode: Use playlist consensus
+      console.log(`[STREAM:${traceId}] FESTIVAL mode: Using playlist consensus`);
+      
+      try {
+        const canonized = intent.canonized;
+        if (!canonized) {
+          console.warn(`[FESTIVAL] No canonized data found, using fallback`);
+          spotifyTracks = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining);
+        } else {
+          console.log(`[FESTIVAL] baseQuery="${canonized.baseQuery}" year=${canonized.year}`);
+          
+          spotifyTracks = await collectFromPlaylistsByConsensus(accessToken, {
+            baseQuery: canonized.baseQuery,
+            year: canonized.year,
+            target: remaining,
+            festival: true
+          });
+        }
+        
+        spotifyTracks = spotifyTracks.slice(0, remaining); // Ensure exact count
+        console.log(`[FESTIVAL] Generated ${spotifyTracks.length}/${remaining} tracks`);
+      } catch (err) {
+        console.error('[FESTIVAL] Error:', err);
+        spotifyTracks = [];
+      }
+      
+    } else if (mode === 'ARTIST_STYLE') {
+      // ARTIST_STYLE mode: Focus on artist similarity
+      console.log(`[STREAM:${traceId}] ARTIST_STYLE mode: Using artist similarity`);
+      
+      try {
+        const llmArtists = intent.artists_llm || [];
+        spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
+        console.log(`[ARTIST_STYLE] Generated ${spotifyTracks.length}/${remaining} tracks`);
+      } catch (err) {
+        console.error('[ARTIST_STYLE] Error:', err);
+        spotifyTracks = [];
+      }
+      
+    } else {
+      // NORMAL mode: Standard Spotify recommendations
+      console.log(`[STREAM:${traceId}] NORMAL mode: Using standard recommendations`);
+      
+      try {
+        const llmArtists = intent.artists_llm || [];
+        spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
+        console.log(`[NORMAL] Generated ${spotifyTracks.length}/${remaining} tracks`);
+      } catch (err) {
+        console.error('[NORMAL] Error:', err);
+        spotifyTracks = [];
       }
     }
     
-    // Final check - if we still don't have enough, try one more time with very broad terms
+    // Filter and yield tracks
+    const filtered = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+    
+    // Yield in chunks
+    for (let i = 0; i < filtered.length && totalYielded < remaining; i += chunkSize) {
+      const chunk = filtered.slice(i, i + chunkSize);
+      const toYield = chunk.slice(0, remaining - totalYielded);
+      totalYielded += toYield.length;
+      
+      if (toYield.length > 0) {
+        chunkCounter++;
+        console.log(`[STREAM:${traceId}] Spotify chunk ${chunkCounter} yielded: ${toYield.length} tracks, total: ${totalYielded}/${remaining}`);
+        yield toYield;
+        
+        // Add delay between chunks for better UX
+        if (totalYielded < remaining) {
+          await new Promise(resolve => setTimeout(resolve, 15000)); // 15 second delay
+        }
+      }
+      
+      if (totalYielded >= remaining) break;
+    }
+    
+    // If we still need more tracks, try with broader search terms
     if (totalYielded < remaining) {
-      console.log(`[STREAM:${traceId}] Final attempt: need ${remaining - totalYielded} more tracks`);
+      console.log(`[STREAM:${traceId}] Still need ${remaining - totalYielded} tracks, trying broader search...`);
       
       try {
-        const finalTracks = await radioFromRelatedTop(accessToken, ['pop', 'rock', 'electronic', 'hip hop', 'indie', 'alternative'], remaining - totalYielded);
-        const filtered = finalTracks.filter(track => notExcluded(track, intent.exclusions));
+        const broaderTracks = await radioFromRelatedTop(accessToken, ['pop', 'rock', 'electronic', 'hip hop', 'indie', 'alternative'], remaining - totalYielded);
+        const broaderFiltered = broaderTracks.filter(track => notExcluded(track, intent.exclusions));
         
-        if (filtered.length > 0) {
-          const toYield = filtered.slice(0, remaining - totalYielded);
+        if (broaderFiltered.length > 0) {
+          const toYield = broaderFiltered.slice(0, remaining - totalYielded);
           totalYielded += toYield.length;
           
           if (toYield.length > 0) {
             chunkCounter++;
-            console.log(`[STREAM:${traceId}] Final attempt chunk ${chunkCounter} yielded: ${toYield.length} tracks, total: ${totalYielded}/${remaining}`);
+            console.log(`[STREAM:${traceId}] Broader search chunk ${chunkCounter} yielded: ${toYield.length} tracks, total: ${totalYielded}/${remaining}`);
             yield toYield;
           }
         }
       } catch (error) {
-        console.error(`[STREAM:${traceId}] Final attempt failed:`, error);
+        console.error(`[STREAM:${traceId}] Broader search failed:`, error);
       }
     }
     
