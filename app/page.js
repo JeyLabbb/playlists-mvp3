@@ -488,10 +488,10 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-black-base">
       {/* Header */}
-      <header className="border-b border-gray-dark">
+      <header className="border-b border-gray-dark mobile-header">
         <div className="max-w-6xl mx-auto px-6 py-6">
-          <div className="flex justify-between items-center">
-            <div>
+          <div className="flex justify-between items-center mobile-flex-col md:flex-row">
+            <div className="text-center md:text-left">
               <div className="text-sm font-bold text-white mb-1">
                 <Link href="/" className="hover:text-cyan-accent transition-colors">JeyLabbb</Link>
               </div>
@@ -502,7 +502,7 @@ export default function Home() {
                 {t('hero.subtitle')}
               </p>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 mobile-button-group md:flex-row">
               <LanguageSwitcher />
               {session?.user ? (
                 <button
@@ -522,7 +522,7 @@ export default function Home() {
             </div>
           </div>
           
-          <div className="mt-4 text-sm text-gray-text-secondary">
+          <div className="mt-4 text-sm text-gray-text-secondary text-center md:text-left">
             {status === "loading" ? t('auth.checkingSession') : 
              session?.user ? `${t('auth.connectedAs')} ${session.user.name || session.user.email}` : 
              t('auth.notConnected')}
@@ -566,18 +566,18 @@ export default function Home() {
               </div>
             </div>
             
-            <div className="flex gap-4 items-center flex-wrap">
-              <div className="flex items-center gap-3">
+            <div className="flex gap-4 items-center flex-wrap mobile-flex-col md:flex-row">
+              <div className="flex items-center gap-3 mobile-input-group md:flex-row">
                 <label className="text-sm text-white font-medium">
                   {t('prompt.tracksLabel')}
                 </label>
-              <input
+                <input
                   type="number"
                   min={1}
                   max={200}
                   value={count}
                   onChange={(e) => setCount(Number(e.target.value))}
-                  className="spotify-input w-20"
+                  className="spotify-input w-20 md:w-20"
                 />
               </div>
               
@@ -586,7 +586,7 @@ export default function Home() {
               <button
                 onClick={handleGenerate}
                 disabled={loading || !prompt.trim()}
-                className="spotify-button min-w-[160px]"
+                className="spotify-button w-full md:min-w-[160px]"
               >
                 {loading ? t('prompt.generating') : t('prompt.generateButton')}
               </button>
@@ -630,8 +630,8 @@ export default function Home() {
                 {t('playlist.createTitle')} ({tracks.length} tracks)
               </h3>
               
-              <div className="flex gap-4 items-center flex-wrap mb-6">
-                <div className="flex-1 min-w-[200px]">
+              <div className="flex gap-4 items-center flex-wrap mb-6 mobile-flex-col md:flex-row">
+                <div className="flex-1 min-w-[200px] w-full">
                   <label className="block text-sm text-white mb-2">
                     {t('playlist.nameLabel')}
                   </label>
@@ -644,40 +644,41 @@ export default function Home() {
                   />
                 </div>
                 
-                
-                {!isCreated ? (
-                  <button
-                    onClick={handleCreate}
-                    disabled={isCreating}
-                    className="spotify-button min-w-[180px]"
-                  >
-                    {isCreating ? t('playlist.creating') : t('playlist.createButton')}
-                  </button>
-                ) : (
-                  <button
-                    disabled={true}
-                    className="spotify-button min-w-[180px]"
-                  >
-                    Playlist creada exitosamente
-                  </button>
-                )}
-                
-                {spotifyUrl && (
-                  <button
-                    onClick={() => window.open(spotifyUrl, '_blank')}
-                    className="spotify-button-secondary min-w-[200px]"
-                  >
-                    🎵 Open in Spotify
-                  </button>
-                )}
+                <div className="mobile-button-group md:flex-row">
+                  {!isCreated ? (
+                    <button
+                      onClick={handleCreate}
+                      disabled={isCreating}
+                      className="spotify-button w-full md:min-w-[180px]"
+                    >
+                      {isCreating ? t('playlist.creating') : t('playlist.createButton')}
+                    </button>
+                  ) : (
+                    <button
+                      disabled={true}
+                      className="spotify-button w-full md:min-w-[180px]"
+                    >
+                      Playlist creada exitosamente
+                    </button>
+                  )}
+                  
+                  {spotifyUrl && (
+                    <button
+                      onClick={() => window.open(spotifyUrl, '_blank')}
+                      className="spotify-button-secondary w-full md:min-w-[200px]"
+                    >
+                      🎵 Open in Spotify
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Control Buttons */}
-              <div className="flex gap-3 items-center flex-wrap">
+              <div className="flex gap-3 items-center flex-wrap mobile-button-group md:flex-row">
                 <button
                   onClick={handleRefine}
                   disabled={refining}
-                  className="spotify-button-secondary min-w-[120px]"
+                  className="spotify-button-secondary w-full md:min-w-[120px]"
                 >
                   {refining ? 'Refining...' : '🎛️ Refine'}
                 </button>
@@ -685,12 +686,12 @@ export default function Home() {
                 <button
                   onClick={handleAddMore}
                   disabled={addingMore || tracks.length >= 200}
-                  className="spotify-button-secondary min-w-[100px]"
+                  className="spotify-button-secondary w-full md:min-w-[100px]"
                 >
                   {addingMore ? 'Adding...' : '+5 Tracks'}
                 </button>
                 
-                <div className="text-sm text-gray-text-secondary">
+                <div className="text-sm text-gray-text-secondary text-center w-full md:w-auto">
                   {tracks.length}/200 tracks
                 </div>
               </div>
@@ -704,7 +705,7 @@ export default function Home() {
                 {t('playlist.tracksTitle')}
               </h3>
               
-              <div className="max-h-96 overflow-y-auto">
+              <div className="max-h-96 overflow-y-auto mobile-track-list">
                 {tracks.map((track, i) => (
                   <div key={`${track.id}-${i}`} className="spotify-track-item">
                     <div className="spotify-track-info">
@@ -715,7 +716,7 @@ export default function Home() {
                         {track.artistNames || '—'}
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 mobile-flex-wrap">
                       <a
                         href={track.open_url || (track.id ? `https://open.spotify.com/track/${track.id}` : "#")}
                         target="_blank"
@@ -760,13 +761,13 @@ export default function Home() {
       <EpicSection />
 
       {/* Footer */}
-      <footer className="border-t border-gray-dark py-8">
+      <footer className="border-t border-gray-dark py-8 mobile-footer">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="text-sm text-gray-text-secondary">
               © JeyLabbb {new Date().getFullYear()}
             </div>
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-6 mobile-flex-wrap">
               <a 
                 href="https://www.instagram.com/jeylabbb/" 
                 target="_blank" 
