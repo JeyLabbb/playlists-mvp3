@@ -226,7 +226,7 @@ export default function Home() {
     
     // Si no hay sesión, pedimos login y SALIMOS
     if (!session?.user) {
-      await signIn("spotify", { callbackUrl: "/" });
+      await signIn("spotify", { callbackUrl: `${window.location.origin}/?from=oauth` });
       return;
     }
 
@@ -344,7 +344,7 @@ export default function Home() {
   async function handleCreate() {
     if (!tracks.length) return;
     if (!session?.user) {
-      await signIn("spotify", { callbackUrl: "/" });
+      await signIn("spotify", { callbackUrl: `${window.location.origin}/?from=oauth` });
       return;
     }
 

@@ -2,6 +2,7 @@ import "./globals.css";
 import Providers from "./providers";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import { Toaster } from "sonner";
+import SessionWatcher from "./components/SessionWatcher";
 
 export const metadata = {
   title: "JeyLabbb — Playlist Generator",
@@ -16,7 +17,10 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body className="antialiased">
         <LanguageProvider>
-          <Providers>{children}</Providers>
+          <Providers>
+            {children}
+            <SessionWatcher />
+          </Providers>
           <Toaster position="top-right" richColors />
         </LanguageProvider>
       </body>

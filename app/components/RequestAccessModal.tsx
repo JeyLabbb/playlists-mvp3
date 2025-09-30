@@ -1,6 +1,7 @@
 'use client';
-import { useState } from 'react';
-import { signIn } from 'next-auth/react';
+import { useState, useEffect } from 'react';
+import { signIn, useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 
 type Props = {
   open: boolean;
@@ -8,11 +9,33 @@ type Props = {
 };
 
 export default function RequestAccessModal({ open, onClose }: Props) {
+  const { status } = useSession();
+  const router = useRouter();
+  
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+
+  // Polling de sesión para cerrar modal cuando se autentica
+  useEffect(() => {
+    if (status === 'authenticated') {
+      try {
+        localStorage.setItem('ea_done', '1');
+        localStorage.removeItem('ea_pending');
+      } catch {}
+      // Oculta modal y limpia query de callback
+      router.replace('/');
+    }
+  }, [status, router]);
+
+  // Solo mostrar si no está autenticado y no se marcó como hecho
+  const shouldOpen = 
+    typeof window !== 'undefined' &&
+    localStorage.getItem('ea_done') !== '1' &&
+    status !== 'authenticated' &&
+    open;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,11 +79,14 @@ export default function RequestAccessModal({ open, onClose }: Props) {
   };
 
   const handleAlreadyRequested = () => {
-    onClose();
-    signIn('spotify');
+    try { 
+      localStorage.setItem('ea_pending', '1'); 
+    } catch {}
+    // IMPORTANT: fuerza volver a tu dominio
+    signIn('spotify', { callbackUrl: `${window.location.origin}/?from=oauth` });
   };
 
-  if (!open) return null;
+  if (!shouldOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4">
@@ -144,6 +170,10 @@ export default function RequestAccessModal({ open, onClose }: Props) {
                 
                 <p className="text-xs text-gray-text-secondary text-center mt-2">
                   (Si aún no te hemos activado, no funcionará)
+                </p>
+                
+                <p className="text-xs text-gray-text-secondary text-center mt-3 px-2">
+                  Si Spotify te pide un código, complétalo. Si no vuelves automáticamente, regresa a esta página y pulsa de nuevo Iniciar sesión; te reconocerá y entrarás directo.
                 </p>
                 
                 <button
