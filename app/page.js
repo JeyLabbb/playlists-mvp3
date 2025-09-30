@@ -236,38 +236,54 @@ export default function Home() {
         // Handle different event types
         eventSource.addEventListener('LLM_START', (event) => {
           const data = JSON.parse(event.data);
-          bumpPhase(data.message || 'Processing LLM tracks...', 50);
+          bumpPhase(data.message || 'Processing LLM tracks...', 30);
+          setStatusText(`🎵 ${data.message || 'Processing LLM tracks...'} (Target: ${data.target || wanted} tracks)`);
         });
         
         eventSource.addEventListener('LLM_CHUNK', (event) => {
           const data = JSON.parse(event.data);
           allTracks = [...allTracks, ...data.tracks];
           setTracks([...allTracks]);
-          setStatusText(`Found ${data.totalSoFar} tracks so far...`);
+          
+          const progress = data.progress || Math.round((data.totalSoFar / data.target) * 100);
+          const phaseProgress = Math.min(30 + (progress * 0.3), 60); // 30-60% for LLM phase
+          bumpPhase(`🎵 Found ${data.totalSoFar}/${data.target} tracks`, phaseProgress);
+          
+          setStatusText(`🎵 Found ${data.totalSoFar}/${data.target} tracks (${progress}%) - ${data.tracks.length} new tracks added`);
         });
         
         eventSource.addEventListener('LLM_DONE', (event) => {
           const data = JSON.parse(event.data);
-          bumpPhase('Getting Spotify recommendations...', 70);
-          setStatusText(`LLM phase complete: ${data.totalSoFar} tracks`);
+          bumpPhase('🎵 LLM phase complete', 60);
+          setStatusText(`🎵 LLM phase complete: ${data.totalSoFar}/${data.target} tracks`);
         });
         
         eventSource.addEventListener('SPOTIFY_START', (event) => {
           const data = JSON.parse(event.data);
-          bumpPhase(data.message || 'Getting Spotify recommendations...', 80);
+          const attempt = data.attempt ? ` (Attempt ${data.attempt})` : '';
+          bumpPhase(`🎧 Getting Spotify recommendations${attempt}...`, 70);
+          setStatusText(`🎧 ${data.message || 'Getting Spotify recommendations...'}${attempt} - Need ${data.remaining} more tracks`);
         });
         
         eventSource.addEventListener('SPOTIFY_CHUNK', (event) => {
           const data = JSON.parse(event.data);
           allTracks = [...allTracks, ...data.tracks];
           setTracks([...allTracks]);
-          setStatusText(`Found ${data.totalSoFar} tracks so far...`);
+          
+          const progress = data.progress || Math.round((data.totalSoFar / data.target) * 100);
+          const phaseProgress = Math.min(60 + (progress * 0.3), 90); // 60-90% for Spotify phase
+          const attempt = data.attempt ? ` (Attempt ${data.attempt})` : '';
+          const final = data.final ? ' - Final attempt' : '';
+          
+          bumpPhase(`🎧 Found ${data.totalSoFar}/${data.target} tracks${attempt}`, phaseProgress);
+          setStatusText(`🎧 Found ${data.totalSoFar}/${data.target} tracks (${progress}%)${attempt}${final} - ${data.tracks.length} new tracks added`);
         });
         
         eventSource.addEventListener('SPOTIFY_DONE', (event) => {
           const data = JSON.parse(event.data);
-          bumpPhase('Finalizing playlist...', 90);
-          setStatusText(`Spotify phase complete: ${data.totalSoFar} tracks`);
+          const attempt = data.attempt ? ` (Attempt ${data.attempt})` : '';
+          bumpPhase('🎧 Spotify phase complete', 90);
+          setStatusText(`🎧 Spotify phase complete${attempt}: ${data.totalSoFar}/${data.target} tracks`);
         });
         
         eventSource.addEventListener('DONE', (event) => {
@@ -277,9 +293,9 @@ export default function Home() {
           finishProgress();
           
           if (data.partial) {
-            setStatusText(`Playlist generated (${data.totalSoFar} tracks) - ${data.reason || 'partial'}`);
+            setStatusText(`✅ Playlist generated (${data.totalSoFar}/${data.target} tracks) - ${data.reason || 'partial completion'}`);
           } else {
-            setStatusText(`${t('progress.completed')} (${data.totalSoFar}/${wanted})`);
+            setStatusText(`✅ ${t('progress.completed')} - ${data.totalSoFar}/${data.target} tracks generated successfully!`);
           }
           
           eventSource.close();
