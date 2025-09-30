@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../../../lib/auth/config";
 import { storeLastRun } from "../../../../lib/debug/utils";
+import logger from "../../../../lib/logger";
 
 // Clean imports from lib modules
 import { mapLLMTrack, mapSpotifyTrack } from "../../../../lib/tracks/mapper";
