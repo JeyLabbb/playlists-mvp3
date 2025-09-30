@@ -295,8 +295,17 @@ export default function Home() {
         
         eventSource.addEventListener('DONE', (event) => {
           const data = JSON.parse(event.data);
+          
+          console.log('[FRONTEND] DONE event received:', data);
+          console.log('[FRONTEND] Current allTracks length:', allTracks.length);
+          console.log('[FRONTEND] Data tracks length:', data.tracks?.length || 0);
+          
           allTracks = data.tracks || allTracks;
           setTracks(allTracks);
+          
+          console.log('[FRONTEND] Final allTracks length:', allTracks.length);
+          console.log('[FRONTEND] Final tracks sample:', allTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
+          
           finishProgress();
           
           if (data.partial) {
