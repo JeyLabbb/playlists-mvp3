@@ -169,20 +169,8 @@ export async function POST(req) {
 
     const targetSize = Math.max(1, Math.min(500, Number(target_tracks) || 50));
     
-    // Detect mode and canonize for VIRAL/FESTIVAL
-    const mode = detectMode(prompt);
-    let canonizedData = null;
-    
-    // Detect if prompt is a single artist name
-    const isSingleArtist = detectSingleArtist(prompt);
-    if (isSingleArtist) {
-      console.log(`[INTENT] SINGLE ARTIST detected: "${prompt}" - delegating to Spotify`);
-    }
-    
-    if (mode === 'VIRAL' || mode === 'FESTIVAL') {
-      canonizedData = await canonizePrompt(prompt);
-      console.log(`[INTENT] Mode: ${mode}, Canonized:`, canonizedData);
-    }
+    // Let LLM detect everything - no hardcoded logic
+    console.log(`[INTENT] Letting LLM detect mode and decide what to do for prompt: "${prompt}"`);
 
     // Get contexts brújula for the prompt
     const contexts = getContextsForPrompt(prompt);
@@ -213,230 +201,36 @@ export async function POST(req) {
 
         try {
           console.log(`[INTENT] Attempting with model:`, MODEL);
-          // Build user message with contexts
+          // Build user message - let LLM decide everything
           let userMessage;
           
-          // Detectar modo UNDERGROUND_STRICT
-          const isUndergroundStrict = /underground/i.test(prompt);
+          // Check if underground context is available
+          const hasUndergroundContext = contexts && contexts.key === 'underground_es';
           
-          if (isUndergroundStrict && contexts && contexts.key === 'underground_es') {
-            // Modo UNDERGROUND_STRICT - 100% restrictivo
-            console.log(`[UNDERGROUND_STRICT] activated for prompt: "${prompt}"`);
+          if (hasUndergroundContext) {
+            // Underground context available - let LLM decide everything
+            console.log(`[UNDERGROUND_CONTEXT] Available for prompt: "${prompt}"`);
             
-            // Normalización con diacríticos
-            const norm = (s) => s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().trim();
-            const ALLOWED = new Set(contexts.compass.map(norm));
-            
-            console.log(`[UNDERGROUND_STRICT] allowed=${ALLOWED.size} keep_outside=true`);
-            
-            // Detectar si es modo restrictivo o inclusivo
-            // PRIORIDAD: INCLUSIVE tiene precedencia sobre RESTRICTIVE
-            const isInclusive = /\b(que tenga|incluir|con canciones de|que incluya|alguna canción de|que contenga|que tenga alguna|que incluya alguna|con alguna|que tenga canciones|que contenga canciones|que incluya canciones|con canciones|que tenga temas|que contenga temas|que incluya temas|con temas|que tenga música|que contenga música|que incluya música|con música|que tenga tracks|que contenga tracks|que incluya tracks|con tracks|que tenga temas de|que contenga temas de|que incluya temas de|con temas de|que tenga música de|que contenga música de|que incluya música de|con música de|que tenga tracks de|que contenga tracks de|que incluya tracks de|con tracks de|con|que tenga|que contenga|que incluya|incluir|con alguna|con canciones|con temas|con música|con tracks)\b/i.test(prompt);
-            
-            // Solo es restrictivo si NO es inclusivo y contiene palabras restrictivas específicas
-            const isRestrictive = !isInclusive && /\b(solo|únicamente|exclusivamente|nada más|sólo|únicamente|exclusivamente|tan solo|solamente|nada más que|nada más de|solo de|únicamente de|exclusivamente de|tan solo de|solamente de|nada más que de|con solo|con únicamente|con exclusivamente|con nada más|con tan solo|con solamente)\b/i.test(prompt);
-            
-            const isExclusion = /\b(sin|sin canciones de|sin temas de|sin música de|sin tracks de|sin nada de|sin ningún|sin ninguna|sin ningún tema de|sin ninguna canción de|sin ningún track de|sin ninguna música de|sin ningún artista|sin ninguna artista|sin ningún cantante|sin ninguna cantante|sin ningún grupo|sin ninguna grupo|sin ningún grupo de|sin ninguna grupo de|sin ningún cantante de|sin ninguna cantante de|sin ningún artista de|sin ninguna artista de)\b/i.test(prompt);
-            
-            // Detectar si es restricción por artista específico (sin límite de canciones)
-            const isArtistSpecific = isRestrictive && contexts.compass.some(artist => 
-              new RegExp(`\\b${artist.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(prompt)
-            );
-            
-            console.log(`[UNDERGROUND_STRICT] Mode detection: restrictive=${isRestrictive} inclusive=${isInclusive} artistSpecific=${isArtistSpecific}`);
-            
-            if (isRestrictive && isArtistSpecific) {
-              // MODO RESTRICTIVO POR ARTISTA ESPECÍFICO (sin límite de canciones)
-              userMessage = `UNDERGROUND_STRICT MODE - ARTIST SPECIFIC RESTRICTIVE
+            userMessage = `UNDERGROUND CONTEXT AVAILABLE
 
 PROMPT: "${prompt}"
 TARGET: ${targetSize} tracks
 
-ARTISTAS DISPONIBLES:
-${contexts.compass.join(', ')}
-
-INSTRUCCIONES RESTRICTIVAS POR ARTISTA:
-1. El usuario quiere SOLO los artistas específicos mencionados en el prompt
-2. IDENTIFICA qué artistas específicos menciona el usuario
-3. DEVUELVE SOLO esos artistas específicos (sin añadir otros)
-4. Si menciona "solo Yung Beef y Kaydy Cain", devuelve solo Yung Beef y Kaydy Cain
-5. NO uses ningún otro artista diferente a los mencionados
-6. IMPORTANTE: Para llegar a ${targetSize} tracks, cada artista puede tener hasta ${Math.ceil(targetSize/2)} canciones
-
-RESPUESTA REQUERIDA:
-Devuelve un JSON con "filtered_artists" conteniendo SOLO los artistas específicos mencionados.`;
-            } else if (isRestrictive) {
-              // MODO RESTRICTIVO: Solo los artistas mencionados
-              userMessage = `UNDERGROUND_STRICT MODE - RESTRICTIVE
-
-PROMPT: "${prompt}"
-TARGET: ${targetSize} tracks
-
-ARTISTAS DISPONIBLES:
-${contexts.compass.join(', ')}
-
-INSTRUCCIONES RESTRICTIVAS:
-1. El usuario quiere SOLO artistas específicos mencionados en el prompt
-2. IDENTIFICA qué artistas específicos menciona el usuario
-3. DEVUELVE SOLO esos artistas específicos (sin añadir otros)
-4. Si menciona "Yung Beef y Kaydy Cain", devuelve solo esos dos
-5. Si menciona "trap", devuelve solo los artistas trap de la lista
-
-RESPUESTA REQUERIDA:
-Devuelve un JSON con "filtered_artists" conteniendo SOLO los artistas específicos mencionados.`;
-            } else if (isInclusive) {
-              // MODO INCLUSIVO: Todos los artistas + prioridad especial
-              userMessage = `UNDERGROUND_STRICT MODE - INCLUSIVE
-
-PROMPT: "${prompt}"
-TARGET: ${targetSize} tracks
-
-ARTISTAS DISPONIBLES:
-${contexts.compass.join(', ')}
-
-INSTRUCCIONES INCLUSIVAS:
-1. El usuario quiere que INCLUYA artistas específicos (sin restringir otros)
-2. IDENTIFICA qué artistas específicos menciona el usuario
-3. DEVUELVE TODOS los artistas de la lista
-4. AÑADE un campo "priority_artists" con los artistas mencionados específicamente
-5. Estos artistas tendrán prioridad especial (más canciones - hasta 5 por artista)
-
-RESPUESTA REQUERIDA:
-Devuelve un JSON con:
-- "filtered_artists": TODOS los artistas de la lista
-- "priority_artists": Los artistas específicamente mencionados por el usuario`;
-            } else {
-              // MODO NORMAL: Filtrar por estilo
-              userMessage = `UNDERGROUND_STRICT MODE - NORMAL FILTERING
-
-PROMPT: "${prompt}"
-TARGET: ${targetSize} tracks
-
-ARTISTAS DISPONIBLES (FILTRA SEGÚN EL PROMPT):
+UNDERGROUND ARTISTS AVAILABLE:
 ${contexts.compass.join(', ')}
 
 INSTRUCCIONES:
-1. ANALIZA el prompt del usuario para entender qué tipo de música quiere
-2. ELIMINA de la lista anterior los artistas que NO encajen con el prompt
-3. DEVUELVE SOLO los nombres de artistas que SÍ encajen (sin añadir ninguno nuevo)
-4. Si el prompt es muy específico (ej. "trap", "reggaeton", "indie"), elimina los que no sean de ese estilo
-5. Si el prompt es general ("underground español"), mantén la mayoría de artistas
+1. Analiza el prompt y determina el modo correcto (NORMAL/VIRAL/FESTIVAL/ARTIST_STYLE)
+2. Decide si usar los artistas underground disponibles
+3. Si es artista específico: delega a Spotify con ese artista
+4. Si es estilo de artista: usa modo NORMAL con ese artista como priority_artists
+5. Si es underground: usa los artistas disponibles según el contexto
+6. Determina si es restrictivo, inclusivo, o exclusivo según el prompt
 
 RESPUESTA REQUERIDA:
-Devuelve un JSON con el campo "filtered_artists" que contenga SOLO los nombres de artistas de la lista que encajen con el prompt. NO añadas artistas nuevos.`;
-            }
-            
-            console.log(`[UNDERGROUND_STRICT] FINAL PROMPT LENGTH: ${userMessage.length} chars`);
-            console.log(`[UNDERGROUND_STRICT] TOTAL ARTISTS IN PROMPT: ${contexts.compass.length}`);
-            console.log(`[UNDERGROUND_STRICT] LAST 10 ARTISTS:`, contexts.compass.slice(-10).join(', '));
-            console.log(`[UNDERGROUND_STRICT] PROMPT TO LLM (first 1000 chars):`, userMessage.substring(0, 1000) + '...');
-          } else if (contexts && contexts.compass) {
-            // Detectar modos para contextos normales también
-            const isRestrictive = /\b(solo|únicamente|exclusivamente|nada más|sólo|únicamente|exclusivamente|tan solo|solamente|nada más que|nada más de|solo de|únicamente de|exclusivamente de|tan solo de|solamente de|nada más que de|con|con solo|con únicamente|con exclusivamente|con nada más|con tan solo|con solamente)\b/i.test(prompt);
-            const isInclusive = /\b(que tenga|incluir|con canciones de|que incluya|alguna canción de|que contenga|que tenga alguna|que incluya alguna|con alguna|que tenga canciones|que contenga canciones|que incluya canciones|con canciones|que tenga temas|que contenga temas|que incluya temas|con temas|que tenga música|que contenga música|que incluya música|con música|que tenga tracks|que contenga tracks|que incluya tracks|con tracks|que tenga temas de|que contenga temas de|que incluya temas de|con temas de|que tenga música de|que contenga música de|que incluya música de|con música de|que tenga tracks de|que contenga tracks de|que incluya tracks de|con tracks de|con|que tenga|que contenga|que incluya|incluir|con alguna|con canciones|con temas|con música|con tracks)\b/i.test(prompt);
-            const isExclusion = /\b(sin|sin canciones de|sin temas de|sin música de|sin tracks de|sin nada de|sin ningún|sin ninguna|sin ningún tema de|sin ninguna canción de|sin ningún track de|sin ninguna música de|sin ningún artista|sin ninguna artista|sin ningún cantante|sin ninguna cantante|sin ningún grupo|sin ninguna grupo|sin ningún grupo de|sin ninguna grupo de|sin ningún cantante de|sin ninguna cantante de|sin ningún artista de|sin ninguna artista de)\b/i.test(prompt);
-            
-            // Detectar si es restricción por artista específico (sin límite de canciones)
-            const isArtistSpecific = isRestrictive && contexts.compass.some(artist => 
-              new RegExp(`\\b${artist.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(prompt)
-            );
-            
-            console.log(`[CONTEXT] Mode detection: restrictive=${isRestrictive} inclusive=${isInclusive} artistSpecific=${isArtistSpecific}`);
-            
-            if (isRestrictive && isArtistSpecific) {
-              // MODO RESTRICTIVO POR ARTISTA ESPECÍFICO (sin límite de canciones)
-              userMessage = `CONTEXT MODE - ARTIST SPECIFIC RESTRICTIVE
-
-PROMPT: "${prompt}"
-TARGET: ${targetSize} tracks
-
-ARTISTAS DISPONIBLES:
-${contexts.compass.join(', ')}
-
-INSTRUCCIONES RESTRICTIVAS POR ARTISTA:
-1. El usuario quiere SOLO un artista específico mencionado en el prompt
-2. IDENTIFICA qué artista específico menciona el usuario
-3. GENERA canciones SOLO de ese artista específico (SIN LÍMITE de canciones)
-4. Si menciona "solo Bad Bunny", genera ${targetSize} canciones SOLO de Bad Bunny
-5. NO uses ningún otro artista diferente al mencionado
-
-RESPUESTA REQUERIDA:
-Devuelve un JSON con:
-- "tracks": Array de ${targetSize} canciones SOLO del artista específico mencionado
-- "artists": Array con SOLO el artista específico mencionado
-- "restricted_artists": Array con el artista específico mencionado (para que Spotify sepa las restricciones)`;
-            } else if (isRestrictive) {
-              // MODO RESTRICTIVO POR CARACTERÍSTICAS (con límite de canciones)
-              userMessage = `CONTEXT MODE - CHARACTERISTIC RESTRICTIVE
-
-PROMPT: "${prompt}"
-TARGET: ${targetSize} tracks
-
-ARTISTAS DISPONIBLES:
-${contexts.compass.join(', ')}
-
-INSTRUCCIONES RESTRICTIVAS POR CARACTERÍSTICAS:
-1. El usuario quiere SOLO canciones con características específicas (ej. instrumental, solo chicas, etc.)
-2. IDENTIFICA qué características específicas menciona el usuario
-3. GENERA canciones SOLO con esas características (máx 3 por artista)
-4. Si menciona "solo instrumental", genera solo canciones instrumentales
-5. Si menciona "solo chicas", genera solo canciones de artistas femeninas
-
-RESPUESTA REQUERIDA:
-Devuelve un JSON con:
-- "tracks": Array de canciones SOLO con las características específicas mencionadas
-- "artists": Array con los artistas que cumplan las características
-- "restricted_artists": Array con los artistas específicos mencionados (si los hay)`;
-            } else if (isInclusive) {
-              // MODO INCLUSIVO para contextos normales
-              userMessage = `CONTEXT MODE - INCLUSIVE
-
-PROMPT: "${prompt}"
-TARGET: ${targetSize} tracks
-
-ARTISTAS DISPONIBLES:
-${contexts.compass.join(', ')}
-
-INSTRUCCIONES INCLUSIVAS:
-1. El usuario quiere que INCLUYA artistas específicos (sin restringir otros)
-2. IDENTIFICA qué artistas específicos menciona el usuario
-3. GENERA canciones de TODOS los artistas de la lista
-4. AÑADE un campo "priority_artists" con los artistas mencionados específicamente
-5. Estos artistas tendrán prioridad especial (más canciones)
-
-RESPUESTA REQUERIDA:
-Devuelve un JSON con:
-- "tracks": Array de canciones de todos los artistas
-- "artists": Array con todos los artistas
-- "priority_artists": Los artistas específicamente mencionados por el usuario`;
-            } else {
-              // MODO NORMAL para contextos
-              userMessage = `Prompt: "${prompt}"\nTamaño solicitado: ${targetSize} tracks\n\nGenera ${Math.ceil(targetSize * 1.4)} canciones que encajen perfectamente con la petición. Usa solo canciones reales con título y artista específicos. Respeta TODAS las restricciones mencionadas (ej. instrumental, género, etc.).\n\nNUNCA uses comillas curvas; usa comillas dobles normales; no pongas comas finales.`;
-              
-              userMessage += `\n\nCONTEXTOS BRÚJULA (OBLIGATORIOS):\nUsa estos artistas como SEMILLAS OBLIGATORIAS y expande solo con sus colaboradores directos, artistas del mismo sello/crew, o vecinos estilísticos inequívocos:\n${contexts.compass.join(', ')}\n\nREGLAS DE CALIDAD ESTRICTAS:\n- Máx. 3 pistas por artista (2 si target < 40). NO spamees un solo nombre.\n- Solo artistas de los últimos 5-7 años dentro del COMPASS o su círculo cercano.\n- Desambiguación obligatoria: si un nombre es ambiguo, confirma con alias/crew/sello/ciudad.\n- Al menos 80% de temas deben ser COMPASS, colabos directas o vecinos claros.\n- 0% pop/comercial fuera de escena salvo que se pida explícitamente.\n- Si dudas sobre un artista, DESCÁRTALO.\n- Devuelve EXACTAMENTE ${targetSize} pistas válidas.`;
-            }
-          } else if (isSingleArtist) {
-            // MODO ARTISTA ESPECÍFICO - delegar completamente a Spotify
-            userMessage = `SINGLE ARTIST MODE - DELEGATE TO SPOTIFY
-
-PROMPT: "${prompt}"
-TARGET: ${targetSize} tracks
-
-INSTRUCCIONES ESPECIALES:
-1. El usuario quiere ÚNICAMENTE canciones de "${prompt}"
-2. NO generes canciones con LLM - delega completamente a Spotify
-3. Envía el artista "${prompt}" a Spotify para búsqueda directa
-4. Permite hasta 999 canciones de este artista
-5. Spotify buscará directamente las mejores canciones de este artista
-
-RESPUESTA REQUERIDA:
-Devuelve un JSON con:
-- "mode": "ARTIST_STYLE"
-- "tracks": Array vacío (delegar a Spotify)
-- "artists": ["${prompt}"] (solo este artista)
-- "filtered_artists": ["${prompt}"] (artista específico)
-- "priority_artists": ["${prompt}"] (artista prioritario)`;
+Devuelve un JSON con el modo correcto y los artistas/tracks apropiados según tu análisis del prompt.`;
           } else {
+            // No underground context - let LLM decide everything
             userMessage = `Prompt: "${prompt}"\nTamaño solicitado: ${targetSize} tracks\n\nAnaliza este prompt y determina el modo correcto. Genera ${Math.ceil(targetSize * 1.4)} canciones que encajen perfectamente con la petición. Usa solo canciones reales con título y artista específicos. Respeta TODAS las restricciones mencionadas (ej. instrumental, género, etc.).\n\nNUNCA uses comillas curvas; usa comillas dobles normales; no pongas comas finales.`;
           }
 
@@ -791,50 +585,4 @@ Responde SOLO con JSON:
       stopwords
     };
   }
-}
-
-/**
- * Detect the mode of the prompt
- */
-function detectMode(prompt) {
-  const promptLower = prompt.toLowerCase();
-  
-  // Check for viral/current mode
-  const viralKeywords = ['tiktok', 'viral', 'virales', 'top', 'charts', 'tendencia', 'tendencias', '2024', '2025'];
-  if (viralKeywords.some(keyword => promptLower.includes(keyword))) {
-    return 'VIRAL';
-  }
-  
-  // Check for festival mode
-  const festivalKeywords = ['festival', 'festivales', 'coachella', 'ultra', 'tomorrowland', 'edc'];
-  if (festivalKeywords.some(keyword => promptLower.includes(keyword))) {
-    return 'FESTIVAL';
-  }
-  
-  return 'NORMAL';
-}
-
-/**
- * Detect if prompt is a single artist name
- */
-function detectSingleArtist(prompt) {
-  const promptTrimmed = prompt.trim();
-  
-  // Check if prompt is just a single word or short phrase (likely artist name)
-  const words = promptTrimmed.split(/\s+/);
-  
-  // Single word or 2-3 words (common artist name patterns)
-  if (words.length <= 3) {
-    // Check if it doesn't contain common playlist keywords
-    const playlistKeywords = ['playlist', 'música', 'canciones', 'tracks', 'songs', 'mix', 'compilation', 'album', 'discografía'];
-    const hasPlaylistKeywords = playlistKeywords.some(keyword => 
-      promptTrimmed.toLowerCase().includes(keyword)
-    );
-    
-    if (!hasPlaylistKeywords) {
-      return true; // Likely a single artist name
-    }
-  }
-  
-  return false;
 }
