@@ -129,6 +129,15 @@ function determineMode(intent, prompt) {
  */
 async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
   console.log(`[STREAM:${traceId}] Starting LLM phase - target: ${target_tracks}`);
+  console.log(`[STREAM:${traceId}] Intent data:`, {
+    mode: determineMode(intent, intent.prompt),
+    contexts: intent.contexts?.key || 'none',
+    llmTracksCount: intent.tracks_llm?.length || 0,
+    artistsCount: intent.artists_llm?.length || 0,
+    filteredArtistsCount: intent.filtered_artists?.length || 0,
+    priorityArtistsCount: intent.priority_artists?.length || 0,
+    exclusions: intent.exclusions ? 'yes' : 'no'
+  });
   
   const llmTracks = intent.tracks_llm || [];
   const chunkSize = 10;
@@ -150,6 +159,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
     // MODE NORMAL: Get 75% LLM (but get 50 by default to be safe)
     llmTarget = Math.max(50, Math.ceil(target_tracks * 0.75));
     console.log(`[STREAM:${traceId}] NORMAL mode: LLM target = ${llmTarget} (75% of ${target_tracks})`);
+    console.log(`[STREAM:${traceId}] NORMAL mode conditions: isUndergroundStrict=${isUndergroundStrict}, hasContexts=${hasContexts}`);
   } else if (mode === 'VIRAL') {
     // VIRAL mode: LLM prepares terms and delegates everything to Spotify
     llmTarget = 0;
@@ -158,6 +168,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
     // Other modes (FESTIVAL, ARTIST_STYLE, CONTEXTS, UNDERGROUND): exact target
     llmTarget = target_tracks;
     console.log(`[STREAM:${traceId}] ${mode} mode: LLM target = ${llmTarget} (exact target)`);
+    console.log(`[STREAM:${traceId}] ${mode} mode conditions: isUndergroundStrict=${isUndergroundStrict}, hasContexts=${hasContexts}`);
   }
   
   // Process LLM tracks in chunks until we have enough or run out
@@ -202,6 +213,15 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
  */
 async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
   console.log(`[STREAM:${traceId}] Starting Spotify phase, remaining: ${remaining}`);
+  console.log(`[STREAM:${traceId}] Spotify phase intent data:`, {
+    mode: determineMode(intent, intent.prompt),
+    contexts: intent.contexts?.key || 'none',
+    artistsCount: intent.artists_llm?.length || 0,
+    filteredArtistsCount: intent.filtered_artists?.length || 0,
+    priorityArtistsCount: intent.priority_artists?.length || 0,
+    canonized: intent.canonized ? 'yes' : 'no',
+    exclusions: intent.exclusions ? 'yes' : 'no'
+  });
   
   if (remaining <= 0) {
     console.log(`[STREAM:${traceId}] No remaining tracks needed`);
@@ -232,9 +252,22 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       const priorityArtists = isInclusive ? (intent.priority_artists || []) : [];
       const maxPerArtist = isRestrictive ? Math.ceil(remaining / allowedArtists.length) : 3;
       
-      console.log(`[STREAM:${traceId}] Underground strict: ${allowedArtists.length} artists, priority: ${priorityArtists.length}`);
+      console.log(`[STREAM:${traceId}] UNDERGROUND STRICT MODE DETECTED`);
+      console.log(`[STREAM:${traceId}] Underground details:`, {
+        allowedArtists: allowedArtists.length,
+        priorityArtists: priorityArtists.length,
+        maxPerArtist: maxPerArtist,
+        isInclusive: isInclusive,
+        isRestrictive: isRestrictive,
+        prompt: prompt.substring(0, 100) + '...'
+      });
+      console.log(`[STREAM:${traceId}] Allowed artists sample:`, allowedArtists.slice(0, 5));
+      console.log(`[STREAM:${traceId}] Priority artists:`, priorityArtists);
       
       const undergroundTracks = await searchUndergroundTracks(accessToken, allowedArtists, remaining, maxPerArtist, null, priorityArtists);
+      
+      console.log(`[STREAM:${traceId}] Underground search completed: ${undergroundTracks.length} tracks found`);
+      console.log(`[STREAM:${traceId}] Underground tracks sample:`, undergroundTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
       
       // Yield in chunks
       for (let i = 0; i < undergroundTracks.length && totalYielded < remaining; i += chunkSize) {
@@ -245,6 +278,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         if (toYield.length > 0) {
           chunkCounter++;
           console.log(`[STREAM:${traceId}] Underground chunk ${chunkCounter} yielded: ${toYield.length} tracks, total: ${totalYielded}/${remaining}`);
+          console.log(`[STREAM:${traceId}] Chunk tracks:`, toYield.map(t => ({ name: t.name, artists: t.artistNames })));
           yield toYield;
           
           // Add delay between chunks for better UX
@@ -256,6 +290,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         if (totalYielded >= remaining) break;
       }
       
+      console.log(`[STREAM:${traceId}] Underground phase completed: ${totalYielded}/${remaining} tracks`);
       return;
     }
     
@@ -264,44 +299,63 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
     
     if (mode === 'VIRAL') {
       // VIRAL mode: Use consensus from popular playlists
-      console.log(`[STREAM:${traceId}] VIRAL mode: Using playlist consensus`);
+      console.log(`[STREAM:${traceId}] VIRAL MODE: Using playlist consensus`);
+      console.log(`[STREAM:${traceId}] VIRAL mode details:`, {
+        llmTracks: intent.tracks_llm?.length || 0,
+        artists: intent.artists_llm?.length || 0,
+        remaining: remaining
+      });
       
       try {
         const llmChosen = intent.tracks_llm || [];
         const spChosen = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining);
         
+        console.log(`[STREAM:${traceId}] VIRAL: LLM chosen ${llmChosen.length}, Spotify chosen ${spChosen.length}`);
+        
         let finalTracks = dedupeById([...(llmChosen||[]), ...(spChosen||[])]).filter(track => notExcluded(track, intent.exclusions));
+        
+        console.log(`[STREAM:${traceId}] VIRAL: After dedupe and filter: ${finalTracks.length} tracks`);
         
         // Fill with more tracks if needed
         if(finalTracks.length < remaining) {
+          console.log(`[STREAM:${traceId}] VIRAL: Need ${remaining - finalTracks.length} more tracks, getting from Spotify`);
           const moreFromSpotify = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining - finalTracks.length);
           finalTracks = [...finalTracks, ...moreFromSpotify.filter(t => !finalTracks.find(x=>x.id===t.id))];
+          console.log(`[STREAM:${traceId}] VIRAL: After more Spotify: ${finalTracks.length} tracks`);
         }
         
         if(finalTracks.length < remaining){
+          console.log(`[STREAM:${traceId}] VIRAL: Still need ${remaining - finalTracks.length} tracks, using broad terms`);
           const extraNeed = remaining - finalTracks.length;
           const extraTracks = await radioFromRelatedTop(accessToken, ['pop', 'hip hop', 'electronic'], extraNeed);
           finalTracks = [...finalTracks, ...extraTracks.filter(t => !finalTracks.find(x=>x.id===t.id))];
+          console.log(`[STREAM:${traceId}] VIRAL: After broad terms: ${finalTracks.length} tracks`);
         }
         
         spotifyTracks = finalTracks.slice(0, remaining);
-        console.log(`[VIRAL] Generated ${spotifyTracks.length}/${remaining} tracks`);
+        console.log(`[STREAM:${traceId}] VIRAL: Final result: ${spotifyTracks.length}/${remaining} tracks`);
+        console.log(`[STREAM:${traceId}] VIRAL tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
       } catch (err) {
-        console.error('[VIRAL] Error:', err);
+        console.error(`[STREAM:${traceId}] VIRAL Error:`, err);
         spotifyTracks = [];
       }
       
     } else if (mode === 'FESTIVAL') {
       // FESTIVAL mode: Use playlist consensus
-      console.log(`[STREAM:${traceId}] FESTIVAL mode: Using playlist consensus`);
+      console.log(`[STREAM:${traceId}] FESTIVAL MODE: Using playlist consensus`);
       
       try {
         const canonized = intent.canonized;
         if (!canonized) {
-          console.warn(`[FESTIVAL] No canonized data found, using fallback`);
+          console.warn(`[STREAM:${traceId}] FESTIVAL: No canonized data found, using fallback`);
           spotifyTracks = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining);
+          console.log(`[STREAM:${traceId}] FESTIVAL fallback: ${spotifyTracks.length} tracks`);
         } else {
-          console.log(`[FESTIVAL] baseQuery="${canonized.baseQuery}" year=${canonized.year}`);
+          console.log(`[STREAM:${traceId}] FESTIVAL: Using canonized data`, {
+            baseQuery: canonized.baseQuery,
+            year: canonized.year,
+            target: remaining
+          });
           
           spotifyTracks = await collectFromPlaylistsByConsensus(accessToken, {
             baseQuery: canonized.baseQuery,
@@ -309,44 +363,64 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
             target: remaining,
             festival: true
           });
+          
+          console.log(`[STREAM:${traceId}] FESTIVAL consensus: ${spotifyTracks.length} tracks`);
         }
         
         spotifyTracks = spotifyTracks.slice(0, remaining); // Ensure exact count
-        console.log(`[FESTIVAL] Generated ${spotifyTracks.length}/${remaining} tracks`);
+        console.log(`[STREAM:${traceId}] FESTIVAL: Final result: ${spotifyTracks.length}/${remaining} tracks`);
+        console.log(`[STREAM:${traceId}] FESTIVAL tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
       } catch (err) {
-        console.error('[FESTIVAL] Error:', err);
+        console.error(`[STREAM:${traceId}] FESTIVAL Error:`, err);
         spotifyTracks = [];
       }
       
     } else if (mode === 'ARTIST_STYLE') {
       // ARTIST_STYLE mode: Focus on artist similarity
-      console.log(`[STREAM:${traceId}] ARTIST_STYLE mode: Using artist similarity`);
+      console.log(`[STREAM:${traceId}] ARTIST_STYLE MODE: Using artist similarity`);
+      console.log(`[STREAM:${traceId}] ARTIST_STYLE details:`, {
+        artists: intent.artists_llm?.length || 0,
+        remaining: remaining
+      });
       
       try {
         const llmArtists = intent.artists_llm || [];
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using artists:`, llmArtists.slice(0, 5));
+        
         spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
-        console.log(`[ARTIST_STYLE] Generated ${spotifyTracks.length}/${remaining} tracks`);
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Generated ${spotifyTracks.length}/${remaining} tracks`);
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
       } catch (err) {
-        console.error('[ARTIST_STYLE] Error:', err);
+        console.error(`[STREAM:${traceId}] ARTIST_STYLE Error:`, err);
         spotifyTracks = [];
       }
       
     } else {
       // NORMAL mode: Standard Spotify recommendations
-      console.log(`[STREAM:${traceId}] NORMAL mode: Using standard recommendations`);
+      console.log(`[STREAM:${traceId}] NORMAL MODE: Using standard recommendations`);
+      console.log(`[STREAM:${traceId}] NORMAL mode details:`, {
+        artists: intent.artists_llm?.length || 0,
+        remaining: remaining
+      });
       
       try {
         const llmArtists = intent.artists_llm || [];
+        console.log(`[STREAM:${traceId}] NORMAL: Using artists:`, llmArtists.slice(0, 5));
+        
         spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
-        console.log(`[NORMAL] Generated ${spotifyTracks.length}/${remaining} tracks`);
+        console.log(`[STREAM:${traceId}] NORMAL: Generated ${spotifyTracks.length}/${remaining} tracks`);
+        console.log(`[STREAM:${traceId}] NORMAL tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
       } catch (err) {
-        console.error('[NORMAL] Error:', err);
+        console.error(`[STREAM:${traceId}] NORMAL Error:`, err);
         spotifyTracks = [];
       }
     }
     
     // Filter and yield tracks
+    console.log(`[STREAM:${traceId}] Filtering tracks: ${spotifyTracks.length} -> ${spotifyTracks.filter(track => notExcluded(track, intent.exclusions)).length}`);
     const filtered = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+    
+    console.log(`[STREAM:${traceId}] Starting to yield ${filtered.length} filtered tracks in chunks`);
     
     // Yield in chunks
     for (let i = 0; i < filtered.length && totalYielded < remaining; i += chunkSize) {
@@ -357,6 +431,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       if (toYield.length > 0) {
         chunkCounter++;
         console.log(`[STREAM:${traceId}] Spotify chunk ${chunkCounter} yielded: ${toYield.length} tracks, total: ${totalYielded}/${remaining}`);
+        console.log(`[STREAM:${traceId}] Chunk tracks:`, toYield.map(t => ({ name: t.name, artists: t.artistNames })));
         yield toYield;
         
         // Add delay between chunks for better UX
@@ -370,11 +445,13 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
     
     // If we still need more tracks, try with broader search terms
     if (totalYielded < remaining) {
-      console.log(`[STREAM:${traceId}] Still need ${remaining - totalYielded} tracks, trying broader search...`);
+      console.log(`[STREAM:${traceId}] BROADER SEARCH: Still need ${remaining - totalYielded} tracks, trying broader search...`);
       
       try {
         const broaderTracks = await radioFromRelatedTop(accessToken, ['pop', 'rock', 'electronic', 'hip hop', 'indie', 'alternative'], remaining - totalYielded);
         const broaderFiltered = broaderTracks.filter(track => notExcluded(track, intent.exclusions));
+        
+        console.log(`[STREAM:${traceId}] BROADER SEARCH: Found ${broaderTracks.length} tracks, ${broaderFiltered.length} after filtering`);
         
         if (broaderFiltered.length > 0) {
           const toYield = broaderFiltered.slice(0, remaining - totalYielded);
@@ -383,6 +460,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           if (toYield.length > 0) {
             chunkCounter++;
             console.log(`[STREAM:${traceId}] Broader search chunk ${chunkCounter} yielded: ${toYield.length} tracks, total: ${totalYielded}/${remaining}`);
+            console.log(`[STREAM:${traceId}] Broader search tracks:`, toYield.map(t => ({ name: t.name, artists: t.artistNames })));
             yield toYield;
           }
         }
@@ -534,18 +612,34 @@ export async function GET(request) {
         // Main processing
         (async () => {
           try {
-            // Get intent from LLM
-            controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Generating intent..."}\n\n`));
+                   // Get intent from LLM
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Generating intent..."}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING PLAYLIST GENERATION =====`);
+                   console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
+                   console.log(`[STREAM:${traceId}] Target tracks: ${target_tracks}`);
+                   
+                   const intent = await getIntentFromLLM(prompt, target_tracks);
+                   if (!intent) {
+                     throw new Error("Failed to generate intent");
+                   }
+                   
+                   console.log(`[STREAM:${traceId}] ===== INTENT GENERATED =====`);
+                   console.log(`[STREAM:${traceId}] Intent summary:`, {
+                     mode: determineMode(intent, prompt),
+                     contexts: intent.contexts?.key || 'none',
+                     llmTracks: intent.tracks_llm?.length || 0,
+                     artists: intent.artists_llm?.length || 0,
+                     filteredArtists: intent.filtered_artists?.length || 0,
+                     priorityArtists: intent.priority_artists?.length || 0,
+                     exclusions: intent.exclusions ? 'yes' : 'no',
+                     canonized: intent.canonized ? 'yes' : 'no'
+                   });
             
-            const intent = await getIntentFromLLM(prompt, target_tracks);
-            if (!intent) {
-              throw new Error("Failed to generate intent");
-            }
-            
-            console.log(`[STREAM:${traceId}] Intent generated: ${intent.tracks_llm?.length || 0} tracks, ${intent.artists_llm?.length || 0} artists`);
-            
-            // Process LLM tracks
-            controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Processing LLM tracks...", "target": ${target_tracks}}\n\n`));
+                   // Process LLM tracks
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Processing LLM tracks...", "target": ${target_tracks}}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
             
             for await (const chunk of yieldLLMChunks(accessToken, intent, target_tracks, traceId)) {
               allTracks = [...allTracks, ...chunk];
@@ -583,12 +677,18 @@ export async function GET(request) {
               }
             }
             
-            controller.enqueue(encoder.encode(`event: LLM_DONE\ndata: {"totalSoFar": ${allTracks.length}, "target": ${target_tracks}}\n\n`));
+                   controller.enqueue(encoder.encode(`event: LLM_DONE\ndata: {"totalSoFar": ${allTracks.length}, "target": ${target_tracks}}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== LLM PHASE COMPLETED =====`);
+                   console.log(`[STREAM:${traceId}] LLM tracks collected: ${allTracks.length}/${target_tracks}`);
             
-            // Process Spotify tracks if needed - keep trying until we reach target
-            let remaining = target_tracks - allTracks.length;
-            let spotifyAttempts = 0;
-            const maxSpotifyAttempts = 5;
+                   // Process Spotify tracks if needed - keep trying until we reach target
+                   let remaining = target_tracks - allTracks.length;
+                   let spotifyAttempts = 0;
+                   const maxSpotifyAttempts = 5;
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING SPOTIFY PHASE =====`);
+                   console.log(`[STREAM:${traceId}] Remaining tracks needed: ${remaining}`);
             
             while (remaining > 0 && spotifyAttempts < maxSpotifyAttempts) {
               spotifyAttempts++;
@@ -821,18 +921,34 @@ export async function POST(request) {
         // Main processing
         (async () => {
           try {
-            // Get intent from LLM
-            controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Generating intent..."}\n\n`));
+                   // Get intent from LLM
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Generating intent..."}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING PLAYLIST GENERATION =====`);
+                   console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
+                   console.log(`[STREAM:${traceId}] Target tracks: ${target_tracks}`);
+                   
+                   const intent = await getIntentFromLLM(prompt, target_tracks);
+                   if (!intent) {
+                     throw new Error("Failed to generate intent");
+                   }
+                   
+                   console.log(`[STREAM:${traceId}] ===== INTENT GENERATED =====`);
+                   console.log(`[STREAM:${traceId}] Intent summary:`, {
+                     mode: determineMode(intent, prompt),
+                     contexts: intent.contexts?.key || 'none',
+                     llmTracks: intent.tracks_llm?.length || 0,
+                     artists: intent.artists_llm?.length || 0,
+                     filteredArtists: intent.filtered_artists?.length || 0,
+                     priorityArtists: intent.priority_artists?.length || 0,
+                     exclusions: intent.exclusions ? 'yes' : 'no',
+                     canonized: intent.canonized ? 'yes' : 'no'
+                   });
             
-            const intent = await getIntentFromLLM(prompt, target_tracks);
-            if (!intent) {
-              throw new Error("Failed to generate intent");
-            }
-            
-            console.log(`[STREAM:${traceId}] Intent generated: ${intent.tracks_llm?.length || 0} tracks, ${intent.artists_llm?.length || 0} artists`);
-            
-            // Process LLM tracks
-            controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Processing LLM tracks...", "target": ${target_tracks}}\n\n`));
+                   // Process LLM tracks
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Processing LLM tracks...", "target": ${target_tracks}}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
             
             for await (const chunk of yieldLLMChunks(accessToken, intent, target_tracks, traceId)) {
               allTracks = [...allTracks, ...chunk];
@@ -870,12 +986,18 @@ export async function POST(request) {
               }
             }
             
-            controller.enqueue(encoder.encode(`event: LLM_DONE\ndata: {"totalSoFar": ${allTracks.length}, "target": ${target_tracks}}\n\n`));
+                   controller.enqueue(encoder.encode(`event: LLM_DONE\ndata: {"totalSoFar": ${allTracks.length}, "target": ${target_tracks}}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== LLM PHASE COMPLETED =====`);
+                   console.log(`[STREAM:${traceId}] LLM tracks collected: ${allTracks.length}/${target_tracks}`);
             
-            // Process Spotify tracks if needed - keep trying until we reach target
-            let remaining = target_tracks - allTracks.length;
-            let spotifyAttempts = 0;
-            const maxSpotifyAttempts = 5;
+                   // Process Spotify tracks if needed - keep trying until we reach target
+                   let remaining = target_tracks - allTracks.length;
+                   let spotifyAttempts = 0;
+                   const maxSpotifyAttempts = 5;
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING SPOTIFY PHASE =====`);
+                   console.log(`[STREAM:${traceId}] Remaining tracks needed: ${remaining}`);
             
             while (remaining > 0 && spotifyAttempts < maxSpotifyAttempts) {
               spotifyAttempts++;
