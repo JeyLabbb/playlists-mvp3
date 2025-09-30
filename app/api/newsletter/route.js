@@ -13,3 +13,4 @@ export async function GET() {
     { status: 410 }
   )
 }
+// Vercel build fix
