@@ -50,7 +50,7 @@ function notExcluded(track, exclusions){
   const artistNames = (track?.artistNames || track?.artists || [])
     .map(a => typeof a === 'string' ? a : a?.name)
     .filter(Boolean)
-    .map(x => (x || '').toLowerCase());
+    .map(x=>x.toLowerCase());
 
   // artista vetado
   if (banned_artists.some(b => artistNames.includes(b.toLowerCase()))) return false;
