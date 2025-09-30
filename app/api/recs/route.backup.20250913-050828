@@ -1,0 +1,353 @@
+import { NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+
+/* ---------- utils ---------- */
+const clamp = (n,a,b)=>Math.max(a,Math.min(b,n));
+const norm = (s)=>String(s||"").toLowerCase()
+  .normalize("NFD").replace(/\p{Diacritic}/gu,"").trim();
+
+const BANNED = /\b(aftermovie|after\s*movie|dj\s*set|set\s*live|session|mix(?:tape)?|karaoke|cover(?:s)?|acoustic|instrumental|podcast)\b/i;
+
+function mapTrack(t) {
+  if (!t || !t.id) return null;
+  return {
+    id: t.id,
+    name: t.name,
+    artists: (t.artists || []).map(a => a.name),
+    uri: t.uri,
+    open_url: t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
+    popularity: typeof t.popularity === "number" ? t.popularity : 0,
+  };
+}
+function dedupeById(list) {
+  const out = [];
+  const seen = new Set();
+  for (const t of list) {
+    if (!t || !t.id) continue;
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    out.push(t);
+  }
+  return out;
+}
+
+/* ---------- Spotify helpers ---------- */
+async function spotifyGET(accessToken, url) {
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+  if (!r.ok) throw new Error(`spotify ${r.status}`);
+  return r.json();
+}
+
+async function searchPlaylists({ accessToken, query, limit = 12 }) {
+  const u = new URL("https://api.spotify.com/v1/search");
+  u.searchParams.set("q", query);
+  u.searchParams.set("type", "playlist");
+  u.searchParams.set("limit", String(limit));
+  const data = await spotifyGET(accessToken, u.toString());
+  return (data?.playlists?.items || []).map(p => ({
+    id: p.id,
+    name: p.name || "",
+    owner: p.owner?.display_name || "",
+    tracksTotal: p.tracks?.total || 0,
+  }));
+}
+
+async function fetchPlaylistTracks({ accessToken, playlistId, max = 400 }) {
+  const out = [];
+  let url = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`;
+  while (url && out.length < max) {
+    const page = await spotifyGET(accessToken, url);
+    for (const it of (page.items || [])) {
+      const t = mapTrack(it.track);
+      if (t) out.push(t);
+    }
+    url = page.next;
+  }
+  return out;
+}
+
+/* ---------- consultas festival ---------- */
+function buildFestivalQueries(plan) {
+  const baseTerms = Array.isArray(plan.queryTerms) && plan.queryTerms.length
+    ? plan.queryTerms
+    : (Array.isArray(plan.queries) ? plan.queries : []);
+  const years = Array.isArray(plan.years) ? plan.years.map(String) : [];
+  const raw = String(plan.rawPrompt || "").trim();
+
+  const ensureFestival = (s) => /\bfestival\b/i.test(s) ? s : `${s} festival`;
+
+  const candidates = new Set();
+  for (const term of baseTerms.slice(0, 8)) {
+    for (const y of (years.length ? years : [""])) {
+      const core = String(term).replace(/\b20\d{2}\b/g, "").trim();
+      const withYear = (core + " " + y).trim();
+      if (withYear.length >= 3) {
+        candidates.add(ensureFestival(withYear));
+        candidates.add(`${ensureFestival(withYear)} playlist`);
+        candidates.add(`${ensureFestival(withYear)} lineup`);
+        candidates.add(`${ensureFestival(withYear)} cartel`);
+      }
+    }
+  }
+  if (raw) {
+    candidates.add(ensureFestival(raw));
+    candidates.add(`${ensureFestival(raw)} playlist`);
+  }
+
+  return Array.from(candidates)
+    .map(s => s.replace(/\s+/g, " ").trim())
+    .filter(s => s.length >= 3)
+    .slice(0, 12);
+}
+
+function nameScore(name, requiredTokens, requiredYears) {
+  const n = norm(name);
+  if (BANNED.test(n)) return -99;
+  if (requiredYears.length && !requiredYears.some(y => n.includes(y))) return -50; // exige año si se pidió
+  let score = 0;
+  for (const tk of requiredTokens) if (n.includes(tk)) score += 2;
+  if (/\bfestival\b/.test(n)) score += 1;
+  return score;
+}
+
+/* ---------- diversidad ---------- */
+function enforceDiversity(tracks, wanted) {
+  if (!Array.isArray(tracks) || !tracks.length) return [];
+  const cap = Math.max(2, Math.floor(wanted * 0.12)); // ~12% por artista, mínimo 2
+  const byArtist = new Map();
+  for (const t of tracks) {
+    const a0 = (t.artists && t.artists[0]) ? t.artists[0] : "¿?";
+    if (!byArtist.has(a0)) byArtist.set(a0, []);
+    byArtist.get(a0).push(t);
+  }
+  // Ordena cada bucket por "popularidad" descendente si la tuviera
+  for (const [k, arr] of byArtist) {
+    arr.sort((a,b) => (b.popularity||0) - (a.popularity||0));
+  }
+  // Orden de artistas: buckets más grandes primero
+  const order = Array.from(byArtist.keys()).sort((a,b)=> (byArtist.get(b).length - byArtist.get(a).length));
+
+  const result = [];
+  const usedByArtist = new Map();
+  const usedIds = new Set();
+
+  while (result.length < wanted) {
+    let progressed = false;
+    for (const artist of order) {
+      const used = usedByArtist.get(artist) || 0;
+      if (used >= cap) continue;
+      const list = byArtist.get(artist);
+      while (list && list.length) {
+        const t = list.shift();
+        if (!t || usedIds.has(t.id)) continue;
+        result.push(t);
+        usedIds.add(t.id);
+        usedByArtist.set(artist, used + 1);
+        progressed = true;
+        break;
+      }
+      if (result.length >= wanted) break;
+    }
+    if (!progressed) break; // no quedan opciones
+  }
+  return result.slice(0, wanted);
+}
+
+/* ---------- agregador festival con reglas más duras + diversidad ---------- */
+async function recsFromFestival({ plan, accessToken, wanted }) {
+  const queries = buildFestivalQueries(plan);
+  if (!queries.length) return { tracks: [], debug: { reason: "no-queries" } };
+
+  // tokens para evaluar nombres
+  const tokens = new Set();
+  const base = (plan.queryTerms || plan.queries || []).join(" ") || plan.rawPrompt || "";
+  for (const w of norm(base).split(/\s+/)) {
+    if (!w) continue;
+    if (w.length < 3) continue;
+    if (/\b(playlist|lineup|cartel|music|musica)\b/.test(w)) continue;
+    tokens.add(w);
+  }
+  const years = Array.isArray(plan.years) ? plan.years.map(String) : [];
+  years.forEach(y => tokens.add(y));
+  tokens.add("festival");
+  const requiredTokens = Array.from(tokens);
+  const requiredYears = years;
+
+  // Buscar y filtrar playlists
+  const found = [];
+  for (const q of queries) {
+    try {
+      const pls = await searchPlaylists({ accessToken, query: q, limit: 12 });
+      for (const p of pls) {
+        const s = nameScore(p.name, requiredTokens, requiredYears);
+        // mínimo 4 puntos (varios tokens) y no baneadas
+        if (s >= 4) found.push({ ...p, score: s });
+      }
+    } catch {}
+    if (found.length >= 16) break;
+  }
+  if (!found.length) return { tracks: [], debug: { reason: "no-playlists" } };
+
+  // Orden por score y tamaño
+  found.sort((a,b) =>
+    b.score - a.score ||
+    b.tracksTotal - a.tracksTotal ||
+    a.name.localeCompare(b.name)
+  );
+
+  // Coge 3–5 mejores
+  const pick = found.slice(0, Math.min(5, Math.max(3, found.length)));
+
+  // Traer canciones
+  const bags = [];
+  for (const p of pick) {
+    try {
+      const items = await fetchPlaylistTracks({ accessToken, playlistId: p.id, max: 500 });
+      if (items.length) bags.push({ id: p.id, name: p.name, items });
+    } catch {}
+  }
+  if (!bags.length) return { tracks: [], debug: { reason: "no-tracks" } };
+
+  // Frecuencia por track y artista
+  const trackFreq = new Map(); // id -> {track, count, pop}
+  const artistFreq = new Map(); // name -> count
+  for (const bag of bags) {
+    const seenThis = new Set();
+    for (const t of bag.items) {
+      if (!t?.id) continue;
+      if (seenThis.has(t.id)) continue;
+      seenThis.add(t.id);
+      const a0 = (t.artists && t.artists[0]) ? t.artists[0] : null;
+      if (a0) artistFreq.set(a0, (artistFreq.get(a0) || 0) + 1);
+
+      const cur = trackFreq.get(t.id) || { track: t, count: 0, pop: 0 };
+      cur.count += 1;
+      cur.pop = Math.max(cur.pop, t.popularity || 0);
+      trackFreq.set(t.id, cur);
+    }
+  }
+
+  // Score final
+  const scored = Array.from(trackFreq.values()).map(({ track, count, pop }) => {
+    const a0 = (track.artists && track.artists[0]) ? track.artists[0] : "";
+    const aScore = artistFreq.get(a0) || 0;
+    const finalScore = count * 3 + aScore * 1 + pop / 50;
+    return { track, count, aScore, finalScore };
+  });
+
+  // Separar multi-playlist vs single
+  const multi = scored.filter(x => x.count >= 2).sort((a,b)=>b.finalScore-a.finalScore).map(x=>x.track);
+  const single = scored.filter(x => x.count === 1).sort((a,b)=>b.finalScore-a.finalScore).map(x=>x.track);
+
+  // Primero multi (≥70% del pedido), con diversidad por artista
+  const needMulti = Math.min(multi.length, Math.max(Math.ceil(wanted * 0.7), 10));
+  const pickedMulti = enforceDiversity(multi, needMulti);
+
+  // Luego el resto, manteniendo diversidad global
+  const restNeeded = Math.max(0, wanted - pickedMulti.length);
+  const pickedRest = enforceDiversity(single, restNeeded);
+
+  const combined = dedupeById([...pickedMulti, ...pickedRest]).slice(0, wanted);
+
+  return {
+    tracks: combined.map(t => ({
+      id: t.id, name: t.name, artists: t.artists, uri: t.uri, open_url: t.open_url,
+    })),
+  };
+}
+
+/* ---------- general (no festival) ---------- */
+function enforceDiversitySimple(tracks, wanted) {
+  // versión simple para general
+  return enforceDiversity(tracks, wanted);
+}
+
+async function recsGeneral({ plan, accessToken, wanted }) {
+  const out = [];
+  const seeds = { tracks: [], artists: [], genres: Array.isArray(plan.targetGenres) ? plan.targetGenres.slice(0,5) : (Array.isArray(plan.genres) ? plan.genres.slice(0,5) : []) };
+  const candidates = Array.isArray(plan.candidates) ? plan.candidates : [];
+
+  for (const c of candidates) {
+    if (out.length >= wanted) break;
+    const qParts = [];
+    if (c?.track)  qParts.push(`track:"${String(c.track).replace(/"/g,"")}"`);
+    if (c?.artist) qParts.push(`artist:"${String(c.artist).replace(/"/g,"")}"`);
+    const q = qParts.join(" ") || String(c?.track || c?.artist || "");
+    if (!q) continue;
+
+    const u = new URL("https://api.spotify.com/v1/search");
+    u.searchParams.set("q", q);
+    u.searchParams.set("type", "track");
+    u.searchParams.set("limit", "5");
+    u.searchParams.set("market", "from_token");
+    try {
+      const data = await spotifyGET(accessToken, u.toString());
+      const it = (data?.tracks?.items || [])[0];
+      const m = mapTrack(it);
+      if (m) {
+        out.push(m);
+        if (seeds.tracks.length < 5) seeds.tracks.push(m.id);
+      }
+    } catch {}
+  }
+
+  let diversified = enforceDiversitySimple(dedupeById(out), wanted);
+
+  if (diversified.length < wanted) {
+    const recU = new URL("https://api.spotify.com/v1/recommendations");
+    recU.searchParams.set("limit", String(Math.min(100, wanted - diversified.length)));
+    if (seeds.tracks.length) recU.searchParams.set("seed_tracks", seeds.tracks.slice(0,5).join(","));
+    if (seeds.artists?.length) recU.searchParams.set("seed_artists", seeds.artists.slice(0,5).join(","));
+    if (seeds.genres?.length) recU.searchParams.set("seed_genres", seeds.genres.slice(0,5).join(","));
+    try {
+      const data = await spotifyGET(accessToken, recU.toString());
+      const extra = (data?.tracks || []).map(mapTrack).filter(Boolean);
+      diversified = enforceDiversitySimple(dedupeById([...diversified, ...extra]), wanted);
+    } catch {}
+  }
+
+  return diversified.slice(0, wanted).map(t => ({
+    id: t.id, name: t.name, artists: t.artists, uri: t.uri, open_url: t.open_url,
+  }));
+}
+
+/* ---------- endpoint ---------- */
+export default async function handler(req) {
+  try {
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    if (!token?.accessToken) {
+      return NextResponse.json({ error: "no-access-token" }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const plan = body?.plan || {};
+    const wanted = clamp(Number(plan.count || 50), 1, 200);
+
+    let tracks = [];
+    let used = "general";
+
+    if (plan.isEvent) {
+      // Festival primero, sin fallback salvo que quedemos MUY cortos
+      const rFest = await recsFromFestival({ plan, accessToken: token.accessToken, wanted });
+      tracks = rFest.tracks || [];
+      used = "festival";
+      if (tracks.length < Math.ceil(wanted * 0.5)) {
+        const rGen = await recsGeneral({ plan, accessToken: token.accessToken, wanted });
+        tracks = dedupeById([...tracks, ...rGen]).slice(0, wanted);
+        used = "festival+fallback";
+      }
+    } else {
+      tracks = await recsGeneral({ plan, accessToken: token.accessToken, wanted });
+    }
+
+    return NextResponse.json({ ok: true, used, got: tracks.length, tracks });
+  } catch (e) {
+    return NextResponse.json({ error: "server", message: String(e?.message || e) }, { status: 500 });
+  }
+}
+
+export const POST = handler;
+export const GET = handler;

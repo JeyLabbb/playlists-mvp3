@@ -1,0 +1,53 @@
+import NextAuth from "next-auth";
+import Spotify from "next-auth/providers/spotify";
+
+const scopes = [
+  "user-read-email",
+  "user-read-private",
+  "playlist-modify-public",
+  "playlist-modify-private",
+].join(" ");
+
+export const authOptions = {
+  providers: [
+    Spotify({
+      clientId: process.env.SPOTIFY_CLIENT_ID,
+      clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+      authorization: {
+        url: "https://accounts.spotify.com/authorize",
+        params: {
+          scope: scopes,
+          // 👇 forzamos que Spotify redirija a tu callback exacto
+          redirect_uri: `${process.env.NEXTAUTH_URL}/api/auth/callback/spotify`,
+        },
+      },
+      checks: ["pkce", "state"],
+    }),
+  ],
+  session: { strategy: "jwt" },
+
+  callbacks: {
+    async redirect({ url, baseUrl }) {
+      // respeta callbackUrl si viene de signIn(..., { callbackUrl })
+      try {
+        if (url?.startsWith("/")) return new URL(url, baseUrl).toString();
+        if (url?.startsWith(baseUrl)) return url;
+      } catch {}
+      return baseUrl; // fallback duro a tu home
+    },
+    async jwt({ token, account }) {
+      if (account?.access_token) token.accessToken = account.access_token;
+      return token;
+    },
+    async session({ session, token }) {
+      if (token?.accessToken) session.accessToken = token.accessToken;
+      return session;
+    },
+  },
+
+  // que la página de login sea tu home (el botón Iniciar sesión)
+  pages: { signIn: "/" },
+};
+
+const handler = NextAuth(authOptions);
+export { handler as GET, handler as POST };

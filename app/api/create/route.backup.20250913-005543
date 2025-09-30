@@ -1,0 +1,97 @@
+import { NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+
+export async function POST(req) {
+  // 1) Token del user
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token?.accessToken) {
+    return NextResponse.json({ error: "no-access-token" }, { status: 401 });
+  }
+
+  // 2) Datos del body
+  let name = "Mi playlist";
+  let tracks = [];
+  try {
+    const body = await req.json();
+    name = String(body?.name || name).slice(0, 100).trim() || "Mi playlist";
+    tracks = Array.isArray(body?.tracks) ? body.tracks.filter(Boolean) : [];
+  } catch {
+    // si el body viene vacío, seguimos con defaults
+  }
+
+  // 3) Creamos la playlist (pública por defecto)
+  const createRes = await fetch("https://api.spotify.com/v1/me/playlists", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name,
+      description: "Generada con IA (demo) — by JeyLabbb",
+      public: true,
+    }),
+    cache: "no-store",
+  });
+
+  const created = await createRes.json();
+  if (!createRes.ok) {
+    return NextResponse.json(
+      { error: "create-failed", details: created },
+      { status: createRes.status }
+    );
+  }
+
+  const playlistId = created?.id;
+  if (!playlistId) {
+    return NextResponse.json(
+      { error: "no-playlist-id", details: created },
+      { status: 500 }
+    );
+  }
+
+  // 4) Añadimos las pistas en bloques de 100
+  let addedTotal = 0;
+  if (tracks.length > 0) {
+    for (let i = 0; i < tracks.length; i += 100) {
+      const chunk = tracks.slice(i, i + 100);
+      const addRes = await fetch(
+        `https://api.spotify.com/v1/playlists/${playlistId}/tracks`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token.accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ uris: chunk }),
+          cache: "no-store",
+        }
+      );
+      const addBody = await addRes.json();
+      if (!addRes.ok) {
+        return NextResponse.json(
+          {
+            error: "add-tracks-failed",
+            at: i,
+            details: addBody,
+          },
+          { status: addRes.status }
+        );
+      }
+      addedTotal += chunk.length;
+    }
+  }
+
+  // 5) Construimos URLs
+  const webUrl = created?.external_urls?.spotify || `https://open.spotify.com/playlist/${playlistId}`;
+  const appUrl = `spotify://playlist/${playlistId}`;
+
+  return NextResponse.json({
+    ok: true,
+    playlistId,
+    name,
+    webUrl,
+    appUrl,
+    added: addedTotal,
+  });
+}

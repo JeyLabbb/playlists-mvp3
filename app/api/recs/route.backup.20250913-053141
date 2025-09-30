@@ -1,0 +1,315 @@
+import { NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+
+/** Utils */
+const deAcc = (s="") =>
+  s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[“”«»„]/g, '"')
+    .toLowerCase();
+
+const yearRegex = /\b(20\d{2})\b/g;
+
+const BAD_PLAYLIST_HINTS = [
+  "after movie","aftermovie","mix","dj set","session","live set","recopilado por",
+  "best of","mejores temas","throwback","remember","2020","2019" // bajar ruido viejo
+];
+
+const GOOD_PLAYLIST_HINTS = [
+  "festival","cartel","lineup","line-up","official","oficial"
+];
+
+function hasAny(haystack, needles) {
+  const h = deAcc(haystack || "");
+  return needles.some(n => h.includes(deAcc(n)));
+}
+
+function titleScore({ name, description }, tokens, year) {
+  const t = deAcc(name || "");
+  const d = deAcc(description || "");
+  let s = 0;
+
+  // Tokens del festival (nombre/ciudad)
+  for (const tok of tokens) {
+    if (tok.length < 3) continue;
+    if (t.includes(deAcc(tok))) s += 6;
+    if (d.includes(deAcc(tok))) s += 2;
+  }
+
+  // “festival/lineup/cartel/oficial”
+  for (const g of GOOD_PLAYLIST_HINTS) {
+    if (t.includes(deAcc(g))) s += 3;
+    if (d.includes(deAcc(g))) s += 1;
+  }
+
+  // Año (si lo hay en el prompt)
+  if (year && (t.includes(String(year)) || d.includes(String(year)))) s += 5;
+
+  // Penalizaciones
+  for (const b of BAD_PLAYLIST_HINTS) {
+    if (t.includes(deAcc(b)) || d.includes(deAcc(b))) s -= 4;
+  }
+
+  // Prefiere coincidencia exacta "festival + año" en título
+  if (year && tokens.length) {
+    const combo = `${tokens.join(" ")} ${year}`.trim();
+    if (t.includes(deAcc(combo))) s += 10;
+  }
+
+  return s;
+}
+
+function mapTrack(spTrack) {
+  return {
+    id: spTrack?.id,
+    name: spTrack?.name,
+    artists: (spTrack?.artists || []).map(a => a?.name || "").filter(Boolean),
+    uri: spTrack?.uri,
+    open_url: spTrack?.external_urls?.spotify || (spTrack?.id ? `https://open.spotify.com/track/${spTrack.id}` : undefined),
+  };
+}
+
+function dedupeById(list) {
+  const seen = new Set();
+  const out = [];
+  for (const t of list) {
+    if (!t?.id) continue;
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    out.push(t);
+  }
+  return out;
+}
+
+function capPerArtist(tracks, wanted) {
+  // límite proporcional: evita spam de 1–2 artistas
+  const maxPerArtist = Math.max(2, Math.ceil(wanted / 20)); // p.ej. 50 → 3; 150 → 8
+  const counts = new Map();
+  const out = [];
+  for (const t of tracks) {
+    const key = (t.artists && t.artists[0]) || "unknown";
+    const c = counts.get(key) || 0;
+    if (c >= maxPerArtist) continue;
+    counts.set(key, c + 1);
+    out.push(t);
+  }
+  return out;
+}
+
+/** Spotify helpers */
+async function spSearchPlaylists({ q, token, limit = 10 }) {
+  const url = new URL("https://api.spotify.com/v1/search");
+  url.searchParams.set("q", q);
+  url.searchParams.set("type", "playlist");
+  url.searchParams.set("limit", String(limit));
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store"
+  });
+  if (!r.ok) return { items: [] };
+  return r.json();
+}
+
+async function spGetPlaylist({ id, token }) {
+  const url = new URL(`https://api.spotify.com/v1/playlists/${id}`);
+  // reduce payload
+  url.searchParams.set(
+    "fields",
+    "name,description,followers.total,external_urls.spotify,owner.display_name,tracks.items(track(id,name,uri,external_urls.spotify,artists(name))),tracks.total"
+  );
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store"
+  });
+  if (!r.ok) return null;
+  return r.json();
+}
+
+async function spRecommendations({ have, need, token, seedTrackIds = [] }) {
+  if (need <= 0) return [];
+  const url = new URL("https://api.spotify.com/v1/recommendations");
+  url.searchParams.set("limit", String(Math.min(need, 100)));
+  if (seedTrackIds.length) url.searchParams.set("seed_tracks", seedTrackIds.slice(0,5).join(","));
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store"
+  });
+  if (!r.ok) return [];
+  const data = await r.json();
+  const haveIds = new Set(have.map(t => t.id));
+  return (data?.tracks || [])
+    .map(mapTrack)
+    .filter(t => t?.id && !haveIds.has(t.id));
+}
+
+/** Core: construir consultas para festivales */
+function buildFestivalQueriesFromPlan(plan) {
+  const raw = (plan?.rawPrompt || "").trim();
+  const p = deAcc(raw);
+  const years = (raw.match(yearRegex) || []).map(y => Number(y));
+  const year = years.length ? years[0] : null;
+
+  // tokens base desde el prompt
+  // ejemplo: "Groove Pamplona 2025" → ["groove", "pamplona"]
+  const words = p.split(/[^a-z0-9]+/).filter(Boolean);
+  const tokens = words.filter(w => !/^\d+$/.test(w)); // fuera números sueltos
+
+  // heurística: detectar nombre principal del festival (primera palabra "fuerte")
+  // si el prompt contiene "festival" tomamos las 1–3 palabras cercanas a “festival”
+  let nameTokens = [];
+  const idxFestival = words.indexOf("festival");
+  if (idxFestival !== -1) {
+    const windowTokens = words.slice(Math.max(0, idxFestival - 2), idxFestival + 3);
+    nameTokens = windowTokens.filter(w => w !== "festival" && w.length >= 3);
+  }
+  if (!nameTokens.length) {
+    // fallback: primeras 2–3 palabras con longitud >=4
+    nameTokens = words.filter(w => w.length >= 4).slice(0, 3);
+  }
+
+  // ciudad si viene: ejemplo “pamplona”, “madrid”, etc.
+  const city = words.find(w => ["pamplona","madrid","barcelona","valencia","sevilla","bilbao","donostia","zaragoza","vigo"].includes(w)) || null;
+
+  // queries preferentes
+  const q = [];
+  const baseName = nameTokens.join(" ").trim();
+  if (baseName) {
+    if (year && city) q.push(`${baseName} ${city} ${year}`);
+    if (year)        q.push(`${baseName} ${year}`);
+    if (city)        q.push(`${baseName} ${city}`);
+    q.push(`${baseName} festival`);
+    q.push(baseName);
+  }
+
+  // dedupe conservando orden
+  const seen = new Set();
+  const queries = [];
+  for (const s of q) {
+    const k = deAcc(s);
+    if (k.length >= 3 && !seen.has(k)) { seen.add(k); queries.push(s); }
+  }
+
+  return { queries, year, nameTokens: baseName ? nameTokens : [] };
+}
+
+/** Handler */
+export async function POST(req) {
+  try {
+    // 0) Auth
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    if (!token?.accessToken) {
+      return NextResponse.json({ error: "no-access-token" }, { status: 401 });
+    }
+
+    // 1) body { plan }
+    const body = await req.json().catch(() => ({}));
+    const plan = body?.plan || null;
+    const wanted = Math.max(1, Math.min(Number(plan?.count || 50), 200));
+
+    // Si no es evento, delega en la versión anterior (fallback simple con candidates + recs)
+    if (!plan?.isEvent) {
+      // ——— fallback minimal: usa candidates + recommendations (lo que ya te funcionaba) ———
+      const candidates = Array.isArray(plan?.candidates) ? plan.candidates : [];
+      const found = [];
+      for (const c of candidates) {
+        if (found.length >= wanted) break;
+        // No buscamos aquí para no romper tu flujo no-evento (lo manejaba /recommend en tu versión anterior)
+        // Devolvemos vacío y que tu lógica previa de no-evento actúe.
+      }
+      return NextResponse.json({ ok: true, used: "non-event", tracks: [], got: 0, requested: wanted });
+    }
+
+    // 2) EVENTO: construir queries específicas para el festival
+    const { queries, year, nameTokens } = buildFestivalQueriesFromPlan(plan);
+    if (!queries.length || !nameTokens.length) {
+      return NextResponse.json({ ok: false, error: "no-festival-parsed", message: "No se ha podido interpretar el festival desde el prompt." }, { status: 400 });
+    }
+
+    // 3) Buscar playlists candidatas (varias queries, top por score)
+    const playlistCandidates = [];
+    for (const q of queries) {
+      const data = await spSearchPlaylists({ q, token: token.accessToken, limit: 10 });
+      const items = Array.isArray(data?.playlists?.items) ? data.playlists.items : [];
+      for (const it of items) {
+        const score = titleScore({ name: it?.name, description: it?.description }, nameTokens, year);
+        // filtra basura evidente y exige score mínimo
+        if (score >= 6 && !hasAny(it?.name + " " + it?.description, BAD_PLAYLIST_HINTS)) {
+          playlistCandidates.push({ id: it?.id, name: it?.name, description: it?.description, score });
+        }
+      }
+    }
+
+    if (!playlistCandidates.length) {
+      return NextResponse.json({ ok: false, error: "no-festival-playlists", message: "No se encontraron playlists públicas para ese festival/año." }, { status: 404 });
+    }
+
+    // ordena por score y limita (por rendimiento)
+    playlistCandidates.sort((a,b) => b.score - a.score);
+    const topPlaylists = playlistCandidates.slice(0, 6);
+
+    // 4) Descargar pistas de esas playlists y montar lista
+    const buckets = [];
+    for (const p of topPlaylists) {
+      const full = await spGetPlaylist({ id: p.id, token: token.accessToken });
+      const tracks = (full?.tracks?.items || [])
+        .map(it => it?.track)
+        .filter(Boolean)
+        .map(mapTrack)
+        .filter(t => t?.id && t?.uri);
+      if (tracks.length) buckets.push(tracks);
+    }
+
+    if (!buckets.length) {
+      return NextResponse.json({ ok: false, error: "empty-playlists", message: "Las playlists del festival no tenían pistas accesibles." }, { status: 404 });
+    }
+
+    // Round-robin entre playlists para diversidad
+    const mixed = [];
+    let idx = 0;
+    while (mixed.length < wanted) {
+      let progressed = false;
+      for (const b of buckets) {
+        if (idx < b.length) {
+          mixed.push(b[idx]);
+          if (mixed.length >= wanted) break;
+          progressed = true;
+        }
+      }
+      if (!progressed) break;
+      idx++;
+    }
+
+    let tracks = dedupeById(mixed);
+
+    // 5) Cap por artista (evita que 1–2 artistas dominen)
+    tracks = capPerArtist(tracks, wanted);
+
+    // 6) Si aún faltan, rellena con recommendations SEMILLADAS por lo ya encontrado (mismo “color”)
+    if (tracks.length < wanted) {
+      const seedTrackIds = tracks.slice(0, 10).map(t => t.id);
+      const extra = await spRecommendations({
+        have: tracks,
+        need: wanted - tracks.length,
+        token: token.accessToken,
+        seedTrackIds
+      });
+      tracks = dedupeById([...tracks, ...extra]).slice(0, wanted);
+      tracks = capPerArtist(tracks, wanted);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      used: "festival-playlists",
+      festivalTokens: nameTokens,
+      year: year || null,
+      requested: wanted,
+      got: tracks.length,
+      tracks
+    });
+  } catch (e) {
+    return NextResponse.json({ error: "server", message: String(e?.message || e) }, { status: 500 });
+  }
+}
+
+export const GET = POST;

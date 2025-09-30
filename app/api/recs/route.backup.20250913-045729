@@ -1,0 +1,318 @@
+import { NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+
+/* ---------- utils ---------- */
+const clamp = (n,a,b)=>Math.max(a,Math.min(b,n));
+const norm = (s)=>String(s||"").toLowerCase()
+  .normalize("NFD").replace(/\p{Diacritic}/gu,"").trim();
+
+function mapTrack(t) {
+  if (!t || !t.id) return null;
+  return {
+    id: t.id,
+    name: t.name,
+    artists: (t.artists || []).map(a => a.name),
+    uri: t.uri,
+    open_url: t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
+    popularity: typeof t.popularity === "number" ? t.popularity : 0,
+  };
+}
+function dedupeById(list) {
+  const out = [];
+  const seen = new Set();
+  for (const t of list) {
+    if (!t || !t.id) continue;
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    out.push(t);
+  }
+  return out;
+}
+
+/* ---------- Spotify helpers ---------- */
+async function spotifyGET(accessToken, url) {
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+  if (!r.ok) throw new Error(`spotify ${r.status}`);
+  return r.json();
+}
+
+async function searchPlaylists({ accessToken, query, limit = 10 }) {
+  const u = new URL("https://api.spotify.com/v1/search");
+  u.searchParams.set("q", query);
+  u.searchParams.set("type", "playlist");
+  u.searchParams.set("limit", String(limit));
+  const data = await spotifyGET(accessToken, u.toString());
+  return (data?.playlists?.items || []).map(p => ({
+    id: p.id,
+    name: p.name || "",
+    owner: p.owner?.display_name || "",
+    tracksTotal: p.tracks?.total || 0,
+  }));
+}
+
+async function fetchPlaylistTracks({ accessToken, playlistId, max = 300 }) {
+  const out = [];
+  let url = `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`;
+  while (url && out.length < max) {
+    const page = await spotifyGET(accessToken, url);
+    for (const it of page.items || []) {
+      const t = mapTrack(it.track);
+      if (t) out.push(t);
+    }
+    url = page.next;
+  }
+  return out;
+}
+
+/* ---------- nombre/consulta festival ---------- */
+function buildFestivalQueries(plan) {
+  const baseTerms = Array.isArray(plan.queryTerms) && plan.queryTerms.length
+    ? plan.queryTerms
+    : (Array.isArray(plan.queries) ? plan.queries : []);
+
+  const years = Array.isArray(plan.years) ? plan.years.map(String) : [];
+  const raw = String(plan.rawPrompt || "").trim();
+
+  // palabra festival si no está
+  const ensureFestival = (s) =>
+    /\bfestival\b/i.test(s) ? s : `${s} festival`;
+
+  const candidates = new Set();
+
+  // 1) combos con years
+  for (const term of baseTerms.slice(0, 6)) {
+    for (const y of (years.length ? years : [""])) {
+      const core = String(term).replace(/\b20\d{2}\b/g, "").trim();
+      const withYear = (core + " " + y).trim();
+      if (withYear.length >= 3) {
+        candidates.add(ensureFestival(withYear));
+        candidates.add(`${ensureFestival(withYear)} playlist`);
+        candidates.add(`${ensureFestival(withYear)} cartel`);
+        candidates.add(`${ensureFestival(withYear)} lineup`);
+      }
+    }
+  }
+  // 2) el prompt tal cual
+  if (raw) {
+    candidates.add(ensureFestival(raw));
+    candidates.add(`${ensureFestival(raw)} playlist`);
+  }
+
+  // 3) limpiar
+  return Array.from(candidates)
+    .map(s => s.replace(/\s+/g, " ").trim())
+    .filter(s => s.length >= 3)
+    .slice(0, 10);
+}
+
+function nameScore(name, requiredTokens) {
+  const n = norm(name);
+  let score = 0;
+  for (const tk of requiredTokens) {
+    if (n.includes(tk)) score += 2;       // token presente
+  }
+  // bonus por tokens exactos "festival", "2025", etc.
+  if (/\b20\d{2}\b/.test(n)) score += 1;
+  if (/\bfestival\b/.test(n)) score += 1;
+  return score;
+}
+
+/* ---------- agregador festival ---------- */
+async function recsFromFestival({ plan, accessToken, wanted }) {
+  const queries = buildFestivalQueries(plan);
+  if (!queries.length) return { tracks: [], debug: { reason: "no-queries" } };
+
+  // tokens obligatorios para evaluar nombres (palabras significativas + years)
+  const tokens = new Set();
+  const base = (plan.queryTerms || plan.queries || []).join(" ") || plan.rawPrompt || "";
+  for (const w of norm(base).split(/\s+/)) {
+    if (!w) continue;
+    if (w.length < 3) continue;
+    if (/\b(playlist|lineup|cartel|music|musica)\b/.test(w)) continue;
+    tokens.add(w);
+  }
+  for (const y of (plan.years || [])) tokens.add(String(y));
+  tokens.add("festival");
+  const required = Array.from(tokens);
+
+  // buscar playlists y quedarnos con las mejores por nombre
+  const found = [];
+  for (const q of queries) {
+    try {
+      const pls = await searchPlaylists({ accessToken, query: q, limit: 10 });
+      for (const p of pls) {
+        const s = nameScore(p.name, required);
+        if (s >= 2) found.push({ ...p, score: s });
+      }
+    } catch {}
+    if (found.length >= 12) break;
+  }
+
+  // ordenar por score, nº de tracks y nombre (estabilidad)
+  found.sort((a,b) =>
+    b.score - a.score ||
+    b.tracksTotal - a.tracksTotal ||
+    a.name.localeCompare(b.name)
+  );
+
+  // coge las top N (2–4)
+  const pick = found.slice(0, Math.min(4, Math.max(2, found.length)));
+  if (!pick.length) return { tracks: [], debug: { reason: "no-playlists" } };
+
+  // descargar canciones
+  const bags = [];
+  for (const p of pick) {
+    try {
+      const items = await fetchPlaylistTracks({ accessToken, playlistId: p.id, max: 400 });
+      bags.push({ id: p.id, name: p.name, items });
+    } catch {}
+  }
+  if (!bags.length) return { tracks: [], debug: { reason: "no-tracks" } };
+
+  // voto mayoritario: frecuencia de aparición en distintas playlists
+  const freq = new Map(); // id -> {track, count, bestPop}
+  for (const bag of bags) {
+    const seenThis = new Set();
+    for (const t of bag.items) {
+      if (!t?.id) continue;
+      if (seenThis.has(t.id)) continue; // no contar repes dentro de la misma playlist
+      seenThis.add(t.id);
+      const f = freq.get(t.id) || { track: t, count: 0, bestPop: 0 };
+      f.count += 1;
+      f.bestPop = Math.max(f.bestPop, t.popularity || 0);
+      freq.set(t.id, f);
+    }
+  }
+
+  // ordenar: 1) sale en ≥2 playlists primero; 2) popularidad; 3) nombre
+  const ranked = Array.from(freq.values())
+    .sort((a,b) =>
+      (b.count - a.count) ||
+      (b.bestPop - a.bestPop) ||
+      a.track.name.localeCompare(b.track.name)
+    )
+    .map(x => x.track);
+
+  const final = dedupeById(ranked).slice(0, wanted);
+  return {
+    tracks: final.map(t => ({
+      id: t.id,
+      name: t.name,
+      artists: t.artists,
+      uri: t.uri,
+      open_url: t.open_url,
+    })),
+    debug: {
+      usedPlaylists: pick.map(p => ({ id: p.id, name: p.name, score: p.score, total: p.tracksTotal })),
+      queriesTried: queries,
+      pooled: ranked.length,
+    }
+  };
+}
+
+/* ---------- fallback general (no festival) ---------- */
+async function recsGeneral({ plan, accessToken, wanted }) {
+  const out = [];
+  const seeds = { tracks: [], artists: [], genres: Array.isArray(plan.targetGenres) ? plan.targetGenres.slice(0,5) : (Array.isArray(plan.genres) ? plan.genres.slice(0,5) : []) };
+  const candidates = Array.isArray(plan.candidates) ? plan.candidates : [];
+
+  // 1) intentar candidates track+artist exactos
+  for (const c of candidates) {
+    if (out.length >= wanted) break;
+    const qParts = [];
+    if (c?.track)  qParts.push(`track:"${String(c.track).replace(/"/g,"")}"`);
+    if (c?.artist) qParts.push(`artist:"${String(c.artist).replace(/"/g,"")}"`);
+    const q = qParts.join(" ") || String(c?.track || c?.artist || "");
+    if (!q) continue;
+
+    const u = new URL("https://api.spotify.com/v1/search");
+    u.searchParams.set("q", q);
+    u.searchParams.set("type", "track");
+    u.searchParams.set("limit", "5");
+    u.searchParams.set("market", "from_token");
+    try {
+      const data = await spotifyGET(accessToken, u.toString());
+      const it = (data?.tracks?.items || [])[0];
+      const m = mapTrack(it);
+      if (m) {
+        out.push(m);
+        if (seeds.tracks.length < 5) seeds.tracks.push(m.id);
+      }
+    } catch {}
+  }
+
+  // 2) completar con /recommendations
+  if (out.length < wanted) {
+    const recU = new URL("https://api.spotify.com/v1/recommendations");
+    recU.searchParams.set("limit", String(Math.min(100, wanted - out.length)));
+    if (seeds.tracks.length) recU.searchParams.set("seed_tracks", seeds.tracks.slice(0,5).join(","));
+    if (seeds.artists?.length) recU.searchParams.set("seed_artists", seeds.artists.slice(0,5).join(","));
+    if (seeds.genres?.length) recU.searchParams.set("seed_genres", seeds.genres.slice(0,5).join(","));
+    try {
+      const data = await spotifyGET(accessToken, recU.toString());
+      const extra = (data?.tracks || []).map(mapTrack).filter(Boolean);
+      out.push(...extra);
+    } catch {}
+  }
+
+  return dedupeById(out).slice(0, wanted).map(t => ({
+    id: t.id,
+    name: t.name,
+    artists: t.artists,
+    uri: t.uri,
+    open_url: t.open_url,
+  }));
+}
+
+/* ---------- endpoint ---------- */
+export default async function handler(req) {
+  try {
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    if (!token?.accessToken) {
+      return NextResponse.json({ error: "no-access-token" }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const plan = body?.plan || {};
+    const wanted = clamp(Number(plan.count || 50), 1, 200);
+
+    let tracks = [];
+    let used = "general";
+    let debug = null;
+
+    if (plan.isEvent) {
+      const r = await recsFromFestival({ plan, accessToken: token.accessToken, wanted });
+      tracks = r.tracks || [];
+      debug = r.debug || null;
+      used = "festival";
+      // si salió pobre, cae a general
+      if (tracks.length < Math.min(20, wanted/2)) {
+        const fallback = await recsGeneral({ plan, accessToken: token.accessToken, wanted });
+        tracks = dedupeById([...tracks, ...fallback]).slice(0, wanted);
+        used = "festival+fallback";
+      }
+    } else {
+      tracks = await recsGeneral({ plan, accessToken: token.accessToken, wanted });
+      used = "general";
+    }
+
+    return NextResponse.json({
+      ok: true,
+      used,
+      got: tracks.length,
+      tracks,
+      debug
+    });
+  } catch (e) {
+    return NextResponse.json(
+      { error: "server", message: String(e?.message || e) },
+      { status: 500 }
+    );
+  }
+}
+
+export const POST = handler;
+export const GET = handler;

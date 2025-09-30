@@ -1,0 +1,39 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:turbo": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "clean": "rimraf .next && rimraf node_modules/.cache || true",
+    "lint": "eslint",
+    "test": "node test-complete.js",
+    "test:quick": "curl -s 'http://localhost:3000/api/test' | jq",
+    "test:normal": "node test-normal-spotify.js",
+    "test:festival": "node test-artist-variety.js",
+    "test:recientes": "node test-n-compliance.js",
+    "test:debug": "node test-debug-controls.js",
+    "test:all": "npm run test:normal && npm run test:festival && npm run test:recientes && npm run test:debug"
+  },
+  "dependencies": {
+    "next": "15.5.2",
+    "next-auth": "^4.24.11",
+    "openai": "^5.20.1",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "resend": "^6.0.3",
+    "sonner": "^2.0.7"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "24.5.0",
+    "@types/react": "19.1.13",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.2",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^4"
+  }
+}
