@@ -555,6 +555,15 @@ body {
     overflow-y: auto !important;
   }
   
+  /* Mobile feedback modal - specific fixes */
+  .mobile-modal-feedback {
+    max-height: 95vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    margin: 8px !important;
+    padding: 16px !important;
+  }
+  
   /* Footer improvements */
   .mobile-footer {
     padding: 24px 20px !important;
@@ -689,5 +698,12 @@ html.dark .thinking-text{
     color: #ffffff !important;
     font-weight: 600 !important;
     border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  }
+  
+  /* Extra small mobile feedback modal */
+  .mobile-modal-feedback {
+    max-height: 98vh !important;
+    margin: 4px !important;
+    padding: 12px !important;
   }
 }
