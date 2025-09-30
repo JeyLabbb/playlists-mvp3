@@ -125,21 +125,22 @@ function determineMode(intent, prompt) {
 }
 
 /**
- * Generator for LLM tracks in chunks
+ * Generator for LLM tracks in chunks - ensures exact target count
  */
 async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
-  console.log(`[STREAM:${traceId}] Starting LLM phase`);
+  console.log(`[STREAM:${traceId}] Starting LLM phase - target: ${target_tracks}`);
   
   const llmTracks = intent.tracks_llm || [];
   const chunkSize = 10;
+  let totalYielded = 0;
   
   if (llmTracks.length === 0) {
     console.log(`[STREAM:${traceId}] No LLM tracks to process`);
     return;
   }
   
-  // Process LLM tracks in chunks
-  for (let i = 0; i < llmTracks.length; i += chunkSize) {
+  // Process LLM tracks in chunks until we have enough or run out
+  for (let i = 0; i < llmTracks.length && totalYielded < target_tracks; i += chunkSize) {
     const chunk = llmTracks.slice(i, i + chunkSize);
     console.log(`[STREAM:${traceId}] Processing LLM chunk ${Math.floor(i/chunkSize) + 1}: ${chunk.length} tracks`);
     
@@ -148,18 +149,29 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
       const filtered = resolved.filter(track => notExcluded(track, intent.exclusions));
       
       if (filtered.length > 0) {
-        yield filtered;
+        // Only yield up to the remaining target
+        const remaining = target_tracks - totalYielded;
+        const toYield = filtered.slice(0, remaining);
+        totalYielded += toYield.length;
+        
+        console.log(`[STREAM:${traceId}] LLM chunk yielded: ${toYield.length} tracks, total: ${totalYielded}/${target_tracks}`);
+        yield toYield;
+        
+        if (totalYielded >= target_tracks) {
+          console.log(`[STREAM:${traceId}] LLM phase reached target: ${totalYielded}`);
+          break;
+        }
       }
     } catch (error) {
       console.error(`[STREAM:${traceId}] Error processing LLM chunk:`, error);
     }
   }
   
-  console.log(`[STREAM:${traceId}] LLM phase completed`);
+  console.log(`[STREAM:${traceId}] LLM phase completed: ${totalYielded} tracks`);
 }
 
 /**
- * Generator for Spotify tracks in chunks
+ * Generator for Spotify tracks in chunks - ensures exact remaining count
  */
 async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
   console.log(`[STREAM:${traceId}] Starting Spotify phase, remaining: ${remaining}`);
@@ -171,6 +183,9 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
   
   const mode = determineMode(intent, intent.prompt);
   const chunkSize = 10;
+  let totalYielded = 0;
+  let attempts = 0;
+  const maxAttempts = 10; // Prevent infinite loops
   
   try {
     // Detect underground strict mode
@@ -194,29 +209,57 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       const undergroundTracks = await searchUndergroundTracks(accessToken, allowedArtists, remaining, maxPerArtist, null, priorityArtists);
       
       // Yield in chunks
-      for (let i = 0; i < undergroundTracks.length; i += chunkSize) {
+      for (let i = 0; i < undergroundTracks.length && totalYielded < remaining; i += chunkSize) {
         const chunk = undergroundTracks.slice(i, i + chunkSize);
-        if (chunk.length > 0) {
-          yield chunk;
+        const toYield = chunk.slice(0, remaining - totalYielded);
+        totalYielded += toYield.length;
+        
+        if (toYield.length > 0) {
+          console.log(`[STREAM:${traceId}] Underground chunk yielded: ${toYield.length} tracks, total: ${totalYielded}/${remaining}`);
+          yield toYield;
         }
+        
+        if (totalYielded >= remaining) break;
       }
       
       return;
     }
     
-    // Normal Spotify recommendations
+    // Normal Spotify recommendations with multiple attempts
     const llmArtists = intent.artists_llm || [];
     
-    if (llmArtists.length > 0) {
-      const spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
-      const filtered = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+    while (totalYielded < remaining && attempts < maxAttempts) {
+      attempts++;
+      console.log(`[STREAM:${traceId}] Spotify attempt ${attempts}/${maxAttempts}, need: ${remaining - totalYielded}`);
       
-      // Yield in chunks
-      for (let i = 0; i < filtered.length; i += chunkSize) {
-        const chunk = filtered.slice(i, i + chunkSize);
-        if (chunk.length > 0) {
-          yield chunk;
+      try {
+        const spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining - totalYielded);
+        const filtered = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+        
+        if (filtered.length > 0) {
+          // Yield in chunks
+          for (let i = 0; i < filtered.length && totalYielded < remaining; i += chunkSize) {
+            const chunk = filtered.slice(i, i + chunkSize);
+            const toYield = chunk.slice(0, remaining - totalYielded);
+            totalYielded += toYield.length;
+            
+            if (toYield.length > 0) {
+              console.log(`[STREAM:${traceId}] Spotify chunk yielded: ${toYield.length} tracks, total: ${totalYielded}/${remaining}`);
+              yield toYield;
+            }
+            
+            if (totalYielded >= remaining) break;
+          }
         }
+        
+        // If we still need more tracks, try with broader search terms
+        if (totalYielded < remaining && attempts < maxAttempts) {
+          console.log(`[STREAM:${traceId}] Still need ${remaining - totalYielded} tracks, trying broader search...`);
+          llmArtists.push('pop', 'rock', 'electronic', 'hip hop'); // Add generic terms
+        }
+        
+      } catch (error) {
+        console.error(`[STREAM:${traceId}] Error in Spotify attempt ${attempts}:`, error);
       }
     }
     
@@ -224,7 +267,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
     console.error(`[STREAM:${traceId}] Error in Spotify phase:`, error);
   }
   
-  console.log(`[STREAM:${traceId}] Spotify phase completed`);
+  console.log(`[STREAM:${traceId}] Spotify phase completed: ${totalYielded}/${remaining} tracks`);
 }
 
 /**
@@ -385,17 +428,31 @@ export async function GET(request) {
               })}\n\n`));
               
               console.log(`[STREAM:${traceId}] LLM chunk sent: ${chunk.length} tracks, total: ${allTracks.length}`);
+              
+              // Stop if we've reached the target
+              if (allTracks.length >= target_tracks) {
+                console.log(`[STREAM:${traceId}] Target reached in LLM phase: ${allTracks.length}`);
+                break;
+              }
             }
             
             controller.enqueue(encoder.encode(`event: LLM_DONE\ndata: {"totalSoFar": ${allTracks.length}}\n\n`));
             
-            // Process Spotify tracks if needed
-            const remaining = target_tracks - allTracks.length;
-            if (remaining > 0) {
-              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Getting Spotify recommendations...", "remaining": ${remaining}}\n\n`));
+            // Process Spotify tracks if needed - keep trying until we reach target
+            let remaining = target_tracks - allTracks.length;
+            let spotifyAttempts = 0;
+            const maxSpotifyAttempts = 5;
+            
+            while (remaining > 0 && spotifyAttempts < maxSpotifyAttempts) {
+              spotifyAttempts++;
+              console.log(`[STREAM:${traceId}] Spotify attempt ${spotifyAttempts}/${maxSpotifyAttempts}, need: ${remaining} more tracks`);
               
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Getting Spotify recommendations...", "remaining": ${remaining}, "attempt": ${spotifyAttempts}}\n\n`));
+              
+              let spotifyYielded = 0;
               for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId)) {
                 allTracks = [...allTracks, ...chunk];
+                spotifyYielded += chunk.length;
                 
                 controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
                   tracks: chunk,
@@ -403,14 +460,56 @@ export async function GET(request) {
                 })}\n\n`));
                 
                 console.log(`[STREAM:${traceId}] Spotify chunk sent: ${chunk.length} tracks, total: ${allTracks.length}`);
+                
+                // Update remaining
+                remaining = target_tracks - allTracks.length;
+                if (remaining <= 0) break;
               }
               
-              controller.enqueue(encoder.encode(`event: SPOTIFY_DONE\ndata: {"totalSoFar": ${allTracks.length}}\n\n`));
+              controller.enqueue(encoder.encode(`event: SPOTIFY_DONE\ndata: {"totalSoFar": ${allTracks.length}, "attempt": ${spotifyAttempts}}\n\n`));
+              
+              // If we didn't get any new tracks, try with broader search terms
+              if (spotifyYielded === 0 && remaining > 0) {
+                console.log(`[STREAM:${traceId}] No new tracks from Spotify, trying broader search...`);
+                // Add generic terms to intent for next attempt
+                if (!intent.artists_llm) intent.artists_llm = [];
+                intent.artists_llm.push('pop', 'rock', 'electronic', 'hip hop', 'indie');
+              }
+              
+              // Update remaining for next iteration
+              remaining = target_tracks - allTracks.length;
             }
             
-            // Ensure we have the target number of tracks
+            // Final check - if we still don't have enough, try one more time with very broad terms
+            if (allTracks.length < target_tracks) {
+              console.log(`[STREAM:${traceId}] Final attempt: need ${target_tracks - allTracks.length} more tracks`);
+              
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Final attempt with broad search...", "remaining": ${target_tracks - allTracks.length}}\n\n`));
+              
+              try {
+                const finalTracks = await radioFromRelatedTop(accessToken, ['pop', 'rock', 'electronic', 'hip hop', 'indie', 'alternative'], target_tracks - allTracks.length);
+                const filtered = finalTracks.filter(track => notExcluded(track, intent.exclusions));
+                
+                if (filtered.length > 0) {
+                  const toAdd = filtered.slice(0, target_tracks - allTracks.length);
+                  allTracks = [...allTracks, ...toAdd];
+                  
+                  controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                    tracks: toAdd,
+                    totalSoFar: allTracks.length
+                  })}\n\n`));
+                  
+                  console.log(`[STREAM:${traceId}] Final attempt yielded: ${toAdd.length} tracks, total: ${allTracks.length}`);
+                }
+              } catch (error) {
+                console.error(`[STREAM:${traceId}] Final attempt failed:`, error);
+              }
+            }
+            
+            // Ensure we have exactly the target number of tracks
             if (allTracks.length > target_tracks) {
               allTracks = allTracks.slice(0, target_tracks);
+              console.log(`[STREAM:${traceId}] Trimmed to exact target: ${target_tracks}`);
             }
             
             // Apply audio features (optional, non-blocking)
@@ -592,17 +691,31 @@ export async function POST(request) {
               })}\n\n`));
               
               console.log(`[STREAM:${traceId}] LLM chunk sent: ${chunk.length} tracks, total: ${allTracks.length}`);
+              
+              // Stop if we've reached the target
+              if (allTracks.length >= target_tracks) {
+                console.log(`[STREAM:${traceId}] Target reached in LLM phase: ${allTracks.length}`);
+                break;
+              }
             }
             
             controller.enqueue(encoder.encode(`event: LLM_DONE\ndata: {"totalSoFar": ${allTracks.length}}\n\n`));
             
-            // Process Spotify tracks if needed
-            const remaining = target_tracks - allTracks.length;
-            if (remaining > 0) {
-              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Getting Spotify recommendations...", "remaining": ${remaining}}\n\n`));
+            // Process Spotify tracks if needed - keep trying until we reach target
+            let remaining = target_tracks - allTracks.length;
+            let spotifyAttempts = 0;
+            const maxSpotifyAttempts = 5;
+            
+            while (remaining > 0 && spotifyAttempts < maxSpotifyAttempts) {
+              spotifyAttempts++;
+              console.log(`[STREAM:${traceId}] Spotify attempt ${spotifyAttempts}/${maxSpotifyAttempts}, need: ${remaining} more tracks`);
               
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Getting Spotify recommendations...", "remaining": ${remaining}, "attempt": ${spotifyAttempts}}\n\n`));
+              
+              let spotifyYielded = 0;
               for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId)) {
                 allTracks = [...allTracks, ...chunk];
+                spotifyYielded += chunk.length;
                 
                 controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
                   tracks: chunk,
@@ -610,14 +723,56 @@ export async function POST(request) {
                 })}\n\n`));
                 
                 console.log(`[STREAM:${traceId}] Spotify chunk sent: ${chunk.length} tracks, total: ${allTracks.length}`);
+                
+                // Update remaining
+                remaining = target_tracks - allTracks.length;
+                if (remaining <= 0) break;
               }
               
-              controller.enqueue(encoder.encode(`event: SPOTIFY_DONE\ndata: {"totalSoFar": ${allTracks.length}}\n\n`));
+              controller.enqueue(encoder.encode(`event: SPOTIFY_DONE\ndata: {"totalSoFar": ${allTracks.length}, "attempt": ${spotifyAttempts}}\n\n`));
+              
+              // If we didn't get any new tracks, try with broader search terms
+              if (spotifyYielded === 0 && remaining > 0) {
+                console.log(`[STREAM:${traceId}] No new tracks from Spotify, trying broader search...`);
+                // Add generic terms to intent for next attempt
+                if (!intent.artists_llm) intent.artists_llm = [];
+                intent.artists_llm.push('pop', 'rock', 'electronic', 'hip hop', 'indie');
+              }
+              
+              // Update remaining for next iteration
+              remaining = target_tracks - allTracks.length;
             }
             
-            // Ensure we have the target number of tracks
+            // Final check - if we still don't have enough, try one more time with very broad terms
+            if (allTracks.length < target_tracks) {
+              console.log(`[STREAM:${traceId}] Final attempt: need ${target_tracks - allTracks.length} more tracks`);
+              
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Final attempt with broad search...", "remaining": ${target_tracks - allTracks.length}}\n\n`));
+              
+              try {
+                const finalTracks = await radioFromRelatedTop(accessToken, ['pop', 'rock', 'electronic', 'hip hop', 'indie', 'alternative'], target_tracks - allTracks.length);
+                const filtered = finalTracks.filter(track => notExcluded(track, intent.exclusions));
+                
+                if (filtered.length > 0) {
+                  const toAdd = filtered.slice(0, target_tracks - allTracks.length);
+                  allTracks = [...allTracks, ...toAdd];
+                  
+                  controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                    tracks: toAdd,
+                    totalSoFar: allTracks.length
+                  })}\n\n`));
+                  
+                  console.log(`[STREAM:${traceId}] Final attempt yielded: ${toAdd.length} tracks, total: ${allTracks.length}`);
+                }
+              } catch (error) {
+                console.error(`[STREAM:${traceId}] Final attempt failed:`, error);
+              }
+            }
+            
+            // Ensure we have exactly the target number of tracks
             if (allTracks.length > target_tracks) {
               allTracks = allTracks.slice(0, target_tracks);
+              console.log(`[STREAM:${traceId}] Trimmed to exact target: ${target_tracks}`);
             }
             
             // Apply audio features (optional, non-blocking)
