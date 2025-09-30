@@ -446,16 +446,16 @@ Devuelve un JSON con:
               { role: "system", content: `Eres un experto en interpretar prompts musicales. Analiza el prompt y determina el modo correcto:
 
 MODOS DISPONIBLES:
-- NORMAL: Playlist general, mezcla de artistas
+- NORMAL: Playlist general, mezcla de artistas (USA ESTE para "estilo de cantante")
 - VIRAL: Canciones virales, trending, populares actuales
 - FESTIVAL: Música de festivales, electrónica, fiesta
-- ARTIST_STYLE: Cuando se pide "estilo de X artista" o "como X artista"
+- ARTIST_STYLE: Solo para casos muy específicos de comparación directa
 
 INSTRUCCIONES:
 1. Analiza el prompt completo para entender la intención
 2. NO dependas de palabras exactas, interpreta el contexto
-3. Para "estilo de cantante": busca ese cantante como priority_artists y encuentra similares
-4. Para artista específico: delega completamente a Spotify
+3. Para "estilo de cantante" o "como X artista": USA MODO NORMAL con ese cantante como priority_artists
+4. Para artista específico (solo nombre): delega completamente a Spotify
 5. Determina el modo más apropiado según la intención del usuario
 
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.` },
