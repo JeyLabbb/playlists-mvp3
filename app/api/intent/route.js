@@ -173,6 +173,12 @@ export async function POST(req) {
     const mode = detectMode(prompt);
     let canonizedData = null;
     
+    // Detect if prompt is a single artist name
+    const isSingleArtist = detectSingleArtist(prompt);
+    if (isSingleArtist) {
+      console.log(`[INTENT] SINGLE ARTIST detected: "${prompt}" - delegating to Spotify`);
+    }
+    
     if (mode === 'VIRAL' || mode === 'FESTIVAL') {
       canonizedData = await canonizePrompt(prompt);
       console.log(`[INTENT] Mode: ${mode}, Canonized:`, canonizedData);
@@ -409,6 +415,27 @@ Devuelve un JSON con:
               
               userMessage += `\n\nCONTEXTOS BRÚJULA (OBLIGATORIOS):\nUsa estos artistas como SEMILLAS OBLIGATORIAS y expande solo con sus colaboradores directos, artistas del mismo sello/crew, o vecinos estilísticos inequívocos:\n${contexts.compass.join(', ')}\n\nREGLAS DE CALIDAD ESTRICTAS:\n- Máx. 3 pistas por artista (2 si target < 40). NO spamees un solo nombre.\n- Solo artistas de los últimos 5-7 años dentro del COMPASS o su círculo cercano.\n- Desambiguación obligatoria: si un nombre es ambiguo, confirma con alias/crew/sello/ciudad.\n- Al menos 80% de temas deben ser COMPASS, colabos directas o vecinos claros.\n- 0% pop/comercial fuera de escena salvo que se pida explícitamente.\n- Si dudas sobre un artista, DESCÁRTALO.\n- Devuelve EXACTAMENTE ${targetSize} pistas válidas.`;
             }
+          } else if (isSingleArtist) {
+            // MODO ARTISTA ESPECÍFICO - delegar completamente a Spotify
+            userMessage = `SINGLE ARTIST MODE - DELEGATE TO SPOTIFY
+
+PROMPT: "${prompt}"
+TARGET: ${targetSize} tracks
+
+INSTRUCCIONES ESPECIALES:
+1. El usuario quiere ÚNICAMENTE canciones de "${prompt}"
+2. NO generes canciones con LLM - delega completamente a Spotify
+3. Envía el artista "${prompt}" a Spotify para búsqueda directa
+4. Permite hasta 999 canciones de este artista
+5. Spotify buscará directamente las mejores canciones de este artista
+
+RESPUESTA REQUERIDA:
+Devuelve un JSON con:
+- "mode": "ARTIST_STYLE"
+- "tracks": Array vacío (delegar a Spotify)
+- "artists": ["${prompt}"] (solo este artista)
+- "filtered_artists": ["${prompt}"] (artista específico)
+- "priority_artists": ["${prompt}"] (artista prioritario)`;
           } else {
             userMessage = `Prompt: "${prompt}"\nTamaño solicitado: ${targetSize} tracks\n\nGenera ${Math.ceil(targetSize * 1.4)} canciones que encajen perfectamente con la petición. Usa solo canciones reales con título y artista específicos. Respeta TODAS las restricciones mencionadas (ej. instrumental, género, etc.).\n\nNUNCA uses comillas curvas; usa comillas dobles normales; no pongas comas finales.`;
           }
@@ -749,4 +776,50 @@ Responde SOLO con JSON:
       stopwords
     };
   }
+}
+
+/**
+ * Detect the mode of the prompt
+ */
+function detectMode(prompt) {
+  const promptLower = prompt.toLowerCase();
+  
+  // Check for viral/current mode
+  const viralKeywords = ['tiktok', 'viral', 'virales', 'top', 'charts', 'tendencia', 'tendencias', '2024', '2025'];
+  if (viralKeywords.some(keyword => promptLower.includes(keyword))) {
+    return 'VIRAL';
+  }
+  
+  // Check for festival mode
+  const festivalKeywords = ['festival', 'festivales', 'coachella', 'ultra', 'tomorrowland', 'edc'];
+  if (festivalKeywords.some(keyword => promptLower.includes(keyword))) {
+    return 'FESTIVAL';
+  }
+  
+  return 'NORMAL';
+}
+
+/**
+ * Detect if prompt is a single artist name
+ */
+function detectSingleArtist(prompt) {
+  const promptTrimmed = prompt.trim();
+  
+  // Check if prompt is just a single word or short phrase (likely artist name)
+  const words = promptTrimmed.split(/\s+/);
+  
+  // Single word or 2-3 words (common artist name patterns)
+  if (words.length <= 3) {
+    // Check if it doesn't contain common playlist keywords
+    const playlistKeywords = ['playlist', 'música', 'canciones', 'tracks', 'songs', 'mix', 'compilation', 'album', 'discografía'];
+    const hasPlaylistKeywords = playlistKeywords.some(keyword => 
+      promptTrimmed.toLowerCase().includes(keyword)
+    );
+    
+    if (!hasPlaylistKeywords) {
+      return true; // Likely a single artist name
+    }
+  }
+  
+  return false;
 }
