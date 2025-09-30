@@ -300,8 +300,15 @@ export default function Home() {
           console.log('[FRONTEND] Current allTracks length:', allTracks.length);
           console.log('[FRONTEND] Data tracks length:', data.tracks?.length || 0);
           
-          allTracks = data.tracks || allTracks;
-          setTracks(allTracks);
+          // Use the final tracks from the server, but keep accumulated tracks if server tracks are empty
+          if (data.tracks && data.tracks.length > 0) {
+            allTracks = data.tracks;
+            console.log('[FRONTEND] Using server tracks:', allTracks.length);
+          } else {
+            console.log('[FRONTEND] Using accumulated tracks:', allTracks.length);
+          }
+          
+          setTracks([...allTracks]); // Force React update
           
           console.log('[FRONTEND] Final allTracks length:', allTracks.length);
           console.log('[FRONTEND] Final tracks sample:', allTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
@@ -315,7 +322,12 @@ export default function Home() {
           }
           
           eventSource.close();
-          resolve(data);
+          resolve({
+            tracks: allTracks,
+            totalSoFar: data.totalSoFar,
+            partial: data.partial || false,
+            reason: data.reason || 'completed'
+          });
         });
         
         eventSource.addEventListener('ERROR', (event) => {
@@ -476,8 +488,8 @@ export default function Home() {
       const isProduction = process.env.NODE_ENV === 'production';
       const endpoint = session?.user ? "/api/playlist/llm" : "/api/playlist/demo";
       
-      if (isProduction && session?.user) {
-        // Use streaming SSE in production
+      if (session?.user) {
+        // Use streaming SSE always (both production and development)
         await generatePlaylistWithStreaming(prompt, wanted, playlistName);
       } else {
         // Use regular fetch for demo or development
