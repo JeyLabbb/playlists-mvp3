@@ -39,7 +39,9 @@ export default function FeedbackPage() {
           open={showModal}
           onClose={handleClose}
           onSubmitted={handleSubmitted}
-          playlistId={playlistId || undefined}
+          defaultValues={{
+            playlistId: playlistId || undefined
+          }}
         />
       </div>
     </div>
