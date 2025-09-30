@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { getContextsForPrompt } from '../../../lib/music/scenes';
+import { getContextsForPrompt } from '../../../lib/music/contexts';
 
 const MODEL = 'gpt-4o-mini';
 
