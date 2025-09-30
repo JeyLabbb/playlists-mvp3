@@ -1,176 +1,31 @@
-// web/app/api/intent/route.js
-// Universal intent generation with GPT-4.1 and exact track count
+import { NextResponse } from 'next/server';
+import OpenAI from 'openai';
+import { getContextsForPrompt } from '../../../lib/music/scenes';
 
-import { NextResponse } from "next/server";
-import OpenAI from "openai";
-import { getContextsForPrompt, normalizeArtistName, MUSICAL_CONTEXTS } from "../../../lib/music/contexts";
-
-const MODEL = process.env.OPENAI_MODEL || 'gpt-4.1';
+const MODEL = 'gpt-4o-mini';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Universal prompt for all music requests
-const UNIVERSAL_SYSTEM_PROMPT = `Eres un motor de interpretación de peticiones musicales.  
-Tu tarea es transformar cualquier prompt de usuario en una intención musical clara y bien estructurada.  
-Sigue estas reglas SIEMPRE:
-
-1. **Interpretación del prompt**
-   - Extrae el objetivo: género, estilo, actividad, emoción, época, etc.
-   - Si se menciona "instrumental / sin voz / solo música", excluye canciones con letra.
-   - Si se menciona "sin X / excluye X / excepto X", excluye a esos artistas o términos.
-   - Si se pide "del estilo de X", incluye canciones similares a X, pero no solo de X.
-   - Si se pide "del estilo de X sin X", aplica las dos reglas anteriores juntas.
-   - Si se pide algo de festivales, virales o actualidad → **no inventes** canciones: prepara la query para que Spotify busque playlists relevantes (nombre del festival, año, virales, trending).
-
-2. **BRÚJULA ESTRICTA (OBLIGATORIA)**
-   EJECUTA MODO "BRÚJULA ESTRICTA" CUANDO contexts.compass exista.
-
-   REGLAS DE CALIDAD (BRÚJULA):
-   1) Usa artistas dentro del COMPASS y su círculo cercano (colabos directas, crew, sellos, productores) de los últimos 5-7 años. Si dudas, descarta.
-   2) Máx. 3 pistas por artista (2 si el target < 40). Evita abusar de 1 nombre.
-   3) Nombres ambiguos → desambiguación obligatoria:
-      - Si el artista no es inequívoco, intenta "<ARTISTA> + (alias/crew/sello/ciudad)".
-      - Si sigue ambiguo, prueba "<ARTISTA> + (álbum/canción clave)".
-      - Si no lo confirmas, NO LO INCLUYAS.
-   4) Coherencia de escena:
-      - Al menos 80% de los temas deben ser: COMPASS, colabos directas o artistas a 1 salto (vecinos claros).
-      - 0% de pop/comercial fuera de escena, salvo que el prompt lo pida explícitamente.
-   5) Revisión final:
-      - Quita 100% nombres fuera de escena.
-      - Si faltan temas, rellena con vecinos de COMPASS (no mainstream random).
-      - Devuelve EXACTAMENTE el número pedido.
-
-   - Dedup por artista y aplica cap (3).
-   - Score = (está en COMPASS)*3 + (colabo con COMPASS)*2 + (sello/crew común)*2 + (ciudad/escena)*1.
-   - Mantén solo score ≥2; si no llegas, rellena con vecinos de mayor score.
-
-3. **Precisión**
-   - No inventes títulos inexistentes.  
-   - Devuelve canciones y artistas reales, conocidos en Spotify.  
-   - Evita repeticiones.
-
-4. **Cantidad**
-   - Si el usuario pide N canciones, siempre entrega exactamente N (o avisa si no es posible).  
-   - Ajusta proporcionalmente entre LLM (tus propuestas) y Spotify (complemento).
-
-5. **Formato JSON**
-   - Devuelve SIEMPRE un JSON válido, sin texto extra ni comentarios.  
-   - Estructura:
-     \`\`\`json
-     {
-       "tracks": [
-         {"name": "...", "artist": "..."},
-         ...
-       ],
-       "artists": ["...", "..."],
-       "exclusions": {
-         "banned_artists": ["..."],
-         "banned_terms": ["..."]
-       },
-       "mode": "normal | viral | festival | artist-style"
-     }
-     \`\`\`
-
-6. **Consistencia**
-   - Cada canción debe tener \`name\` y \`artist\` rellenados.  
-   - Respeta exclusiones y condiciones de forma estricta.  
-   - Si no hay suficiente material, rellena con lo más cercano al estilo pedido.
-
-En resumen: interpreta el prompt como si fueras un DJ experto + ingeniero de datos. No inventes, no falles el JSON, y aplica las restricciones de forma automática.
-
-DEVUELVE EXCLUSIVAMENTE UN OBJETO JSON VÁLIDO (RFC 8259) SIN TEXTO ADICIONAL. SIN COMILLAS TIPOGRÁFICAS, SIN COMENTARIOS, SIN MARCAS DE CÓDIGO.`;
-
-// Simplified schema for universal prompt
-const UNIVERSAL_SCHEMA = {
-  type: "object",
-  properties: {
-    tracks: {
-      type: "array",
-      items: {
-      type: "object",
-      properties: { 
-          name: { type: "string" },
-          artist: { type: "string" }
-        },
-        required: ["name", "artist"]
-      }
-    },
-    artists: {
-      type: "array",
-      items: { type: "string" }
-    },
-    exclusions: {
-      type: "object",
-      properties: { 
-        banned_artists: {
-          type: "array",
-          items: { type: "string" }
-        },
-        banned_terms: {
-          type: "array",
-          items: { type: "string" }
-        }
-      }
-    },
-    mode: {
-      type: "string",
-      enum: ["normal", "viral", "festival", "artist-style"]
-    },
-    llmShare: {
-      type: "number",
-      minimum: 0.0,
-      maximum: 1.0
-    },
-    tamano_playlist: { type: "number" },
-    spotifyStrategy: {
-      type: "string",
-      enum: ["genre_focused", "artist_focused", "festival_focused", "activity_focused", "spotify_only"]
-    },
-    spotifyHint: { type: "string" },
-    targetFeatures: {
-      type: "object",
-      properties: {
-        tempo: { type: "number" },
-        energy: { type: "number" },
-        valence: { type: "number" },
-        acousticness: { type: "number" },
-        danceability: { type: "number" }
-      }
-    }
-  },
-  required: ["tracks", "artists", "exclusions", "mode"]
-};
-
-// Tool-calling eliminates the need for robust JSON parsing
-
-// Tool-calling eliminates the need for JSON sanitization and extraction
-
-export async function POST(req) {
+export async function POST(request) {
   try {
-    // Log request details for mobile debugging
-    const userAgent = req.headers.get('user-agent') || 'unknown';
-    const isMobile = /Mobile|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+    const { prompt, target_tracks } = await request.json();
     
-    console.log(`[INTENT] Request received - Mobile: ${isMobile}, User-Agent: ${userAgent.substring(0, 100)}`);
-    
-    const { prompt, target_tracks } = await req.json();
-    
-    console.log(`[INTENT] Parsed request - Prompt: "${prompt?.substring(0, 50)}...", Target: ${target_tracks}`);
-    
-    if (!prompt || typeof prompt !== 'string') {
-      console.error(`[INTENT] Invalid prompt - Type: ${typeof prompt}, Value: ${prompt}`);
-      return NextResponse.json(
-        { error: "Prompt is required and must be a string" },
-        { status: 422 }
-      );
+    if (!prompt) {
+      return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
     }
+
+    console.log(`[INTENT] Processing prompt: "${prompt}"`);
+    
+    // Mobile detection for debugging
+    const userAgent = request.headers.get('user-agent') || '';
+    const isMobile = /mobile|android|iphone|ipad|tablet/i.test(userAgent);
+    console.log(`[INTENT] Mobile detected: ${isMobile}, User-Agent: ${userAgent.substring(0, 100)}...`);
 
     const targetSize = Math.max(1, Math.min(500, Number(target_tracks) || 50));
     
-    // Let LLM detect everything - no hardcoded logic
-    console.log(`[INTENT] Letting LLM detect mode and decide what to do for prompt: "${prompt}"`);
+    // LLM will detect mode and decide everything based on prompt analysis
 
     // Get contexts brújula for the prompt
     const contexts = getContextsForPrompt(prompt);
@@ -178,146 +33,156 @@ export async function POST(req) {
       console.log(`[CONTEXT] compass_used=true name=${contexts.key} keep_outside=${contexts.key !== 'underground_es'}`);
     }
 
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        { error: "OpenAI API key is required for playlist generation" },
-        { status: 500 }
-      );
+    // Detect mode and canonize for VIRAL/FESTIVAL
+    const mode = detectMode(prompt);
+    let canonizedData = null;
+    
+    // Detect if prompt is a single artist name
+    const isSingleArtist = detectSingleArtist(prompt);
+    if (isSingleArtist) {
+      console.log(`[INTENT] SINGLE ARTIST detected: "${prompt}" - delegating to Spotify`);
+    }
+    
+    if (mode === 'VIRAL' || mode === 'FESTIVAL') {
+      canonizedData = await canonizePrompt(prompt);
+      console.log(`[INTENT] Mode: ${mode}, Canonized:`, canonizedData);
     }
 
-    if (!MODEL) { 
-      console.error('[INTENT] No model resolved'); 
-      return NextResponse.json({ error: 'LLM model not configured' }, { status: 502 }); 
-    }
-
-    let attempts = 0;
+    // Retry logic for OpenAI
     const maxAttempts = 3;
+    let attempts = 0;
 
     while (attempts < maxAttempts) {
+      let completion;
+      let modelUsed = MODEL;
+
       try {
-        // Use the configured model directly
-        let completion;
-        let modelUsed = MODEL;
+        console.log(`[INTENT] Attempting with model:`, MODEL);
+        // Build comprehensive user message - LLM decides everything
+        let userMessage = `Prompt: "${prompt}"\nTamaño solicitado: ${targetSize} tracks\n\n`;
+        
+        // Add context information if available
+        if (contexts) {
+          userMessage += `CONTEXTOS BRÚJULA DISPONIBLES:\n${contexts.compass.join(', ')}\n\n`;
+        }
+        
+        userMessage += `Analiza este prompt y determina el modo correcto. Genera ${Math.ceil(targetSize * 1.4)} canciones que encajen perfectamente con la petición. Usa solo canciones reales con título y artista específicos. Respeta TODAS las restricciones mencionadas (ej. instrumental, género, etc.).\n\nNUNCA uses comillas curvas; usa comillas dobles normales; no pongas comas finales.`;
 
-        try {
-          console.log(`[INTENT] Attempting with model:`, MODEL);
-          // Build user message - let LLM decide everything
-          let userMessage;
-          
-          // Check if underground context is available
-          const hasUndergroundContext = contexts && contexts.key === 'underground_es';
-          
-          if (hasUndergroundContext) {
-            // Underground context available - let LLM decide everything
-            console.log(`[UNDERGROUND_CONTEXT] Available for prompt: "${prompt}"`);
-            
-            userMessage = `UNDERGROUND CONTEXT AVAILABLE
-
-PROMPT: "${prompt}"
-TARGET: ${targetSize} tracks
-
-UNDERGROUND ARTISTS AVAILABLE:
-${contexts.compass.join(', ')}
-
-INSTRUCCIONES:
-1. Analiza el prompt y determina el modo correcto (NORMAL/VIRAL/FESTIVAL/ARTIST_STYLE)
-2. Decide si usar los artistas underground disponibles
-3. Si es artista específico: delega a Spotify con ese artista
-4. Si es estilo de artista: usa modo NORMAL con ese artista como priority_artists
-5. Si es underground: usa los artistas disponibles según el contexto
-6. Determina si es restrictivo, inclusivo, o exclusivo según el prompt
-
-RESPUESTA REQUERIDA:
-Devuelve un JSON con el modo correcto y los artistas/tracks apropiados según tu análisis del prompt.`;
-          } else {
-            // No underground context - let LLM decide everything
-            userMessage = `Prompt: "${prompt}"\nTamaño solicitado: ${targetSize} tracks\n\nAnaliza este prompt y determina el modo correcto. Genera ${Math.ceil(targetSize * 1.4)} canciones que encajen perfectamente con la petición. Usa solo canciones reales con título y artista específicos. Respeta TODAS las restricciones mencionadas (ej. instrumental, género, etc.).\n\nNUNCA uses comillas curvas; usa comillas dobles normales; no pongas comas finales.`;
-          }
-
-          completion = await openai.chat.completions.create({
-            model: MODEL,
+        completion = await openai.chat.completions.create({
+          model: MODEL,
           messages: [
-              { role: "system", content: `Eres un experto en interpretar prompts musicales. Analiza el prompt y determina el modo correcto:
+            { role: "system", content: `Eres un experto en interpretar prompts musicales. Analiza el prompt y determina el modo correcto basándote en el contexto completo.
 
-MODOS DISPONIBLES:
-- NORMAL: Playlist general, mezcla de artistas (USA ESTE para "estilo de cantante")
-- VIRAL: Canciones virales, trending, populares actuales
-- FESTIVAL: Música de festivales, electrónica, fiesta
-- ARTIST_STYLE: Solo para casos muy específicos de comparación directa
+MODOS DISPONIBLES Y CUÁNDO USARLOS:
 
-INSTRUCCIONES:
-1. Analiza el prompt completo para entender la intención
-2. NO dependas de palabras exactas, interpreta el contexto
-3. Para "estilo de cantante" o "como X artista": USA MODO NORMAL con ese cantante como priority_artists
-4. Para artista específico (solo nombre): delega completamente a Spotify
-5. Determina el modo más apropiado según la intención del usuario
+1. NORMAL: 
+   - Playlist general, mezcla de artistas
+   - USA ESTE para "estilo de cantante" o "como X artista"
+   - Marca ese cantante como priority_artists
+   - LLM busca cantantes similares en el mismo nicho
+   - Spotify rellena con radios de canciones
+
+2. VIRAL:
+   - Canciones virales, trending, populares actuales
+   - Palabras clave: tiktok, viral, virales, top, charts, tendencia, 2024, 2025
+   - LLM prepara términos y delega todo a Spotify
+   - Spotify busca en playlists populares
+
+3. FESTIVAL:
+   - Música de festivales, electrónica, fiesta
+   - Palabras clave: festival, coachella, ultra, tomorrowland, edc
+   - LLM canoniza el prompt (extrae evento, año, stopwords)
+   - Spotify busca por consenso de playlists del festival
+
+4. ARTIST_STYLE:
+   - Solo para casos muy específicos de comparación directa
+   - NO usar para "estilo de cantante" (usar NORMAL)
+
+MODOS ESPECIALES PARA CONTEXTOS:
+
+UNDERGROUND_STRICT (cuando hay contextos underground_es):
+- RESTRICTIVE: "solo X artista" → filtered_artists con solo ese artista
+- INCLUSIVE: "con X artista" → priority_artists con ese artista + todos los demás
+- NORMAL: Filtrar por estilo según el prompt
+
+CONTEXTOS NORMALES:
+- RESTRICTIVE: "solo X artista" → restricted_artists con ese artista
+- INCLUSIVE: "con X artista" → priority_artists con ese artista
+- NORMAL: Usar todos los artistas del contexto
+
+DETECCIÓN DE MODOS:
+- Analiza el prompt completo para entender la intención
+- NO dependas de palabras exactas, interpreta el contexto
+- Para "estilo de cantante": USA MODO NORMAL con ese cantante como priority_artists
+- Para artista específico (solo nombre): delega completamente a Spotify
+- Para exclusiones: detecta "sin X" y marca en exclusions
 
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.` },
-              { role: "user", content: userMessage }
-            ],
-            tools: [{
-              type: "function",
-              function: {
-                name: "emit_intent",
-                description: "Intent de playlist",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    mode: { type: "string", enum: ["NORMAL","VIRAL","FESTIVAL","ARTIST_STYLE"] },
-                    llmShare: { type: "number", minimum: 0, maximum: 1 },
-                    tracks: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          title: { type: "string" },
-                          artist: { type: "string" }
-                        },
-                        required: ["title","artist"]
-                      }
-                    },
-                    artists: {
-                      type: "array",
-                      items: { type: "string" }
-                    },
-                    filtered_artists: {
-                      type: "array",
-                      items: { type: "string" },
-                      description: "Lista filtrada de artistas para modo UNDERGROUND_STRICT"
-                    },
-                    priority_artists: {
-                      type: "array",
-                      items: { type: "string" },
-                      description: "Artistas con prioridad especial (más canciones) para modo INCLUSIVE"
-                    },
-                    restricted_artists: {
-                      type: "array",
-                      items: { type: "string" },
-                      description: "Artistas específicos mencionados para modo RESTRICTIVE (para que Spotify sepa las restricciones)"
-                    },
-                    exclusions: {
+            { role: "user", content: userMessage }
+          ],
+          tools: [{
+            type: "function",
+            function: {
+              name: "emit_intent",
+              description: "Intent de playlist",
+              parameters: {
+                type: "object",
+                properties: {
+                  mode: { type: "string", enum: ["NORMAL","VIRAL","FESTIVAL","ARTIST_STYLE"] },
+                  llmShare: { type: "number", minimum: 0, maximum: 1 },
+                  tracks: {
+                    type: "array",
+                    items: {
                       type: "object",
                       properties: {
-                        banned_artists: { type: "array", items: { type: "string" } },
-                        banned_terms: { type: "array", items: { type: "string" } }
-                      }
+                        title: { type: "string" },
+                        artist: { type: "string" }
+                      },
+                      required: ["title","artist"]
                     }
                   },
-                  required: ["mode","llmShare","tracks","artists"]
-                }
+                  artists: {
+                    type: "array",
+                    items: { type: "string" }
+                  },
+                  filtered_artists: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Lista filtrada de artistas para modo UNDERGROUND_STRICT"
+                  },
+                  priority_artists: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Artistas con prioridad especial (más canciones) para modo INCLUSIVE"
+                  },
+                  restricted_artists: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Artistas específicos mencionados para modo RESTRICTIVE (para que Spotify sepa las restricciones)"
+                  },
+                  exclusions: {
+                    type: "object",
+                    properties: {
+                      artists: { type: "array", items: { type: "string" } },
+                      terms: { type: "array", items: { type: "string" } }
+                    }
+                  }
+                },
+                required: ["mode", "tracks", "artists"]
               }
-            }],
-            tool_choice: { type: "function", function: { name: "emit_intent" } },
-            temperature: 0.2,
-              max_tokens: 3000
+            }
+          }],
+          temperature: 0.3,
+          max_tokens: 2000
         });
-        } catch (modelError) {
-          console.warn(`[INTENT] Model ${MODEL} failed:`, modelError.message);
-          throw modelError;
+
+        const result = completion.choices[0]?.message;
+        
+        if (!result || !result.tool_calls || result.tool_calls.length === 0) {
+          throw new Error("No tool calls in OpenAI response");
         }
 
-        // Parse tool call response
-        const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
+        const toolCall = result.tool_calls[0];
         if (!toolCall || toolCall.function.name !== 'emit_intent') {
           throw new Error("No valid tool call in OpenAI response");
         }
@@ -372,106 +237,29 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
           
           intent.priority_artists = validPriority;
         }
-        
-        // Manejar restricted_artists para modo RESTRICTIVE (contextos normales)
-        if (!isUndergroundStrict && intent.restricted_artists && Array.isArray(intent.restricted_artists)) {
-          console.log(`[CONTEXT] LLM restricted artists: ${intent.restricted_artists.length}`);
-          console.log(`[CONTEXT] Restricted artists:`, intent.restricted_artists.join(', '));
-          
-          // Validar que todos los artistas restringidos estén en la lista original
-          const originalSet = new Set(contexts.compass.map(normalizeArtistName));
-          const validRestricted = intent.restricted_artists.filter(artist => 
-            originalSet.has(normalizeArtistName(artist))
-          );
-          
-          if (validRestricted.length !== intent.restricted_artists.length) {
-            console.warn(`[CONTEXT] Some restricted artists were not in original list, using valid ones only`);
-          }
-          
-          intent.restricted_artists = validRestricted;
+
+        // Add contexts information
+        if (contexts) {
+          intent.contexts = contexts;
         }
 
-        // CRITICAL: Ensure exact track count
-        const currentTracks = intent.tracks.length;
-        if (currentTracks < targetSize) {
-          console.log(`[INTENT] Only ${currentTracks}/${targetSize} tracks, need to fill ${targetSize - currentTracks} more`);
-          
-          // If we have fewer tracks than needed, we'll let the main route handle filling
-          // by adjusting the llmShare proportionally
-          intent.llmShare = Math.min(intent.llmShare, currentTracks / targetSize);
-          console.log(`[INTENT] Adjusted llmShare to ${intent.llmShare} based on available tracks`);
-        } else if (currentTracks > targetSize) {
-          // Trim excess tracks
-          intent.tracks = intent.tracks.slice(0, targetSize);
-          console.log(`[INTENT] Trimmed tracks to exact target: ${targetSize}`);
+        // Add canonized data if available
+        if (canonizedData) {
+          intent.canonized = canonizedData;
         }
 
-        // Set default strategy and hint
-        if (!intent.spotifyStrategy) {
-          intent.spotifyStrategy = "genre_focused";
-        }
-        if (!intent.spotifyHint) {
-          intent.spotifyHint = `Busca música que encaje con: ${prompt}`;
-        }
-
-        // Extract unique artists from tracks
-        const uniqueArtists = new Set();
-        intent.tracks.forEach(track => {
-          if (track.artist) {
-            uniqueArtists.add(track.artist);
-          }
+        console.log(`[INTENT] Final intent:`, {
+          mode: intent.mode,
+          tracks: intent.tracks.length,
+          artists: intent.artists.length,
+          filtered_artists: intent.filtered_artists?.length || 0,
+          priority_artists: intent.priority_artists?.length || 0,
+          exclusions: intent.exclusions ? 'yes' : 'no',
+          contexts: intent.contexts?.key || 'none',
+          canonized: intent.canonized ? 'yes' : 'no'
         });
-        intent.artists = Array.from(uniqueArtists);
 
-        // --- EXCLUSIONES DESDE EL PROMPT (ES/EN) ---
-        function parseExclusions(text){
-          const s = (text||'').toLowerCase();
-          // patrones: sin X, excluye X, excepto X, without X, exclude X, except X
-          const re = /(sin|excluye|excepto|without|exclude|except)\s+([^.;\n]+)/gi;
-          const artists = new Set();
-          const terms = new Set();
-          let m;
-          while ((m = re.exec(s))) {
-            const list = m[2]
-              .replace(/["""']/g,'')
-              .split(/,| y | and /i)
-              .map(t=>t.trim())
-              .filter(Boolean);
-            list.forEach(item=>{
-              // heurística: si parece nombre propio/artista (tiene espacio o mayúsculas originales),
-              // guárdalo como artista; si es genérico, como término.
-              if (/^[a-z0-9 .,'áéíóúñü-]+$/i.test(item)) {
-                // Asumimos artista por defecto; términos comunes a 'terms'
-                if (item.split(' ').length >= 1) artists.add(item);
-              } else {
-                terms.add(item);
-              }
-            });
-          }
-          return {
-            banned_artists: Array.from(artists),
-            banned_terms: Array.from(terms),
-          };
-        }
-
-        const _ex = parseExclusions(prompt);
-        intent.exclusions = {
-          banned_artists: _ex.banned_artists,
-          banned_terms: _ex.banned_terms,
-        };
-
-        console.log(`[INTENT] Generated ${intent.tracks.length} tracks, ${intent.artists.length} artists using ${MODEL}`);
-
-        return NextResponse.json({
-          ...intent,
-          tracks_llm: intent.tracks, // Backward compatibility
-          artists_llm: intent.artists, // Backward compatibility
-          source: 'openai',
-          model: MODEL,
-          mode: mode,
-          canonized: canonizedData,
-          contexts: contexts // Pasar contextos al pipeline de playlist
-        });
+        return NextResponse.json(intent);
 
       } catch (error) {
         attempts++;
@@ -585,4 +373,36 @@ Responde SOLO con JSON:
       stopwords
     };
   }
+}
+
+/**
+ * Detect if prompt is a single artist name
+ */
+function detectSingleArtist(prompt) {
+  const promptTrimmed = prompt.trim();
+  
+  // Check if prompt is just a single word or short phrase (likely artist name)
+  const words = promptTrimmed.split(/\s+/);
+  
+  // Single word or 2-3 words (common artist name patterns)
+  if (words.length <= 3) {
+    // Check if it doesn't contain common playlist keywords
+    const playlistKeywords = ['playlist', 'música', 'canciones', 'tracks', 'songs', 'mix', 'compilation', 'album', 'discografía'];
+    const hasPlaylistKeywords = playlistKeywords.some(keyword => 
+      promptTrimmed.toLowerCase().includes(keyword)
+    );
+    
+    if (!hasPlaylistKeywords) {
+      return true; // Likely a single artist name
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Normalize artist name for comparison
+ */
+function normalizeArtistName(name) {
+  return name.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().trim();
 }
