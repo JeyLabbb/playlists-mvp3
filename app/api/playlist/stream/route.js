@@ -125,7 +125,7 @@ function determineMode(intent, prompt) {
 }
 
 /**
- * Generator for LLM tracks in chunks - guarantees exact target count
+ * Generator for LLM tracks in chunks - MODE NORMAL: 75% LLM (get 50 by default), others: exact target
  */
 async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
   console.log(`[STREAM:${traceId}] Starting LLM phase - target: ${target_tracks}`);
@@ -140,8 +140,23 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
     return;
   }
   
+  // Determine mode and LLM target
+  const mode = determineMode(intent, intent.prompt);
+  const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
+  
+  let llmTarget;
+  if (mode === 'NORMAL' && !isUndergroundStrict) {
+    // MODE NORMAL: Get 75% LLM (but get 50 by default to be safe)
+    llmTarget = Math.max(50, Math.ceil(target_tracks * 0.75));
+    console.log(`[STREAM:${traceId}] NORMAL mode: LLM target = ${llmTarget} (75% of ${target_tracks})`);
+  } else {
+    // Other modes: exact target
+    llmTarget = target_tracks;
+    console.log(`[STREAM:${traceId}] ${mode} mode: LLM target = ${llmTarget} (exact target)`);
+  }
+  
   // Process LLM tracks in chunks until we have enough or run out
-  for (let i = 0; i < llmTracks.length && totalYielded < target_tracks; i += chunkSize) {
+  for (let i = 0; i < llmTracks.length && totalYielded < llmTarget; i += chunkSize) {
     const chunk = llmTracks.slice(i, i + chunkSize);
     chunkCounter++;
     console.log(`[STREAM:${traceId}] Processing LLM chunk ${chunkCounter}: ${chunk.length} tracks`);
@@ -151,20 +166,20 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
       const filtered = resolved.filter(track => notExcluded(track, intent.exclusions));
       
       if (filtered.length > 0) {
-        // Only yield up to the remaining target
-        const remaining = target_tracks - totalYielded;
+        // Only yield up to the remaining LLM target
+        const remaining = llmTarget - totalYielded;
         const toYield = filtered.slice(0, remaining);
         totalYielded += toYield.length;
         
-        console.log(`[STREAM:${traceId}] LLM chunk yielded: ${toYield.length} tracks, total: ${totalYielded}/${target_tracks}`);
+        console.log(`[STREAM:${traceId}] LLM chunk yielded: ${toYield.length} tracks, total: ${totalYielded}/${llmTarget}`);
         yield toYield;
         
         // Add delay between chunks for better UX
-        if (totalYielded < target_tracks) {
+        if (totalYielded < llmTarget) {
           await new Promise(resolve => setTimeout(resolve, 12000)); // 12 second delay
         }
         
-        if (totalYielded >= target_tracks) {
+        if (totalYielded >= llmTarget) {
           console.log(`[STREAM:${traceId}] LLM phase reached target: ${totalYielded}`);
           break;
         }
@@ -473,11 +488,27 @@ export async function GET(request) {
               })}\n\n`));
               
               console.log(`[STREAM:${traceId}] LLM chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
-              
-              // Stop if we've reached the target
-              if (allTracks.length >= target_tracks) {
-                console.log(`[STREAM:${traceId}] Target reached in LLM phase: ${allTracks.length}`);
-                break;
+            }
+            
+            // For NORMAL mode: trim LLM tracks to 75% and prepare for Spotify
+            const mode = determineMode(intent, intent.prompt);
+            const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
+            
+            if (mode === 'NORMAL' && !isUndergroundStrict) {
+              const llmTarget = Math.max(50, Math.ceil(target_tracks * 0.75));
+              if (allTracks.length > llmTarget) {
+                console.log(`[STREAM:${traceId}] NORMAL mode: trimming LLM tracks from ${allTracks.length} to ${llmTarget}`);
+                allTracks = allTracks.slice(0, llmTarget);
+                
+                // Send trim update
+                controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
+                  tracks: [],
+                  totalSoFar: allTracks.length,
+                  target: target_tracks,
+                  progress: Math.round((allTracks.length / target_tracks) * 100),
+                  trimmed: true,
+                  message: `Trimmed to ${llmTarget} LLM tracks (75%)`
+                })}\n\n`));
               }
             }
             
@@ -688,11 +719,27 @@ export async function POST(request) {
               })}\n\n`));
               
               console.log(`[STREAM:${traceId}] LLM chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
-              
-              // Stop if we've reached the target
-              if (allTracks.length >= target_tracks) {
-                console.log(`[STREAM:${traceId}] Target reached in LLM phase: ${allTracks.length}`);
-                break;
+            }
+            
+            // For NORMAL mode: trim LLM tracks to 75% and prepare for Spotify
+            const mode = determineMode(intent, intent.prompt);
+            const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
+            
+            if (mode === 'NORMAL' && !isUndergroundStrict) {
+              const llmTarget = Math.max(50, Math.ceil(target_tracks * 0.75));
+              if (allTracks.length > llmTarget) {
+                console.log(`[STREAM:${traceId}] NORMAL mode: trimming LLM tracks from ${allTracks.length} to ${llmTarget}`);
+                allTracks = allTracks.slice(0, llmTarget);
+                
+                // Send trim update
+                controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
+                  tracks: [],
+                  totalSoFar: allTracks.length,
+                  target: target_tracks,
+                  progress: Math.round((allTracks.length / target_tracks) * 100),
+                  trimmed: true,
+                  message: `Trimmed to ${llmTarget} LLM tracks (75%)`
+                })}\n\n`));
               }
             }
             

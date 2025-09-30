@@ -242,6 +242,13 @@ export default function Home() {
         
         eventSource.addEventListener('LLM_CHUNK', (event) => {
           const data = JSON.parse(event.data);
+          
+          if (data.trimmed) {
+            // Handle trim message
+            setStatusText(`🎵 ${data.message || 'Trimmed LLM tracks to 75%'}`);
+            return;
+          }
+          
           allTracks = [...allTracks, ...data.tracks];
           setTracks([...allTracks]);
           
