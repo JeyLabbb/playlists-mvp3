@@ -85,14 +85,18 @@ MODOS DISPONIBLES Y CUÁNDO USARLOS:
 2. VIRAL:
    - Canciones virales, trending, populares actuales
    - Palabras clave: tiktok, viral, virales, top, charts, tendencia, 2024, 2025
-   - LLM prepara términos y delega todo a Spotify
-   - Spotify busca en playlists populares
+   - DELEGA COMPLETAMENTE A SPOTIFY
+   - NO generes tracks con LLM
+   - Pasa términos de búsqueda para que Spotify busque en playlists populares
+   - Spotify maneja toda la generación
 
 3. FESTIVAL:
    - Música de festivales, electrónica, fiesta
    - Palabras clave: festival, coachella, ultra, tomorrowland, edc
-   - LLM canoniza el prompt (extrae evento, año, stopwords)
-   - Spotify busca por consenso de playlists del festival
+   - DELEGA COMPLETAMENTE A SPOTIFY
+   - NO generes tracks con LLM
+   - Pasa información canonizada (evento, año, stopwords) para que Spotify busque por consenso
+   - Spotify maneja toda la generación
 
 4. ARTIST_STYLE:
    - Solo para casos muy específicos de comparación directa
@@ -101,9 +105,12 @@ MODOS DISPONIBLES Y CUÁNDO USARLOS:
 MODOS ESPECIALES PARA CONTEXTOS:
 
 UNDERGROUND_STRICT (cuando hay contextos underground_es):
-- RESTRICTIVE: "solo X artista" → filtered_artists con solo ese artista
+- INTERPRETA el prompt completo para entender la intención
+- RESTRICTIVE: "solo X artista" → filtered_artists con solo ese artista específico
 - INCLUSIVE: "con X artista" → priority_artists con ese artista + todos los demás
-- NORMAL: Filtrar por estilo según el prompt
+- NORMAL: Filtrar por estilo según el prompt, quitar artistas que no encajen
+- FILTROS AVANZADOS: Si interpretas que Spotify puede filtrar por oyentes mensuales (menos/más de X), marca en filtered_artists
+- DELEGA TODO A SPOTIFY: Pasa la lista filtrada para que Spotify busque directamente
 
 CONTEXTOS NORMALES:
 - RESTRICTIVE: "solo X artista" → restricted_artists con ese artista
@@ -116,6 +123,12 @@ DETECCIÓN DE MODOS:
 - Para "estilo de cantante": USA MODO NORMAL con ese cantante como priority_artists
 - Para artista específico (solo nombre): delega completamente a Spotify
 - Para exclusiones: detecta "sin X" y marca en exclusions
+
+DELEGACIÓN A SPOTIFY:
+- VIRAL y FESTIVAL: DELEGA TODO, NO generes tracks
+- UNDERGROUND_STRICT: INTERPRETA prompt, filtra lista, DELEGA TODO a Spotify
+- Spotify puede filtrar por oyentes mensuales si es necesario
+- Pasa información clara para que Spotify sepa qué buscar
 
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.` },
             { role: "user", content: userMessage }
