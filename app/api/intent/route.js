@@ -81,6 +81,7 @@ MODOS DISPONIBLES Y CUÁNDO USARLOS:
    - Marca ese cantante como priority_artists
    - LLM busca cantantes similares en el mismo nicho
    - Spotify rellena con radios de canciones
+   - SI HAY CONDICIÓN DE OYENTES MENSUALES: LLM elige candidatos + Spotify filtra por condición
 
 2. VIRAL:
    - Canciones virales, trending, populares actuales
@@ -89,6 +90,7 @@ MODOS DISPONIBLES Y CUÁNDO USARLOS:
    - NO generes tracks con LLM
    - Pasa términos de búsqueda para que Spotify busque en playlists populares
    - Spotify maneja toda la generación
+   - SI HAY CONDICIÓN DE OYENTES MENSUALES: Spotify filtra por condición
 
 3. FESTIVAL:
    - Música de festivales, electrónica, fiesta
@@ -97,6 +99,7 @@ MODOS DISPONIBLES Y CUÁNDO USARLOS:
    - NO generes tracks con LLM
    - Pasa información canonizada (evento, año, stopwords) para que Spotify busque por consenso
    - Spotify maneja toda la generación
+   - SI HAY CONDICIÓN DE OYENTES MENSUALES: Spotify filtra por condición
 
 4. ARTIST_STYLE:
    - Solo para casos muy específicos de comparación directa
@@ -109,13 +112,20 @@ UNDERGROUND_STRICT (cuando hay contextos underground_es):
 - RESTRICTIVE: "solo X artista" → filtered_artists con solo ese artista específico
 - INCLUSIVE: "con X artista" → priority_artists con ese artista + todos los demás
 - NORMAL: Filtrar por estilo según el prompt, quitar artistas que no encajen
-- FILTROS AVANZADOS: Si interpretas que Spotify puede filtrar por oyentes mensuales (menos/más de X), marca en filtered_artists
 - DELEGA TODO A SPOTIFY: Pasa la lista filtrada para que Spotify busque directamente
+- SI HAY CONDICIÓN DE OYENTES MENSUALES: Spotify filtra por condición
 
 CONTEXTOS NORMALES:
 - RESTRICTIVE: "solo X artista" → restricted_artists con ese artista
 - INCLUSIVE: "con X artista" → priority_artists con ese artista
 - NORMAL: Usar todos los artistas del contexto
+
+FILTROS AVANZADOS POR OYENTES MENSUALES (APLICAR EN TODOS LOS MODOS):
+- SIEMPRE detecta si el prompt menciona oyentes mensuales (menos/más de X)
+- Palabras clave: "menos de X oyentes", "más de X oyentes", "pequeños artistas", "grandes artistas", "indie", "mainstream"
+- EN TODOS LOS MODOS: Si hay condición de oyentes mensuales, marca en filtered_artists o pasa la condición
+- Spotify puede filtrar por oyentes mensuales en cualquier modo
+- NO importa si no se respeta el 70% LLM / 30% Spotify si hay condición de oyentes
 
 DETECCIÓN DE MODOS:
 - Analiza el prompt completo para entender la intención
@@ -123,11 +133,13 @@ DETECCIÓN DE MODOS:
 - Para "estilo de cantante": USA MODO NORMAL con ese cantante como priority_artists
 - Para artista específico (solo nombre): delega completamente a Spotify
 - Para exclusiones: detecta "sin X" y marca en exclusions
+- Para oyentes mensuales: SIEMPRE detecta y aplica filtro
 
 DELEGACIÓN A SPOTIFY:
 - VIRAL y FESTIVAL: DELEGA TODO, NO generes tracks
 - UNDERGROUND_STRICT: INTERPRETA prompt, filtra lista, DELEGA TODO a Spotify
-- Spotify puede filtrar por oyentes mensuales si es necesario
+- NORMAL con condición oyentes: LLM elige candidatos + Spotify filtra por condición
+- Spotify puede filtrar por oyentes mensuales en CUALQUIER modo
 - Pasa información clara para que Spotify sepa qué buscar
 
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.` },
