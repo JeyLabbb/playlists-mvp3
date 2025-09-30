@@ -488,18 +488,11 @@ export default function Home() {
       const isProduction = process.env.NODE_ENV === 'production';
       const endpoint = session?.user ? "/api/playlist/llm" : "/api/playlist/demo";
       
-      // Use streaming SSE for desktop, fallback to regular endpoint for mobile
-      const isMobile = /Mobile|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      
-      console.log(`[FRONTEND] Device detection - Mobile: ${isMobile}, User-Agent: ${navigator.userAgent.substring(0, 100)}`);
-      
-      if (session?.user && !isMobile) {
-        // Desktop: Use streaming
-        console.log('[FRONTEND] Using streaming endpoint for desktop');
+      // Use streaming SSE for both mobile and desktop - SAME LOGIC
+      if (session?.user) {
+        // Both mobile and desktop use streaming - EXACTLY THE SAME
         await generatePlaylistWithStreaming(prompt, wanted, playlistName);
       } else {
-        // Mobile or no session: Use regular endpoint
-        console.log(`[FRONTEND] Using regular endpoint - Mobile: ${isMobile}, Session: ${!!session?.user}`);
         // Use regular fetch for demo or development
         const playlistRes = await fetch(endpoint, {
           method: "POST",
@@ -922,10 +915,6 @@ export default function Home() {
                 {t('playlist.tracksTitle')} ({tracks.length} tracks)
               </h3>
               
-              {/* Mobile debug info */}
-              <div className="md:hidden text-xs text-gray-400 mb-4 p-2 bg-gray-800 rounded">
-                Mobile Debug: {tracks.length} tracks loaded, container visible
-              </div>
               
               <div className="max-h-96 overflow-y-auto mobile-track-list">
                 {tracks.map((track, i) => (
