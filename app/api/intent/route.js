@@ -552,26 +552,32 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
           
           // Validar que todos los artistas prioritarios estén en la lista original
           console.log(`[${contextName}] Validating priority artists against original list...`);
+          console.log(`[${contextName}] Contexts available: ${!!contexts}`);
           console.log(`[${contextName}] Original compass length: ${contexts?.compass?.length || 0}`);
           
-          const originalSet = new Set(contexts.compass.map(normalizeArtistName));
-          console.log(`[${contextName}] Original set size: ${originalSet.size}`);
-          
-          const validPriority = intent.priority_artists.filter(artist => 
-            originalSet.has(normalizeArtistName(artist))
-          );
-          
-          console.log(`[${contextName}] Valid priority artists: ${validPriority.length}/${intent.priority_artists.length}`);
-          
-          if (validPriority.length !== intent.priority_artists.length) {
-            console.warn(`[${contextName}] Some priority artists were not in original list, using valid ones only`);
-            console.log(`[${contextName}] Invalid priority artists:`, intent.priority_artists.filter(artist => 
-              !originalSet.has(normalizeArtistName(artist))
-            ));
+          if (contexts && contexts.compass && Array.isArray(contexts.compass)) {
+            const originalSet = new Set(contexts.compass.map(normalizeArtistName));
+            console.log(`[${contextName}] Original set size: ${originalSet.size}`);
+            
+            const validPriority = intent.priority_artists.filter(artist => 
+              originalSet.has(normalizeArtistName(artist))
+            );
+            
+            console.log(`[${contextName}] Valid priority artists: ${validPriority.length}/${intent.priority_artists.length}`);
+            
+            if (validPriority.length !== intent.priority_artists.length) {
+              console.warn(`[${contextName}] Some priority artists were not in original list, using valid ones only`);
+              console.log(`[${contextName}] Invalid priority artists:`, intent.priority_artists.filter(artist => 
+                !originalSet.has(normalizeArtistName(artist))
+              ));
+            }
+            
+            intent.priority_artists = validPriority;
+            console.log(`[${contextName}] Final priority artists count: ${intent.priority_artists.length}`);
+          } else {
+            console.log(`[${contextName}] No contexts available, using all priority artists`);
+            console.log(`[${contextName}] Final priority artists count: ${intent.priority_artists.length}`);
           }
-          
-          intent.priority_artists = validPriority;
-          console.log(`[${contextName}] Final priority artists count: ${intent.priority_artists.length}`);
         } else {
           console.log(`[INTENT] No priority artists found`);
         }
