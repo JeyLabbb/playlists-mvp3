@@ -16,7 +16,9 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
     }
 
+    console.log(`[INTENT] ===== STARTING INTENT GENERATION =====`);
     console.log(`[INTENT] Processing prompt: "${prompt}"`);
+    console.log(`[INTENT] Target tracks: ${target_tracks}`);
     
     // Mobile detection for debugging
     const userAgent = request.headers.get('user-agent') || '';
@@ -24,50 +26,78 @@ export async function POST(request) {
     console.log(`[INTENT] Mobile detected: ${isMobile}, User-Agent: ${userAgent.substring(0, 100)}...`);
 
     const targetSize = Math.max(1, Math.min(500, Number(target_tracks) || 50));
+    console.log(`[INTENT] Target size calculated: ${targetSize}`);
     
     // LLM will detect mode and decide everything based on prompt analysis
 
     // Get contexts brújula for the prompt
+    console.log(`[INTENT] Getting contexts for prompt...`);
     const contexts = getContextsForPrompt(prompt);
     if (contexts) {
       console.log(`[CONTEXT] compass_used=true name=${contexts.key} keep_outside=${contexts.key !== 'underground_es'}`);
+      console.log(`[CONTEXT] Context details:`, {
+        key: contexts.key,
+        compassLength: contexts.compass?.length || 0,
+        compassSample: contexts.compass?.slice(0, 5) || []
+      });
+    } else {
+      console.log(`[CONTEXT] No contexts found for prompt`);
     }
 
     // Detect mode and canonize for VIRAL/FESTIVAL
+    console.log(`[INTENT] Detecting mode for prompt...`);
     const mode = detectMode(prompt);
+    console.log(`[INTENT] Detected mode: ${mode}`);
+    
     let canonizedData = null;
     
     // Detect if prompt is a single artist name
+    console.log(`[INTENT] Checking if single artist...`);
     const isSingleArtist = detectSingleArtist(prompt);
     if (isSingleArtist) {
       console.log(`[INTENT] SINGLE ARTIST detected: "${prompt}" - delegating to Spotify`);
+    } else {
+      console.log(`[INTENT] Not a single artist prompt`);
     }
     
     if (mode === 'VIRAL' || mode === 'FESTIVAL') {
+      console.log(`[INTENT] Canonizing prompt for ${mode} mode...`);
       canonizedData = await canonizePrompt(prompt);
       console.log(`[INTENT] Mode: ${mode}, Canonized:`, canonizedData);
+    } else {
+      console.log(`[INTENT] No canonization needed for ${mode} mode`);
     }
 
     // Retry logic for OpenAI
     const maxAttempts = 3;
     let attempts = 0;
+    console.log(`[INTENT] Starting OpenAI retry logic, max attempts: ${maxAttempts}`);
 
     while (attempts < maxAttempts) {
       let completion;
       let modelUsed = MODEL;
-
+      attempts++;
+      
+      console.log(`[INTENT] ===== OPENAI ATTEMPT ${attempts}/${maxAttempts} =====`);
+      console.log(`[INTENT] Attempting with model:`, MODEL);
+      
       try {
-        console.log(`[INTENT] Attempting with model:`, MODEL);
         // Build comprehensive user message - LLM decides everything
+        console.log(`[INTENT] Building user message...`);
         let userMessage = `Prompt: "${prompt}"\nTamaño solicitado: ${targetSize} tracks\n\n`;
         
         // Add context information if available
         if (contexts) {
+          console.log(`[INTENT] Adding context information to message...`);
           userMessage += `CONTEXTOS BRÚJULA DISPONIBLES:\n${contexts.compass.join(', ')}\n\n`;
         }
         
         userMessage += `Analiza este prompt y determina el modo correcto. Genera ${Math.ceil(targetSize * 1.4)} canciones que encajen perfectamente con la petición. Usa solo canciones reales con título y artista específicos. Respeta TODAS las restricciones mencionadas (ej. instrumental, género, etc.).\n\nNUNCA uses comillas curvas; usa comillas dobles normales; no pongas comas finales.`;
+        
+        console.log(`[INTENT] User message length: ${userMessage.length} chars`);
+        console.log(`[INTENT] User message preview:`, userMessage.substring(0, 200) + '...');
 
+        console.log(`[INTENT] Calling OpenAI API...`);
         completion = await openai.chat.completions.create({
           model: MODEL,
           messages: [
@@ -201,7 +231,15 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
           max_tokens: 2000
         });
 
+        console.log(`[INTENT] OpenAI API call completed successfully`);
+        console.log(`[INTENT] Response received, processing...`);
+        
         const result = completion.choices[0]?.message;
+        console.log(`[INTENT] Result from OpenAI:`, {
+          hasMessage: !!result,
+          hasToolCalls: !!(result?.tool_calls),
+          toolCallsLength: result?.tool_calls?.length || 0
+        });
         
         if (!result || !result.tool_calls || result.tool_calls.length === 0) {
           throw new Error("No tool calls in OpenAI response");
@@ -213,16 +251,27 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
         }
 
         // Parse tool call arguments directly (guaranteed valid JSON)
+        console.log(`[INTENT] Parsing tool call arguments...`);
         let intent = JSON.parse(toolCall.function.arguments);
         console.log(`[INTENT] parsed_ok=true (tool_call)`);
+        console.log(`[INTENT] Raw intent from LLM:`, {
+          mode: intent.mode,
+          tracksCount: intent.tracks?.length || 0,
+          artistsCount: intent.artists?.length || 0,
+          filteredArtistsCount: intent.filtered_artists?.length || 0,
+          priorityArtistsCount: intent.priority_artists?.length || 0,
+          hasExclusions: !!intent.exclusions
+        });
         
         // Enhanced validation + defaults
+        console.log(`[INTENT] Applying validation and defaults...`);
         if (!Array.isArray(intent.tracks)) intent.tracks = [];
         if (!Array.isArray(intent.artists)) intent.artists = [];
         if (!intent.exclusions) intent.exclusions = { banned_artists: [], banned_terms: [] };
         if (!intent.mode) intent.mode = "normal";
         if (typeof intent.llmShare !== 'number') intent.llmShare = 0.7;
         intent.tamano_playlist = targetSize;
+        console.log(`[INTENT] Validation completed`);
 
         // Manejar filtered_artists para UNDERGROUND_STRICT
         const isUndergroundStrict = /underground/i.test(prompt || '');
@@ -273,6 +322,7 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
           intent.canonized = canonizedData;
         }
 
+        console.log(`[INTENT] ===== FINAL INTENT SUMMARY =====`);
         console.log(`[INTENT] Final intent:`, {
           mode: intent.mode,
           tracks: intent.tracks.length,
@@ -283,6 +333,9 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
           contexts: intent.contexts?.key || 'none',
           canonized: intent.canonized ? 'yes' : 'no'
         });
+        console.log(`[INTENT] Sample tracks:`, intent.tracks.slice(0, 3).map(t => ({ title: t.title, artist: t.artist })));
+        console.log(`[INTENT] Sample artists:`, intent.artists.slice(0, 5));
+        console.log(`[INTENT] ===== INTENT GENERATION COMPLETED =====`);
 
         return NextResponse.json(intent);
 
