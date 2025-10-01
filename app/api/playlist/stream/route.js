@@ -415,19 +415,47 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       });
       
       try {
-        // VIRAL mode: Delegate EVERYTHING to Spotify (no LLM tracks)
-        console.log(`[STREAM:${traceId}] VIRAL: Delegating completely to Spotify`);
-        console.log(`[STREAM:${traceId}] VIRAL: Using artists for viral search:`, intent.artists_llm?.slice(0, 5));
+        // VIRAL mode: Delegate EVERYTHING to Spotify using playlist consensus
+        console.log(`[STREAM:${traceId}] VIRAL: Delegating completely to Spotify via playlist consensus`);
+        console.log(`[STREAM:${traceId}] VIRAL: Using canonized data for viral search`);
         
-        // Use context artists if available, otherwise use LLM artists
-        let searchArtists = intent.artists_llm || [];
-        if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
-          const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
-          searchArtists = [...contextArtists.slice(0, 8), ...searchArtists];
-          console.log(`[STREAM:${traceId}] VIRAL: Using context artists:`, contextArtists.slice(0, 5));
+        const canonized = intent.canonized;
+        if (!canonized) {
+          console.warn(`[STREAM:${traceId}] VIRAL: No canonized data found, using fallback`);
+          spotifyTracks = await searchGenericTracks(accessToken, remaining);
+          console.log(`[STREAM:${traceId}] VIRAL fallback: ${spotifyTracks.length} tracks`);
+        } else {
+          console.log(`[STREAM:${traceId}] VIRAL: Using canonized data`, {
+            baseQuery: canonized.baseQuery,
+            year: canonized.year,
+            target: remaining
+          });
+          
+          // Search for viral/festival playlists first
+          const viralPlaylists = await searchFestivalLikePlaylists({
+            accessToken,
+            baseQuery: canonized.baseQuery,
+            year: canonized.year
+          });
+          
+          console.log(`[STREAM:${traceId}] VIRAL: Found ${viralPlaylists.length} playlists`);
+          
+          if (viralPlaylists.length > 0) {
+            // Use consensus from viral playlists
+            spotifyTracks = await collectFromPlaylistsByConsensus({
+              accessToken,
+              playlists: viralPlaylists,
+              target: remaining,
+              artistCap: 3
+            });
+          } else {
+            console.log(`[STREAM:${traceId}] VIRAL: No playlists found, using generic search`);
+            spotifyTracks = await searchGenericTracks(accessToken, remaining);
+          }
+          
+          console.log(`[STREAM:${traceId}] VIRAL consensus: ${spotifyTracks.length} tracks`);
         }
         
-        spotifyTracks = await radioFromRelatedTop(accessToken, searchArtists, remaining);
         console.log(`[STREAM:${traceId}] VIRAL: Generated ${spotifyTracks.length}/${remaining} tracks`);
         console.log(`[STREAM:${traceId}] VIRAL tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
       } catch (err) {
