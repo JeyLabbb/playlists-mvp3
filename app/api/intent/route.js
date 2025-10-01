@@ -293,25 +293,25 @@ DELEGACIÓN A SPOTIFY:
 - Pasa información clara para que Spotify sepa qué buscar
 
 REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
-- SIEMPRE genera tracks, incluso si hay exclusiones
+- SIEMPRE genera tracks REALES, nunca "Track 1", "Track 2", etc.
 - NUNCA generes tracks de artistas que estén en exclusions.artists
 - Si el prompt dice "sin X artista", NO incluyas tracks de ese artista PERO genera tracks de otros artistas similares
 
 REGLA ESPECIAL PARA ESTILO DE ARTISTA:
 - Si el prompt contiene "estilo de" + nombre de artista: USA NORMAL mode
 - Marca ese artista específico como priority_artists (NO uses artistas genéricos)
-- Genera tracks basados en ese artista específico
-- Ejemplo: "estilo de D.Valentino" → priority_artists: ["D.Valentino"], NO uses ["pop", "rock", "electronic"]
-- Ejemplo: "como Bad Bunny" → priority_artists: ["Bad Bunny"], NO uses géneros genéricos
+- Genera tracks REALES basados en ese artista específico
+- Ejemplo: "estilo de D.Valentino" → priority_artists: ["D.Valentino"], genera tracks reales de D.Valentino y artistas similares
+- Ejemplo: "como Bad Bunny" → priority_artists: ["Bad Bunny"], genera tracks reales de Bad Bunny y artistas similares
 
 REGLA ESPECIAL PARA ARTISTAS ESPECÍFICOS:
 - Si el prompt menciona un artista específico: incluye ese artista en priority_artists
 - NO uses artistas genéricos como fallback si hay un artista específico mencionado
 - Si detectas exclusiones, marca correctamente en exclusions.artists
-- Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → NO generes tracks de Bad Bunny, PERO genera tracks de J Balvin, Maluma, Ozuna, etc.
-- Ejemplo: "rock sin Metallica" → NO generes tracks de Metallica, PERO genera tracks de Iron Maiden, AC/DC, etc.
+- Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → NO generes tracks de Bad Bunny, PERO genera tracks REALES de J Balvin, Maluma, Ozuna, etc.
+- Ejemplo: "rock sin Metallica" → NO generes tracks de Metallica, PERO genera tracks REALES de Iron Maiden, AC/DC, etc.
 - Las exclusiones son ABSOLUTAS pero NO impiden generar tracks de otros artistas
-- SIEMPRE genera al menos 5-10 tracks para que Spotify pueda crear radios
+- SIEMPRE genera al menos 5-10 tracks REALES para que Spotify pueda crear radios
 
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.
 
@@ -322,14 +322,17 @@ Prompt: "estilo de D.Valentino"
 Respuesta: {
   "mode": "NORMAL",
   "priority_artists": ["D.Valentino"],
-  "tracks": ["track1", "track2", "track3"],
-  "artists": ["D.Valentino", "artista_similar_1", "artista_similar_2"]
+  "tracks": ["heartbreaker", "no quiere bailar", "why", "entre la luna y yo", "mikasa"],
+  "artists": ["D.Valentino", "Sneaky wh", "17Beats", "artista_similar_1", "artista_similar_2"]
 }
 
 NUNCA hagas esto:
 {
+  "tracks": ["Track 1", "Track 2", "Track 3"],
   "artists": ["pop", "rock", "electronic", "hip hop", "indie"]
-}` },
+}
+
+SIEMPRE genera nombres de canciones REALES, nunca "Track X"` },
             { role: "user", content: userMessage }
           ],
           tools: [{
