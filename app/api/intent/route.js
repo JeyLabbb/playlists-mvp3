@@ -9,69 +9,145 @@ const openai = new OpenAI({
 });
 
 export async function POST(request) {
+  const startTime = Date.now();
+  console.log(`[INTENT] ===== STARTING INTENT GENERATION =====`);
+  console.log(`[INTENT] Timestamp: ${new Date().toISOString()}`);
+  console.log(`[INTENT] Request method: ${request.method}`);
+  console.log(`[INTENT] Request URL: ${request.url}`);
+  
   try {
-    const { prompt, target_tracks } = await request.json();
+    console.log(`[INTENT] Parsing request body...`);
+    const requestBody = await request.json();
+    console.log(`[INTENT] Request body parsed successfully:`, {
+      hasPrompt: !!requestBody.prompt,
+      hasTargetTracks: !!requestBody.target_tracks,
+      promptLength: requestBody.prompt?.length || 0,
+      targetTracksValue: requestBody.target_tracks
+    });
+    
+    const { prompt, target_tracks } = requestBody;
     
     if (!prompt) {
+      console.log(`[INTENT] ERROR: No prompt provided`);
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
     }
 
-    console.log(`[INTENT] ===== STARTING INTENT GENERATION =====`);
+    console.log(`[INTENT] ===== PROCESSING REQUEST =====`);
     console.log(`[INTENT] Processing prompt: "${prompt}"`);
     console.log(`[INTENT] Target tracks: ${target_tracks}`);
+    console.log(`[INTENT] Prompt type: ${typeof prompt}`);
+    console.log(`[INTENT] Target tracks type: ${typeof target_tracks}`);
     
     // Mobile detection for debugging
+    console.log(`[INTENT] Detecting mobile device...`);
     const userAgent = request.headers.get('user-agent') || '';
     const isMobile = /mobile|android|iphone|ipad|tablet/i.test(userAgent);
-    console.log(`[INTENT] Mobile detected: ${isMobile}, User-Agent: ${userAgent.substring(0, 100)}...`);
+    console.log(`[INTENT] Mobile detection result: ${isMobile}`);
+    console.log(`[INTENT] User-Agent: ${userAgent.substring(0, 100)}...`);
+    console.log(`[INTENT] User-Agent length: ${userAgent.length}`);
 
+    console.log(`[INTENT] Calculating target size...`);
     const targetSize = Math.max(1, Math.min(500, Number(target_tracks) || 50));
+    console.log(`[INTENT] Target size calculation: max(1, min(500, ${Number(target_tracks) || 50})) = ${targetSize}`);
     console.log(`[INTENT] Target size calculated: ${targetSize}`);
     
     // LLM will detect mode and decide everything based on prompt analysis
 
     // Get contexts brújula for the prompt
+    console.log(`[INTENT] ===== CONTEXT DETECTION =====`);
     console.log(`[INTENT] Getting contexts for prompt...`);
-    const contexts = getContextsForPrompt(prompt);
+    console.log(`[INTENT] Calling getContextsForPrompt with: "${prompt}"`);
+    
+    let contexts;
+    try {
+      contexts = getContextsForPrompt(prompt);
+      console.log(`[INTENT] getContextsForPrompt completed successfully`);
+    } catch (contextError) {
+      console.log(`[INTENT] ERROR in getContextsForPrompt:`, contextError.message);
+      contexts = null;
+    }
+    
     if (contexts) {
+      console.log(`[CONTEXT] Context found!`);
       console.log(`[CONTEXT] compass_used=true name=${contexts.key} keep_outside=${contexts.key !== 'underground_es'}`);
       console.log(`[CONTEXT] Context details:`, {
         key: contexts.key,
         compassLength: contexts.compass?.length || 0,
-        compassSample: contexts.compass?.slice(0, 5) || []
+        compassSample: contexts.compass?.slice(0, 5) || [],
+        compassType: typeof contexts.compass,
+        hasCompass: !!contexts.compass
       });
+      console.log(`[CONTEXT] Full compass array:`, contexts.compass);
     } else {
       console.log(`[CONTEXT] No contexts found for prompt`);
+      console.log(`[CONTEXT] contexts value:`, contexts);
     }
 
     // Detect mode and canonize for VIRAL/FESTIVAL
+    console.log(`[INTENT] ===== MODE DETECTION =====`);
     console.log(`[INTENT] Detecting mode for prompt...`);
-    const mode = detectMode(prompt);
+    console.log(`[INTENT] Calling detectMode with: "${prompt}"`);
+    
+    let mode;
+    try {
+      mode = detectMode(prompt);
+      console.log(`[INTENT] detectMode completed successfully`);
+    } catch (modeError) {
+      console.log(`[INTENT] ERROR in detectMode:`, modeError.message);
+      mode = 'NORMAL'; // fallback
+    }
+    
     console.log(`[INTENT] Detected mode: ${mode}`);
+    console.log(`[INTENT] Mode type: ${typeof mode}`);
     
     let canonizedData = null;
     
     // Detect if prompt is a single artist name
+    console.log(`[INTENT] ===== SINGLE ARTIST DETECTION =====`);
     console.log(`[INTENT] Checking if single artist...`);
-    const isSingleArtist = detectSingleArtist(prompt);
+    console.log(`[INTENT] Calling detectSingleArtist with: "${prompt}"`);
+    
+    let isSingleArtist;
+    try {
+      isSingleArtist = detectSingleArtist(prompt);
+      console.log(`[INTENT] detectSingleArtist completed successfully`);
+    } catch (singleArtistError) {
+      console.log(`[INTENT] ERROR in detectSingleArtist:`, singleArtistError.message);
+      isSingleArtist = false;
+    }
+    
     if (isSingleArtist) {
       console.log(`[INTENT] SINGLE ARTIST detected: "${prompt}" - delegating to Spotify`);
     } else {
       console.log(`[INTENT] Not a single artist prompt`);
     }
+    console.log(`[INTENT] isSingleArtist result: ${isSingleArtist}`);
     
     if (mode === 'VIRAL' || mode === 'FESTIVAL') {
+      console.log(`[INTENT] ===== CANONIZATION =====`);
       console.log(`[INTENT] Canonizing prompt for ${mode} mode...`);
-      canonizedData = await canonizePrompt(prompt);
-      console.log(`[INTENT] Mode: ${mode}, Canonized:`, canonizedData);
+      console.log(`[INTENT] Calling canonizePrompt with: "${prompt}"`);
+      
+      try {
+        canonizedData = await canonizePrompt(prompt);
+        console.log(`[INTENT] canonizePrompt completed successfully`);
+        console.log(`[INTENT] Mode: ${mode}, Canonized:`, canonizedData);
+      } catch (canonizeError) {
+        console.log(`[INTENT] ERROR in canonizePrompt:`, canonizeError.message);
+        canonizedData = null;
+      }
     } else {
       console.log(`[INTENT] No canonization needed for ${mode} mode`);
     }
 
     // Retry logic for OpenAI
+    console.log(`[INTENT] ===== OPENAI RETRY LOGIC =====`);
     const maxAttempts = 3;
     let attempts = 0;
     console.log(`[INTENT] Starting OpenAI retry logic, max attempts: ${maxAttempts}`);
+    console.log(`[INTENT] Model to use: ${MODEL}`);
+    console.log(`[INTENT] OpenAI API Key present: ${!!process.env.OPENAI_API_KEY}`);
+    console.log(`[INTENT] OpenAI API Key length: ${process.env.OPENAI_API_KEY?.length || 0}`);
 
     while (attempts < maxAttempts) {
       let completion;
@@ -79,23 +155,47 @@ export async function POST(request) {
       attempts++;
       
       console.log(`[INTENT] ===== OPENAI ATTEMPT ${attempts}/${maxAttempts} =====`);
+      console.log(`[INTENT] Attempt number: ${attempts}`);
+      console.log(`[INTENT] Max attempts: ${maxAttempts}`);
       console.log(`[INTENT] Attempting with model:`, MODEL);
+      console.log(`[INTENT] Model type: ${typeof MODEL}`);
       
       try {
         // Build comprehensive user message - LLM decides everything
+        console.log(`[INTENT] ===== BUILDING USER MESSAGE =====`);
         console.log(`[INTENT] Building user message...`);
+        console.log(`[INTENT] Base prompt: "${prompt}"`);
+        console.log(`[INTENT] Target size: ${targetSize}`);
+        
         let userMessage = `Prompt: "${prompt}"\nTamaño solicitado: ${targetSize} tracks\n\n`;
+        console.log(`[INTENT] Base message created, length: ${userMessage.length}`);
         
         // Add context information if available
         if (contexts) {
           console.log(`[INTENT] Adding context information to message...`);
-          userMessage += `CONTEXTOS BRÚJULA DISPONIBLES:\n${contexts.compass.join(', ')}\n\n`;
+          console.log(`[INTENT] Context compass length: ${contexts.compass?.length || 0}`);
+          console.log(`[INTENT] Context compass type: ${typeof contexts.compass}`);
+          console.log(`[INTENT] Context compass is array: ${Array.isArray(contexts.compass)}`);
+          
+          if (Array.isArray(contexts.compass)) {
+            userMessage += `CONTEXTOS BRÚJULA DISPONIBLES:\n${contexts.compass.join(', ')}\n\n`;
+            console.log(`[INTENT] Context information added to message`);
+          } else {
+            console.log(`[INTENT] WARNING: Context compass is not an array, skipping context addition`);
+          }
+        } else {
+          console.log(`[INTENT] No contexts available, skipping context addition`);
         }
         
-        userMessage += `Analiza este prompt y determina el modo correcto. Genera ${Math.ceil(targetSize * 1.4)} canciones que encajen perfectamente con la petición. Usa solo canciones reales con título y artista específicos. Respeta TODAS las restricciones mencionadas (ej. instrumental, género, etc.).\n\nNUNCA uses comillas curvas; usa comillas dobles normales; no pongas comas finales.`;
+        const tracksToGenerate = Math.ceil(targetSize * 1.4);
+        console.log(`[INTENT] Tracks to generate: ${tracksToGenerate} (${targetSize} * 1.4)`);
         
+        userMessage += `Analiza este prompt y determina el modo correcto. Genera ${tracksToGenerate} canciones que encajen perfectamente con la petición. Usa solo canciones reales con título y artista específicos. Respeta TODAS las restricciones mencionadas (ej. instrumental, género, etc.).\n\nNUNCA uses comillas curvas; usa comillas dobles normales; no pongas comas finales.`;
+        
+        console.log(`[INTENT] User message completed`);
         console.log(`[INTENT] User message length: ${userMessage.length} chars`);
         console.log(`[INTENT] User message preview:`, userMessage.substring(0, 200) + '...');
+        console.log(`[INTENT] User message last 200 chars:`, '...' + userMessage.substring(userMessage.length - 200));
 
         console.log(`[INTENT] Calling OpenAI API...`);
         completion = await openai.chat.completions.create({
@@ -231,95 +331,267 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
           max_tokens: 2000
         });
 
+        console.log(`[INTENT] ===== OPENAI API RESPONSE =====`);
         console.log(`[INTENT] OpenAI API call completed successfully`);
         console.log(`[INTENT] Response received, processing...`);
+        console.log(`[INTENT] Completion object type: ${typeof completion}`);
+        console.log(`[INTENT] Completion has choices: ${!!completion.choices}`);
+        console.log(`[INTENT] Choices length: ${completion.choices?.length || 0}`);
         
         const result = completion.choices[0]?.message;
         console.log(`[INTENT] Result from OpenAI:`, {
           hasMessage: !!result,
           hasToolCalls: !!(result?.tool_calls),
-          toolCallsLength: result?.tool_calls?.length || 0
+          toolCallsLength: result?.tool_calls?.length || 0,
+          messageType: typeof result,
+          messageKeys: result ? Object.keys(result) : []
+        });
+        
+        console.log(`[INTENT] Full completion object:`, {
+          id: completion.id,
+          object: completion.object,
+          created: completion.created,
+          model: completion.model,
+          choicesLength: completion.choices?.length || 0,
+          usage: completion.usage
         });
         
         if (!result || !result.tool_calls || result.tool_calls.length === 0) {
+          console.log(`[INTENT] ERROR: No tool calls in OpenAI response`);
+          console.log(`[INTENT] Result:`, result);
+          console.log(`[INTENT] Tool calls:`, result?.tool_calls);
           throw new Error("No tool calls in OpenAI response");
         }
 
+        console.log(`[INTENT] ===== TOOL CALL VALIDATION =====`);
+        console.log(`[INTENT] Tool calls found: ${result.tool_calls.length}`);
+        console.log(`[INTENT] First tool call:`, result.tool_calls[0]);
+        
         const toolCall = result.tool_calls[0];
+        console.log(`[INTENT] Tool call type: ${typeof toolCall}`);
+        console.log(`[INTENT] Tool call function:`, toolCall?.function);
+        console.log(`[INTENT] Tool call function name: ${toolCall?.function?.name}`);
+        
         if (!toolCall || toolCall.function.name !== 'emit_intent') {
+          console.log(`[INTENT] ERROR: No valid tool call in OpenAI response`);
+          console.log(`[INTENT] Expected function name: emit_intent`);
+          console.log(`[INTENT] Actual function name: ${toolCall?.function?.name}`);
           throw new Error("No valid tool call in OpenAI response");
         }
+        
+        console.log(`[INTENT] Tool call validation passed`);
 
         // Parse tool call arguments directly (guaranteed valid JSON)
+        console.log(`[INTENT] ===== PARSING TOOL CALL ARGUMENTS =====`);
         console.log(`[INTENT] Parsing tool call arguments...`);
-        let intent = JSON.parse(toolCall.function.arguments);
+        console.log(`[INTENT] Tool call function arguments:`, toolCall.function.arguments);
+        console.log(`[INTENT] Arguments type: ${typeof toolCall.function.arguments}`);
+        console.log(`[INTENT] Arguments length: ${toolCall.function.arguments?.length || 0}`);
+        
+        let intent;
+        try {
+          intent = JSON.parse(toolCall.function.arguments);
+          console.log(`[INTENT] JSON parsing completed successfully`);
+        } catch (parseError) {
+          console.log(`[INTENT] ERROR parsing JSON:`, parseError.message);
+          console.log(`[INTENT] Raw arguments that failed to parse:`, toolCall.function.arguments);
+          throw new Error(`JSON parsing failed: ${parseError.message}`);
+        }
+        
         console.log(`[INTENT] parsed_ok=true (tool_call)`);
+        console.log(`[INTENT] Intent type: ${typeof intent}`);
+        console.log(`[INTENT] Intent keys:`, Object.keys(intent));
         console.log(`[INTENT] Raw intent from LLM:`, {
           mode: intent.mode,
+          modeType: typeof intent.mode,
           tracksCount: intent.tracks?.length || 0,
+          tracksType: typeof intent.tracks,
+          tracksIsArray: Array.isArray(intent.tracks),
           artistsCount: intent.artists?.length || 0,
+          artistsType: typeof intent.artists,
+          artistsIsArray: Array.isArray(intent.artists),
           filteredArtistsCount: intent.filtered_artists?.length || 0,
+          filteredArtistsType: typeof intent.filtered_artists,
+          filteredArtistsIsArray: Array.isArray(intent.filtered_artists),
           priorityArtistsCount: intent.priority_artists?.length || 0,
-          hasExclusions: !!intent.exclusions
+          priorityArtistsType: typeof intent.priority_artists,
+          priorityArtistsIsArray: Array.isArray(intent.priority_artists),
+          hasExclusions: !!intent.exclusions,
+          exclusionsType: typeof intent.exclusions
         });
         
         // Enhanced validation + defaults
+        console.log(`[INTENT] ===== VALIDATION AND DEFAULTS =====`);
         console.log(`[INTENT] Applying validation and defaults...`);
-        if (!Array.isArray(intent.tracks)) intent.tracks = [];
-        if (!Array.isArray(intent.artists)) intent.artists = [];
-        if (!intent.exclusions) intent.exclusions = { banned_artists: [], banned_terms: [] };
-        if (!intent.mode) intent.mode = "normal";
-        if (typeof intent.llmShare !== 'number') intent.llmShare = 0.7;
+        
+        console.log(`[INTENT] Before validation - tracks:`, {
+          type: typeof intent.tracks,
+          isArray: Array.isArray(intent.tracks),
+          length: intent.tracks?.length || 0
+        });
+        
+        if (!Array.isArray(intent.tracks)) {
+          console.log(`[INTENT] WARNING: tracks is not an array, setting to empty array`);
+          intent.tracks = [];
+        }
+        
+        console.log(`[INTENT] Before validation - artists:`, {
+          type: typeof intent.artists,
+          isArray: Array.isArray(intent.artists),
+          length: intent.artists?.length || 0
+        });
+        
+        if (!Array.isArray(intent.artists)) {
+          console.log(`[INTENT] WARNING: artists is not an array, setting to empty array`);
+          intent.artists = [];
+        }
+        
+        console.log(`[INTENT] Before validation - exclusions:`, {
+          type: typeof intent.exclusions,
+          value: intent.exclusions
+        });
+        
+        if (!intent.exclusions) {
+          console.log(`[INTENT] Setting default exclusions`);
+          intent.exclusions = { banned_artists: [], banned_terms: [] };
+        }
+        
+        console.log(`[INTENT] Before validation - mode:`, {
+          type: typeof intent.mode,
+          value: intent.mode
+        });
+        
+        if (!intent.mode) {
+          console.log(`[INTENT] Setting default mode to "normal"`);
+          intent.mode = "normal";
+        }
+        
+        console.log(`[INTENT] Before validation - llmShare:`, {
+          type: typeof intent.llmShare,
+          value: intent.llmShare
+        });
+        
+        if (typeof intent.llmShare !== 'number') {
+          console.log(`[INTENT] Setting default llmShare to 0.7`);
+          intent.llmShare = 0.7;
+        }
+        
+        console.log(`[INTENT] Setting tamano_playlist to: ${targetSize}`);
         intent.tamano_playlist = targetSize;
+        
         console.log(`[INTENT] Validation completed`);
+        console.log(`[INTENT] After validation - intent:`, {
+          mode: intent.mode,
+          tracksLength: intent.tracks.length,
+          artistsLength: intent.artists.length,
+          exclusionsType: typeof intent.exclusions,
+          llmShare: intent.llmShare,
+          tamano_playlist: intent.tamano_playlist
+        });
 
         // Manejar filtered_artists para UNDERGROUND_STRICT
+        console.log(`[INTENT] ===== UNDERGROUND STRICT PROCESSING =====`);
         const isUndergroundStrict = /underground/i.test(prompt || '');
+        console.log(`[INTENT] Checking for underground strict mode...`);
+        console.log(`[INTENT] Prompt contains 'underground': ${isUndergroundStrict}`);
+        console.log(`[INTENT] Has filtered_artists: ${!!intent.filtered_artists}`);
+        console.log(`[INTENT] filtered_artists is array: ${Array.isArray(intent.filtered_artists)}`);
+        
         if (isUndergroundStrict && intent.filtered_artists && Array.isArray(intent.filtered_artists)) {
-          console.log(`[UNDERGROUND_STRICT] LLM filtered artists: ${intent.filtered_artists.length} from ${contexts.compass.length} original`);
+          console.log(`[UNDERGROUND_STRICT] Processing filtered artists...`);
+          console.log(`[UNDERGROUND_STRICT] LLM filtered artists: ${intent.filtered_artists.length} from ${contexts?.compass?.length || 0} original`);
           console.log(`[UNDERGROUND_STRICT] Filtered artists:`, intent.filtered_artists.slice(0, 10).join(', '), '...');
           
           // Validar que todos los artistas filtrados estén en la lista original
+          console.log(`[UNDERGROUND_STRICT] Validating filtered artists against original list...`);
+          console.log(`[UNDERGROUND_STRICT] Original compass length: ${contexts?.compass?.length || 0}`);
+          
           const originalSet = new Set(contexts.compass.map(normalizeArtistName));
+          console.log(`[UNDERGROUND_STRICT] Original set size: ${originalSet.size}`);
+          
           const validFiltered = intent.filtered_artists.filter(artist => 
             originalSet.has(normalizeArtistName(artist))
           );
           
+          console.log(`[UNDERGROUND_STRICT] Valid filtered artists: ${validFiltered.length}/${intent.filtered_artists.length}`);
+          
           if (validFiltered.length !== intent.filtered_artists.length) {
             console.warn(`[UNDERGROUND_STRICT] Some filtered artists were not in original list, using valid ones only`);
+            console.log(`[UNDERGROUND_STRICT] Invalid artists:`, intent.filtered_artists.filter(artist => 
+              !originalSet.has(normalizeArtistName(artist))
+            ));
           }
           
           // Usar la lista filtrada como la lista de artistas permitidos
           intent.filtered_artists = validFiltered;
+          console.log(`[UNDERGROUND_STRICT] Final filtered artists count: ${intent.filtered_artists.length}`);
         }
         
         // Manejar priority_artists para modo INCLUSIVE (underground y contextos normales)
+        console.log(`[INTENT] ===== PRIORITY ARTISTS PROCESSING =====`);
+        console.log(`[INTENT] Checking for priority artists...`);
+        console.log(`[INTENT] Has priority_artists: ${!!intent.priority_artists}`);
+        console.log(`[INTENT] priority_artists is array: ${Array.isArray(intent.priority_artists)}`);
+        console.log(`[INTENT] priority_artists length: ${intent.priority_artists?.length || 0}`);
+        
         if (intent.priority_artists && Array.isArray(intent.priority_artists)) {
           const contextName = isUndergroundStrict ? 'UNDERGROUND_STRICT' : 'CONTEXT';
+          console.log(`[${contextName}] Processing priority artists...`);
           console.log(`[${contextName}] LLM priority artists: ${intent.priority_artists.length}`);
           console.log(`[${contextName}] Priority artists:`, intent.priority_artists.join(', '));
           
           // Validar que todos los artistas prioritarios estén en la lista original
+          console.log(`[${contextName}] Validating priority artists against original list...`);
+          console.log(`[${contextName}] Original compass length: ${contexts?.compass?.length || 0}`);
+          
           const originalSet = new Set(contexts.compass.map(normalizeArtistName));
+          console.log(`[${contextName}] Original set size: ${originalSet.size}`);
+          
           const validPriority = intent.priority_artists.filter(artist => 
             originalSet.has(normalizeArtistName(artist))
           );
           
+          console.log(`[${contextName}] Valid priority artists: ${validPriority.length}/${intent.priority_artists.length}`);
+          
           if (validPriority.length !== intent.priority_artists.length) {
             console.warn(`[${contextName}] Some priority artists were not in original list, using valid ones only`);
+            console.log(`[${contextName}] Invalid priority artists:`, intent.priority_artists.filter(artist => 
+              !originalSet.has(normalizeArtistName(artist))
+            ));
           }
           
           intent.priority_artists = validPriority;
+          console.log(`[${contextName}] Final priority artists count: ${intent.priority_artists.length}`);
+        } else {
+          console.log(`[INTENT] No priority artists found`);
+        }
         }
 
         // Add contexts information
+        console.log(`[INTENT] ===== ADDING CONTEXT INFORMATION =====`);
+        console.log(`[INTENT] Adding context information...`);
+        console.log(`[INTENT] Has contexts: ${!!contexts}`);
+        
         if (contexts) {
           intent.contexts = contexts;
+          console.log(`[INTENT] Context information added:`, {
+            key: contexts.key,
+            compassLength: contexts.compass?.length || 0
+          });
+        } else {
+          console.log(`[INTENT] No context information to add`);
         }
 
         // Add canonized data if available
+        console.log(`[INTENT] ===== ADDING CANONIZED DATA =====`);
+        console.log(`[INTENT] Adding canonized data...`);
+        console.log(`[INTENT] Has canonized data: ${!!canonizedData}`);
+        
         if (canonizedData) {
           intent.canonized = canonizedData;
+          console.log(`[INTENT] Canonized data added:`, canonizedData);
+        } else {
+          console.log(`[INTENT] No canonized data to add`);
         }
 
         console.log(`[INTENT] ===== FINAL INTENT SUMMARY =====`);
@@ -335,24 +607,60 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
         });
         console.log(`[INTENT] Sample tracks:`, intent.tracks.slice(0, 3).map(t => ({ title: t.title, artist: t.artist })));
         console.log(`[INTENT] Sample artists:`, intent.artists.slice(0, 5));
+        console.log(`[INTENT] Full tracks array:`, intent.tracks);
+        console.log(`[INTENT] Full artists array:`, intent.artists);
+        console.log(`[INTENT] Full filtered_artists array:`, intent.filtered_artists);
+        console.log(`[INTENT] Full priority_artists array:`, intent.priority_artists);
+        console.log(`[INTENT] Full exclusions:`, intent.exclusions);
+        console.log(`[INTENT] Full contexts:`, intent.contexts);
+        console.log(`[INTENT] Full canonized:`, intent.canonized);
+        
+        const endTime = Date.now();
+        const duration = endTime - startTime;
         console.log(`[INTENT] ===== INTENT GENERATION COMPLETED =====`);
+        console.log(`[INTENT] Total duration: ${duration}ms`);
+        console.log(`[INTENT] Success on attempt: ${attempts}/${maxAttempts}`);
 
         return NextResponse.json(intent);
 
       } catch (error) {
+        console.log(`[INTENT] ===== ERROR IN ATTEMPT ${attempts} =====`);
+        console.log(`[INTENT] Error occurred in attempt ${attempts}`);
+        console.log(`[INTENT] Error type: ${typeof error}`);
+        console.log(`[INTENT] Error message: ${error.message}`);
+        console.log(`[INTENT] Error stack: ${error.stack}`);
+        console.log(`[INTENT] Mobile: ${isMobile}`);
+        console.log(`[INTENT] Attempt: ${attempts}/${maxAttempts}`);
+        
         attempts++;
         console.error(`[INTENT] OpenAI attempt ${attempts} failed - Mobile: ${isMobile}, Error: ${error.message}`);
         
         if (attempts >= maxAttempts) {
+          console.log(`[INTENT] ===== ALL ATTEMPTS FAILED =====`);
+          console.log(`[INTENT] All ${maxAttempts} attempts failed`);
+          console.log(`[INTENT] Final error: ${error.message}`);
+          console.log(`[INTENT] Mobile: ${isMobile}`);
+          console.log(`[INTENT] Returning 503 error to client`);
+          
           console.error(`[INTENT] All attempts failed - Mobile: ${isMobile}, Final error: ${error.message}`);
           return NextResponse.json(
             { error: "OpenAI service unavailable. Please try again later." },
             { status: 503 }
           );
+        } else {
+          console.log(`[INTENT] Retrying... attempt ${attempts + 1}/${maxAttempts}`);
         }
       }
     }
   } catch (error) {
+    console.log(`[INTENT] ===== CRITICAL ERROR =====`);
+    console.log(`[INTENT] Critical error occurred outside retry loop`);
+    console.log(`[INTENT] Error type: ${typeof error}`);
+    console.log(`[INTENT] Error message: ${error.message}`);
+    console.log(`[INTENT] Error stack: ${error.stack}`);
+    console.log(`[INTENT] Mobile: ${isMobile}`);
+    console.log(`[INTENT] Returning 503 error to client`);
+    
     console.error(`[INTENT] Intent parsing error - Mobile: ${isMobile}, Error: ${error.message}`);
     return NextResponse.json(
       { error: "Service unavailable. Please try again later." },
