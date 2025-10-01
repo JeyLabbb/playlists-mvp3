@@ -448,51 +448,32 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           console.log(`[STREAM:${traceId}] FESTIVAL: Using canonized data`, {
             baseQuery: canonized.baseQuery,
             year: canonized.year,
-            target: remaining,
-            canonizedFull: canonized
+            target: remaining
           });
           
-          try {
-            // Search for festival playlists first
-            console.log(`[STREAM:${traceId}] FESTIVAL: Starting playlist search...`);
-            const festivalPlaylists = await searchFestivalLikePlaylists({
+          // Search for festival playlists first
+          const festivalPlaylists = await searchFestivalLikePlaylists({
+            accessToken,
+            baseQuery: canonized.baseQuery,
+            year: canonized.year
+          });
+          
+          console.log(`[STREAM:${traceId}] FESTIVAL: Found ${festivalPlaylists.length} playlists`);
+          
+          if (festivalPlaylists.length > 0) {
+            // Use consensus from festival playlists
+            spotifyTracks = await collectFromPlaylistsByConsensus({
               accessToken,
-              baseQuery: canonized.baseQuery,
-              year: canonized.year
+              playlists: festivalPlaylists,
+              target: remaining,
+              artistCap: 3
             });
-            
-            console.log(`[STREAM:${traceId}] FESTIVAL: Found ${festivalPlaylists.length} playlists`);
-            console.log(`[STREAM:${traceId}] FESTIVAL: Playlist samples:`, festivalPlaylists.slice(0, 3).map(p => ({ name: p.name, id: p.id })));
-            
-            if (festivalPlaylists.length > 0) {
-              console.log(`[STREAM:${traceId}] FESTIVAL: Starting consensus analysis...`);
-              // Use consensus from festival playlists
-              spotifyTracks = await collectFromPlaylistsByConsensus({
-                accessToken,
-                playlists: festivalPlaylists,
-                target: remaining,
-                artistCap: 3
-              });
-              console.log(`[STREAM:${traceId}] FESTIVAL: Consensus generated ${spotifyTracks.length} tracks`);
-            } else {
-              console.log(`[STREAM:${traceId}] FESTIVAL: No playlists found, using radio fallback`);
-              console.log(`[STREAM:${traceId}] FESTIVAL: Fallback artists:`, intent.artists_llm?.slice(0, 5));
-              spotifyTracks = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining);
-              console.log(`[STREAM:${traceId}] FESTIVAL: Radio fallback generated ${spotifyTracks.length} tracks`);
-            }
-            
-            console.log(`[STREAM:${traceId}] FESTIVAL: Final result: ${spotifyTracks.length}/${remaining} tracks`);
-            console.log(`[STREAM:${traceId}] FESTIVAL tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
-          } catch (festivalError) {
-            console.error(`[STREAM:${traceId}] FESTIVAL Error details:`, {
-              error: festivalError.message,
-              stack: festivalError.stack,
-              canonized: canonized
-            });
-            console.log(`[STREAM:${traceId}] FESTIVAL: Using emergency radio fallback`);
+          } else {
+            console.log(`[STREAM:${traceId}] FESTIVAL: No playlists found, using radio fallback`);
             spotifyTracks = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining);
-            console.log(`[STREAM:${traceId}] FESTIVAL: Emergency fallback generated ${spotifyTracks.length} tracks`);
           }
+          
+          console.log(`[STREAM:${traceId}] FESTIVAL consensus: ${spotifyTracks.length} tracks`);
         }
         
         spotifyTracks = spotifyTracks.slice(0, remaining); // Ensure exact count
