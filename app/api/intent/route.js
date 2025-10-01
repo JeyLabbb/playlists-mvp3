@@ -224,7 +224,7 @@ MODOS DISPONIBLES Y CUÁNDO USARLOS:
 
 3. FESTIVAL:
    - Música de festivales, electrónica, fiesta
-   - Palabras clave: festival, coachella, ultra, tomorrowland, edc, electric daisy carnival, woodstock, glastonbury, reading, leeds, sziget, rock am ring, lollapalooza, bonnaroo, sxsw, primavera, sonar, awakenings, defqon, mysteryland, lowlands, pinkpop, werchter, novarock, exit, sea dance
+   - Palabras clave: festival, coachella, ultra, tomorrowland, edc
    - DELEGA COMPLETAMENTE A SPOTIFY
    - NO generes tracks con LLM
    - Pasa información canonizada (evento, año, stopwords) para que Spotify busque por consenso
@@ -281,12 +281,6 @@ REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
 - Ejemplo: "rock sin Metallica" → NO generes tracks de Metallica, PERO genera tracks de Iron Maiden, AC/DC, etc.
 - Las exclusiones son ABSOLUTAS pero NO impiden generar tracks de otros artistas
 - SIEMPRE genera al menos 5-10 tracks para que Spotify pueda crear radios
-
-EXCLUSIONES ESTRICTAS:
-- Si excluyes un artista, NO generes tracks donde aparezca ese artista (ni como artista principal ni en colaboraciones)
-- Ejemplo: "sin Bad Bunny" → NO generes "Dakiti" (Bad Bunny), "Un Día" (Bad Bunny feat. J Balvin), etc.
-- PERO SÍ genera tracks de artistas similares: J Balvin, Maluma, Ozuna, etc.
-- Las exclusiones se aplican a TODAS las formas del artista (colaboraciones, feats, etc.)
 
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.` },
             { role: "user", content: userMessage }
