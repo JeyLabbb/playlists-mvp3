@@ -315,7 +315,21 @@ REGLA ESPECIAL PARA ARTISTAS ESPECÍFICOS:
 
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.
 
-IMPORTANTE FINAL: Si el prompt menciona un artista específico (ej: "estilo de D.Valentino"), SIEMPRE marca ese artista como priority_artists. NUNCA uses artistas genéricos como ["pop", "rock", "electronic"] cuando hay un artista específico mencionado.` },
+IMPORTANTE FINAL: Si el prompt menciona un artista específico (ej: "estilo de D.Valentino"), SIEMPRE marca ese artista como priority_artists. NUNCA uses artistas genéricos como ["pop", "rock", "electronic"] cuando hay un artista específico mencionado.
+
+EJEMPLO OBLIGATORIO:
+Prompt: "estilo de D.Valentino"
+Respuesta: {
+  "mode": "NORMAL",
+  "priority_artists": ["D.Valentino"],
+  "tracks": ["track1", "track2", "track3"],
+  "artists": ["D.Valentino", "artista_similar_1", "artista_similar_2"]
+}
+
+NUNCA hagas esto:
+{
+  "artists": ["pop", "rock", "electronic", "hip hop", "indie"]
+}` },
             { role: "user", content: userMessage }
           ],
           tools: [{
@@ -670,6 +684,33 @@ IMPORTANTE FINAL: Si el prompt menciona un artista específico (ej: "estilo de D
         console.log(`[INTENT] Assigned tracks_llm: ${intent.tracks_llm.length} tracks`);
         console.log(`[INTENT] Assigned artists_llm: ${intent.artists_llm.length} artists`);
         console.log(`[INTENT] Assigned prompt: "${intent.prompt}"`);
+        
+        // CRITICAL FIX: Detect and fix generic artists when specific artist is mentioned
+        console.log(`[INTENT] ===== CHECKING FOR GENERIC ARTISTS FIX =====`);
+        const genericArtists = ['pop', 'rock', 'electronic', 'hip hop', 'indie', 'alternative', 'dance', 'r&b'];
+        const hasGenericArtists = intent.artists_llm.some(artist => genericArtists.includes(artist.toLowerCase()));
+        
+        if (hasGenericArtists) {
+          console.log(`[INTENT] WARNING: Detected generic artists in artists_llm:`, intent.artists_llm);
+          
+          // Extract artist name from prompt for "estilo de X" patterns
+          const estiloMatch = prompt.match(/estilo\s+de\s+([^,\s]+)/i);
+          const comoMatch = prompt.match(/como\s+([^,\s]+)/i);
+          const musicaMatch = prompt.match(/música\s+de\s+([^,\s]+)/i);
+          
+          const extractedArtist = estiloMatch?.[1] || comoMatch?.[1] || musicaMatch?.[1];
+          
+          if (extractedArtist) {
+            console.log(`[INTENT] FIXING: Extracted artist "${extractedArtist}" from prompt`);
+            
+            // Replace generic artists with the specific artist
+            intent.artists_llm = [extractedArtist];
+            intent.priority_artists = [extractedArtist];
+            
+            console.log(`[INTENT] FIXED: Replaced generic artists with:`, intent.artists_llm);
+            console.log(`[INTENT] FIXED: Set priority_artists to:`, intent.priority_artists);
+          }
+        }
         
         const endTime = Date.now();
         const duration = endTime - startTime;
