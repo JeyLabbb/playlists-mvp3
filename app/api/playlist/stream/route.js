@@ -439,26 +439,44 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       console.log(`[STREAM:${traceId}] FESTIVAL MODE: Using playlist consensus`);
       
       try {
+        // FESTIVAL mode: Delegate EVERYTHING to Spotify (no LLM tracks)
+        console.log(`[STREAM:${traceId}] FESTIVAL: Delegating completely to Spotify`);
+        console.log(`[STREAM:${traceId}] FESTIVAL: Using artists for festival search:`, intent.artists_llm?.slice(0, 5));
+        
+        // Try to use canonized data first if available
         const canonized = intent.canonized;
-        if (!canonized) {
-          console.warn(`[STREAM:${traceId}] FESTIVAL: No canonized data found, using fallback`);
-          spotifyTracks = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining);
-          console.log(`[STREAM:${traceId}] FESTIVAL fallback: ${spotifyTracks.length} tracks`);
-        } else {
+        if (canonized && canonized.baseQuery) {
           console.log(`[STREAM:${traceId}] FESTIVAL: Using canonized data`, {
             baseQuery: canonized.baseQuery,
             year: canonized.year,
             target: remaining
           });
           
-          spotifyTracks = await collectFromPlaylistsByConsensus(accessToken, {
-            baseQuery: canonized.baseQuery,
-            year: canonized.year,
-            target: remaining,
-            festival: true
-          });
+          try {
+            spotifyTracks = await collectFromPlaylistsByConsensus(accessToken, {
+              baseQuery: canonized.baseQuery,
+              year: canonized.year,
+              target: remaining,
+              festival: true
+            });
+            console.log(`[STREAM:${traceId}] FESTIVAL consensus: ${spotifyTracks.length} tracks`);
+          } catch (consensusError) {
+            console.warn(`[STREAM:${traceId}] FESTIVAL consensus failed:`, consensusError.message);
+            console.log(`[STREAM:${traceId}] FESTIVAL: Falling back to radio generation`);
+            spotifyTracks = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining);
+          }
+        } else {
+          console.log(`[STREAM:${traceId}] FESTIVAL: No canonized data, using radio generation`);
+          // Use context artists if available, otherwise use LLM artists
+          let searchArtists = intent.artists_llm || [];
+          if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
+            const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
+            searchArtists = [...contextArtists.slice(0, 8), ...searchArtists];
+            console.log(`[STREAM:${traceId}] FESTIVAL: Using context artists:`, contextArtists.slice(0, 5));
+          }
           
-          console.log(`[STREAM:${traceId}] FESTIVAL consensus: ${spotifyTracks.length} tracks`);
+          spotifyTracks = await radioFromRelatedTop(accessToken, searchArtists, remaining);
+          console.log(`[STREAM:${traceId}] FESTIVAL radio: ${spotifyTracks.length} tracks`);
         }
         
         spotifyTracks = spotifyTracks.slice(0, remaining); // Ensure exact count
