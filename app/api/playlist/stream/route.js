@@ -368,33 +368,20 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       });
       
       try {
-        const llmChosen = intent.tracks_llm || [];
-        const spChosen = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining);
+        // VIRAL mode: Delegate EVERYTHING to Spotify (no LLM tracks)
+        console.log(`[STREAM:${traceId}] VIRAL: Delegating completely to Spotify`);
+        console.log(`[STREAM:${traceId}] VIRAL: Using artists for viral search:`, intent.artists_llm?.slice(0, 5));
         
-        console.log(`[STREAM:${traceId}] VIRAL: LLM chosen ${llmChosen.length}, Spotify chosen ${spChosen.length}`);
-        
-        let finalTracks = dedupeById([...(llmChosen||[]), ...(spChosen||[])]).filter(track => notExcluded(track, intent.exclusions));
-        
-        console.log(`[STREAM:${traceId}] VIRAL: After dedupe and filter: ${finalTracks.length} tracks`);
-        
-        // Fill with more tracks if needed
-        if(finalTracks.length < remaining) {
-          console.log(`[STREAM:${traceId}] VIRAL: Need ${remaining - finalTracks.length} more tracks, getting from Spotify`);
-          const moreFromSpotify = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining - finalTracks.length);
-          finalTracks = [...finalTracks, ...moreFromSpotify.filter(t => !finalTracks.find(x=>x.id===t.id))];
-          console.log(`[STREAM:${traceId}] VIRAL: After more Spotify: ${finalTracks.length} tracks`);
+        // Use context artists if available, otherwise use LLM artists
+        let searchArtists = intent.artists_llm || [];
+        if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
+          const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
+          searchArtists = [...contextArtists.slice(0, 8), ...searchArtists];
+          console.log(`[STREAM:${traceId}] VIRAL: Using context artists:`, contextArtists.slice(0, 5));
         }
         
-        if(finalTracks.length < remaining){
-          console.log(`[STREAM:${traceId}] VIRAL: Still need ${remaining - finalTracks.length} tracks, using broad terms`);
-          const extraNeed = remaining - finalTracks.length;
-          const extraTracks = await radioFromRelatedTop(accessToken, ['pop', 'hip hop', 'electronic'], extraNeed);
-          finalTracks = [...finalTracks, ...extraTracks.filter(t => !finalTracks.find(x=>x.id===t.id))];
-          console.log(`[STREAM:${traceId}] VIRAL: After broad terms: ${finalTracks.length} tracks`);
-        }
-        
-        spotifyTracks = finalTracks.slice(0, remaining);
-        console.log(`[STREAM:${traceId}] VIRAL: Final result: ${spotifyTracks.length}/${remaining} tracks`);
+        spotifyTracks = await radioFromRelatedTop(accessToken, searchArtists, remaining);
+        console.log(`[STREAM:${traceId}] VIRAL: Generated ${spotifyTracks.length}/${remaining} tracks`);
         console.log(`[STREAM:${traceId}] VIRAL tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
       } catch (err) {
         console.error(`[STREAM:${traceId}] VIRAL Error:`, err);
@@ -475,10 +462,21 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         if (llmTracks.length > 0) {
           // Use LLM tracks to create radios
           console.log(`[STREAM:${traceId}] NORMAL: Creating radios from LLM tracks`);
-          const trackArtists = llmTracks.map(t => t.artist).filter(Boolean);
-          console.log(`[STREAM:${traceId}] NORMAL: Using track artists:`, trackArtists.slice(0, 5));
+          console.log(`[STREAM:${traceId}] NORMAL: LLM tracks sample:`, llmTracks.slice(0, 3).map(t => ({ title: t.title, artist: t.artist })));
           
-          spotifyTracks = await radioFromRelatedTop(accessToken, trackArtists, remaining);
+          // First resolve LLM tracks to Spotify IDs
+          const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks);
+          console.log(`[STREAM:${traceId}] NORMAL: Resolved ${resolvedLLMTracks.length} LLM tracks to Spotify IDs`);
+          
+          if (resolvedLLMTracks.length > 0) {
+            // Use resolved track IDs for radio generation
+            const trackIds = resolvedLLMTracks.map(t => t.id).filter(Boolean);
+            console.log(`[STREAM:${traceId}] NORMAL: Using track IDs for radio:`, trackIds.slice(0, 5));
+            spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
+          } else {
+            console.log(`[STREAM:${traceId}] NORMAL: No resolved tracks, using LLM artists as fallback`);
+            spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
+          }
         } else if (llmArtists.length > 0) {
           // Fallback to LLM artists
           console.log(`[STREAM:${traceId}] NORMAL: Using LLM artists as fallback`);
