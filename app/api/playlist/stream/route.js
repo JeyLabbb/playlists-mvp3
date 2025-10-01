@@ -57,10 +57,32 @@ function notExcluded(track, exclusions){
     .filter(Boolean)
     .map(x => (x || '').toLowerCase());
 
-  // artista vetado
-  if (banned_artists.some(b => artistNames.includes((b || '').toLowerCase()))) return false;
+  // artista vetado - check exact match and partial matches
+  const isArtistBanned = banned_artists.some(bannedArtist => {
+    const bannedLower = (bannedArtist || '').toLowerCase();
+    
+    // Exact match
+    if (artistNames.includes(bannedLower)) return true;
+    
+    // Partial match (for collaborations like "Bad Bunny feat. J Balvin")
+    if (artistNames.some(artist => artist.includes(bannedLower))) return true;
+    
+    // Check if banned artist appears in any artist name
+    if (artistNames.some(artist => bannedLower.includes(artist))) return true;
+    
+    return false;
+  });
+  
+  if (isArtistBanned) {
+    console.log(`[EXCLUSION] Filtered track: "${track?.name}" - contains banned artist`);
+    return false;
+  }
+  
   // término vetado en el título
-  if (banned_terms.some(t => name.includes((t || '').toLowerCase()))) return false;
+  if (banned_terms.some(t => name.includes((t || '').toLowerCase()))) {
+    console.log(`[EXCLUSION] Filtered track: "${track?.name}" - contains banned term`);
+    return false;
+  }
 
   return true;
 }
@@ -133,10 +155,19 @@ function determineMode(intent, prompt) {
     return 'VIRAL';
   }
   
-  // Check for festival mode
+  // Check for festival mode - more flexible detection
+  const festivalKeywords = ['festival', 'coachella', 'ultra', 'tomorrowland', 'edc', 'electric', 'daisy', 'carnival', 'woodstock', 'glastonbury', 'reading', 'leeds', 'sziget', 'rock', 'am', 'ring', 'lollapalooza', 'bonnaroo', 'sxsw', 'primavera', 'sonar', 'awakenings', 'defqon', 'mysteryland', 'lowlands', 'pinkpop', 'werchter', 'rock', 'werchter', 'rock', 'am', 'ring', 'novarock', 'sziget', 'exit', 'sea', 'dance', 'festival', 'sziget', 'exit', 'sea', 'dance', 'festival'];
+  const hasFestivalKeyword = festivalKeywords.some(keyword => promptLower.includes(keyword));
+  
+  if (hasFestivalKeyword) {
+    console.log(`[MODE-DETECTION] Returning FESTIVAL mode (keyword detected)`);
+    return 'FESTIVAL';
+  }
+  
+  // Also check with extractFestivalInfo for more complex cases
   const festivalInfo = extractFestivalInfo(prompt);
-  if (festivalInfo.name && festivalInfo.year) {
-    console.log(`[MODE-DETECTION] Returning FESTIVAL mode`);
+  if (festivalInfo.name) {
+    console.log(`[MODE-DETECTION] Returning FESTIVAL mode (extracted: ${festivalInfo.name})`);
     return 'FESTIVAL';
   }
   
