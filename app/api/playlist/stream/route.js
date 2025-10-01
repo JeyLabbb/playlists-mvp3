@@ -639,18 +639,51 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       }
       
     } else if (mode === 'ARTIST_STYLE') {
-      // ARTIST_STYLE mode: Focus on artist similarity
-      console.log(`[STREAM:${traceId}] ARTIST_STYLE MODE: Using artist similarity`);
+      // ARTIST_STYLE mode: Search playlists with "radio + artist name"
+      console.log(`[STREAM:${traceId}] ARTIST_STYLE MODE: Searching playlists with radio + artist name`);
       console.log(`[STREAM:${traceId}] ARTIST_STYLE details:`, {
-        artists: intent.artists_llm?.length || 0,
+        priorityArtists: intent.priority_artists?.length || 0,
         remaining: remaining
       });
       
       try {
-        const llmArtists = intent.artists_llm || [];
-        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using artists:`, llmArtists.slice(0, 5));
+        const priorityArtists = intent.priority_artists || [];
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Priority artists:`, priorityArtists);
         
-        spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
+        if (priorityArtists.length > 0) {
+          const artistName = priorityArtists[0]; // Use first priority artist
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Searching playlists for "${artistName}"`);
+          
+          // Search for playlists with "radio + artist name"
+          const playlistQueries = [
+            `radio ${artistName}`,
+            `${artistName} radio`,
+            `${artistName} mix`,
+            `${artistName} playlist`,
+            `${artistName} similar`,
+            `${artistName} related`
+          ];
+          
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Playlist queries:`, playlistQueries);
+          
+          // Use the same logic as VIRAL/FESTIVAL modes to search playlists
+          const playlists = await searchFestivalLikePlaylists(accessToken, playlistQueries);
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${playlists.length} playlists`);
+          
+          if (playlists.length > 0) {
+            // Collect tracks from playlists by consensus (same as VIRAL/FESTIVAL)
+            spotifyTracks = await collectFromPlaylistsByConsensus(accessToken, playlists, remaining, rng);
+            console.log(`[STREAM:${traceId}] ARTIST_STYLE: Collected ${spotifyTracks.length} tracks from playlists`);
+          } else {
+            console.log(`[STREAM:${traceId}] ARTIST_STYLE: No playlists found, using artist search fallback`);
+            // Fallback: search for tracks by the artist
+            spotifyTracks = await searchTracksByArtists(accessToken, [artistName], remaining);
+          }
+        } else {
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: No priority artists, using generic search`);
+          spotifyTracks = await searchGenericTracks(accessToken, remaining);
+        }
+        
         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Generated ${spotifyTracks.length}/${remaining} tracks`);
         console.log(`[STREAM:${traceId}] ARTIST_STYLE tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
       } catch (err) {

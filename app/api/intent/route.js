@@ -286,6 +286,7 @@ DETECCIÓN DE MODOS:
 
 DELEGACIÓN A SPOTIFY:
 - VIRAL y FESTIVAL: DELEGA TODO, NO generes tracks
+- ARTIST_STYLE: DELEGA TODO, Spotify busca playlists con "radio + nombre del cantante exacto"
 - SINGLE_ARTIST: DELEGA TODO, Spotify busca SOLO tracks del artista específico
 - UNDERGROUND_STRICT: INTERPRETA prompt, filtra lista, DELEGA TODO a Spotify
 - NORMAL con condición oyentes: LLM elige candidatos + Spotify filtra por condición
@@ -298,11 +299,13 @@ REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
 - Si el prompt dice "sin X artista", NO incluyas tracks de ese artista PERO genera tracks de otros artistas similares
 
 REGLA ESPECIAL PARA ESTILO DE ARTISTA:
-- Si el prompt contiene "estilo de" + nombre de artista: USA NORMAL mode
+- Si el prompt contiene "estilo de" + nombre de artista: USA ARTIST_STYLE mode
 - Marca ese artista específico como priority_artists (NO uses artistas genéricos)
-- Genera tracks REALES basados en ese artista específico
-- Ejemplo: "estilo de D.Valentino" → priority_artists: ["D.Valentino"], genera tracks reales de D.Valentino y artistas similares
-- Ejemplo: "como Bad Bunny" → priority_artists: ["Bad Bunny"], genera tracks reales de Bad Bunny y artistas similares
+- NO generes tracks con LLM - DELEGA COMPLETAMENTE A SPOTIFY
+- Spotify debe buscar playlists con "radio + nombre del cantante exacto"
+- Usar playlist oficial que contiene todos los resultados relacionados
+- Ejemplo: "estilo de D.Valentino" → priority_artists: ["D.Valentino"], DELEGA a Spotify para buscar playlists
+- Ejemplo: "como Bad Bunny" → priority_artists: ["Bad Bunny"], DELEGA a Spotify para buscar playlists
 
 REGLA ESPECIAL PARA ARTISTAS ESPECÍFICOS:
 - Si el prompt menciona un artista específico: incluye ese artista en priority_artists
@@ -320,10 +323,10 @@ IMPORTANTE FINAL: Si el prompt menciona un artista específico (ej: "estilo de D
 EJEMPLO OBLIGATORIO:
 Prompt: "estilo de D.Valentino"
 Respuesta: {
-  "mode": "NORMAL",
+  "mode": "ARTIST_STYLE",
   "priority_artists": ["D.Valentino"],
-  "tracks": ["heartbreaker", "no quiere bailar", "why", "entre la luna y yo", "mikasa"],
-  "artists": ["D.Valentino", "Sneaky wh", "17Beats", "artista_similar_1", "artista_similar_2"]
+  "tracks": [],
+  "artists": ["D.Valentino"]
 }
 
 NUNCA hagas esto:
