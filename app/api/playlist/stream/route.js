@@ -171,7 +171,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
   let chunkCounter = 0;
   
   if (llmTracks.length === 0) {
-    console.log(`[STREAM:${traceId}] No LLM tracks to process`);
+    console.log(`[STREAM:${traceId}] No LLM tracks to process, skipping LLM phase`);
     return;
   }
   
@@ -485,6 +485,9 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
         } else {
           console.log(`[STREAM:${traceId}] NORMAL: No LLM data available, using context artists`);
+          console.log(`[STREAM:${traceId}] NORMAL: Intent contexts:`, intent.contexts);
+          console.log(`[STREAM:${traceId}] NORMAL: Available contexts:`, Object.keys(MUSICAL_CONTEXTS));
+          
           // Use context artists as last resort
           if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
             const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];

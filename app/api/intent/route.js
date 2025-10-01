@@ -273,12 +273,14 @@ DELEGACIÓN A SPOTIFY:
 - Pasa información clara para que Spotify sepa qué buscar
 
 REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
+- SIEMPRE genera tracks, incluso si hay exclusiones
 - NUNCA generes tracks de artistas que estén en exclusions.artists
-- Si el prompt dice "sin X artista", NUNCA incluyas tracks de ese artista
+- Si el prompt dice "sin X artista", NO incluyas tracks de ese artista PERO genera tracks de otros artistas similares
 - Si detectas exclusiones, marca correctamente en exclusions.artists
-- Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → NO generes tracks de Bad Bunny
-- Ejemplo: "rock sin Metallica" → NO generes tracks de Metallica
-- Las exclusiones son ABSOLUTAS y deben respetarse siempre
+- Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → NO generes tracks de Bad Bunny, PERO genera tracks de J Balvin, Maluma, Ozuna, etc.
+- Ejemplo: "rock sin Metallica" → NO generes tracks de Metallica, PERO genera tracks de Iron Maiden, AC/DC, etc.
+- Las exclusiones son ABSOLUTAS pero NO impiden generar tracks de otros artistas
+- SIEMPRE genera al menos 5-10 tracks para que Spotify pueda crear radios
 
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.` },
             { role: "user", content: userMessage }
