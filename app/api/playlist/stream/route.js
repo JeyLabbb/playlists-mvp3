@@ -53,10 +53,19 @@ function notExcluded(track, exclusions){
   if(!exclusions) return true;
   const { banned_artists = [], banned_terms = [] } = exclusions || {};
   const name = (track?.name || '').toLowerCase();
-  const artistNames = (track?.artistNames || track?.artists || [])
-    .map(a => typeof a === 'string' ? a : a?.name)
-    .filter(Boolean)
-    .map(x => (x || '').toLowerCase());
+  // Handle both array and string formats for artists
+  let artistNames = [];
+  if (track?.artistNames && Array.isArray(track.artistNames)) {
+    artistNames = track.artistNames.map(a => typeof a === 'string' ? a : a?.name).filter(Boolean);
+  } else if (track?.artists) {
+    if (Array.isArray(track.artists)) {
+      artistNames = track.artists.map(a => typeof a === 'string' ? a : a?.name).filter(Boolean);
+    } else if (typeof track.artists === 'string') {
+      // Handle string format like "Baby Pantera, Mda"
+      artistNames = track.artists.split(',').map(a => a.trim()).filter(Boolean);
+    }
+  }
+  artistNames = artistNames.map(x => (x || '').toLowerCase());
 
   // Normalizar nombres de artistas para mejor matching
   const normalizeArtistName = (artist) => {
