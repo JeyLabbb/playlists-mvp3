@@ -221,7 +221,9 @@ IMPORTANTE: DIFERENCIA ENTRE ARTISTA ESPECÍFICO Y ESTILO DE ARTISTA:
   * NO incluir artistas similares, solo el artista específico
 - Si el prompt incluye "estilo de", "como", "música de" (ej: "estilo de D.Valentino"):
   * Usa NORMAL mode con priority_artists
+  * Marca el artista mencionado como priority_artists (ej: ["D.Valentino"])
   * Spotify puede incluir colaboradores y artistas similares
+  * Genera tracks del LLM basados en ese artista prioritario
 
 2. VIRAL:
    - Canciones virales, trending, populares actuales
@@ -294,7 +296,12 @@ REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
 - SIEMPRE genera tracks, incluso si hay exclusiones
 - NUNCA generes tracks de artistas que estén en exclusions.artists
 - Si el prompt dice "sin X artista", NO incluyas tracks de ese artista PERO genera tracks de otros artistas similares
+- Para "estilo de X artista": marca X como priority_artists y genera tracks basados en ese artista
+- Para "como X artista": marca X como priority_artists y genera tracks similares
+- Para prompts con artistas específicos: incluye esos artistas en priority_artists
 - Si detectas exclusiones, marca correctamente en exclusions.artists
+- Ejemplo: "estilo de D.Valentino" → Marca D.Valentino como priority_artists, genera tracks similares
+- Ejemplo: "como Bad Bunny" → Marca Bad Bunny como priority_artists, genera tracks similares
 - Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → NO generes tracks de Bad Bunny, PERO genera tracks de J Balvin, Maluma, Ozuna, etc.
 - Ejemplo: "rock sin Metallica" → NO generes tracks de Metallica, PERO genera tracks de Iron Maiden, AC/DC, etc.
 - Las exclusiones son ABSOLUTAS pero NO impiden generar tracks de otros artistas
