@@ -213,6 +213,15 @@ MODOS DISPONIBLES Y CUÁNDO USARLOS:
    - Spotify rellena con radios de canciones
    - SI HAY CONDICIÓN DE OYENTES MENSUALES: LLM elige candidatos + Spotify filtra por condición
 
+IMPORTANTE: DIFERENCIA ENTRE ARTISTA ESPECÍFICO Y ESTILO DE ARTISTA:
+- Si el prompt es SOLO el nombre del artista (ej: "D.Valentino"): 
+  * Marca como SINGLE_ARTIST mode
+  * Spotify debe buscar SOLO tracks donde ese artista es artista principal
+  * NO incluir colaboradores ni artistas similares
+- Si el prompt incluye "estilo de", "como", "música de" (ej: "estilo de D.Valentino"):
+  * Usa NORMAL mode con priority_artists
+  * Spotify puede incluir colaboradores y artistas similares
+
 2. VIRAL:
    - Canciones virales, trending, populares actuales
    - Palabras clave: tiktok, viral, virales, top, charts, tendencia, 2024, 2025
@@ -231,7 +240,13 @@ MODOS DISPONIBLES Y CUÁNDO USARLOS:
    - Spotify maneja toda la generación
    - SI HAY CONDICIÓN DE OYENTES MENSUALES: Spotify filtra por condición
 
-4. ARTIST_STYLE:
+4. SINGLE_ARTIST:
+   - Cuando el prompt es SOLO el nombre de un artista (ej: "D.Valentino")
+   - Spotify debe buscar SOLO tracks donde ese artista es artista principal
+   - NO incluir colaboradores ni artistas similares
+   - DELEGA COMPLETAMENTE A SPOTIFY
+
+5. ARTIST_STYLE:
    - Solo para casos muy específicos de comparación directa
    - NO usar para "estilo de cantante" (usar NORMAL)
 
@@ -267,6 +282,7 @@ DETECCIÓN DE MODOS:
 
 DELEGACIÓN A SPOTIFY:
 - VIRAL y FESTIVAL: DELEGA TODO, NO generes tracks
+- SINGLE_ARTIST: DELEGA TODO, Spotify busca SOLO tracks del artista específico
 - UNDERGROUND_STRICT: INTERPRETA prompt, filtra lista, DELEGA TODO a Spotify
 - NORMAL con condición oyentes: LLM elige candidatos + Spotify filtra por condición
 - Spotify puede filtrar por oyentes mensuales en CUALQUIER modo

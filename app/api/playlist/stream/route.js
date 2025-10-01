@@ -196,6 +196,16 @@ function determineMode(intent, prompt) {
     return 'FESTIVAL';
   }
   
+  // Check for single artist mode (just artist name, no style keywords)
+  const styleKeywords = ['estilo', 'como', 'like', 'música', 'canciones', 'playlist', 'mix'];
+  const hasStyleKeywords = styleKeywords.some(keyword => promptLower.includes(keyword));
+  const words = prompt.trim().split(/\s+/);
+  
+  if (!hasStyleKeywords && words.length <= 3 && words.length >= 1) {
+    console.log(`[MODE-DETECTION] Returning SINGLE_ARTIST mode (detected artist name: "${prompt}")`);
+    return 'SINGLE_ARTIST';
+  }
+  
   // Check for artist style mode (contains "como" or "like") - but not if it's just exclusion
   if ((promptLower.includes('como') || promptLower.includes('like')) && !promptLower.includes('sin')) {
     console.log(`[MODE-DETECTION] Returning ARTIST_STYLE mode`);
@@ -587,6 +597,42 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         console.log(`[STREAM:${traceId}] FESTIVAL tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
       } catch (err) {
         console.error(`[STREAM:${traceId}] FESTIVAL Error:`, err);
+        spotifyTracks = [];
+      }
+      
+    } else if (mode === 'SINGLE_ARTIST') {
+      // SINGLE_ARTIST mode: Search ONLY tracks from the specific artist
+      console.log(`[STREAM:${traceId}] SINGLE_ARTIST MODE: Searching only tracks from specific artist`);
+      console.log(`[STREAM:${traceId}] SINGLE_ARTIST details:`, {
+        prompt: intent.prompt,
+        remaining: remaining
+      });
+      
+      try {
+        const artistName = intent.prompt?.trim();
+        if (!artistName) {
+          console.warn(`[STREAM:${traceId}] SINGLE_ARTIST: No artist name found in prompt`);
+          spotifyTracks = await searchGenericTracks(accessToken, remaining);
+        } else {
+          console.log(`[STREAM:${traceId}] SINGLE_ARTIST: Searching tracks for "${artistName}"`);
+          
+          // Search for tracks where the artist is the main artist (not collaborator)
+          spotifyTracks = await searchTracksByArtists(accessToken, [artistName], remaining);
+          
+          // Filter to ensure the artist is the main artist (not just a collaborator)
+          spotifyTracks = spotifyTracks.filter(track => {
+            const artists = track.artistNames || track.artists || [];
+            return artists.length > 0 && artists[0].toLowerCase().includes(artistName.toLowerCase());
+          });
+          
+          console.log(`[STREAM:${traceId}] SINGLE_ARTIST: Found ${spotifyTracks.length} tracks where "${artistName}" is main artist`);
+        }
+        
+        spotifyTracks = spotifyTracks.slice(0, remaining); // Ensure exact count
+        console.log(`[STREAM:${traceId}] SINGLE_ARTIST: Final result: ${spotifyTracks.length}/${remaining} tracks`);
+        console.log(`[STREAM:${traceId}] SINGLE_ARTIST tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
+      } catch (err) {
+        console.error(`[STREAM:${traceId}] SINGLE_ARTIST Error:`, err);
         spotifyTracks = [];
       }
       
