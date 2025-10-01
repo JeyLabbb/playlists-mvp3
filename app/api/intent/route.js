@@ -296,18 +296,26 @@ REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
 - SIEMPRE genera tracks, incluso si hay exclusiones
 - NUNCA generes tracks de artistas que estén en exclusions.artists
 - Si el prompt dice "sin X artista", NO incluyas tracks de ese artista PERO genera tracks de otros artistas similares
-- Para "estilo de X artista": marca X como priority_artists y genera tracks basados en ese artista
-- Para "como X artista": marca X como priority_artists y genera tracks similares
-- Para prompts con artistas específicos: incluye esos artistas en priority_artists
+
+REGLA ESPECIAL PARA ESTILO DE ARTISTA:
+- Si el prompt contiene "estilo de" + nombre de artista: USA NORMAL mode
+- Marca ese artista específico como priority_artists (NO uses artistas genéricos)
+- Genera tracks basados en ese artista específico
+- Ejemplo: "estilo de D.Valentino" → priority_artists: ["D.Valentino"], NO uses ["pop", "rock", "electronic"]
+- Ejemplo: "como Bad Bunny" → priority_artists: ["Bad Bunny"], NO uses géneros genéricos
+
+REGLA ESPECIAL PARA ARTISTAS ESPECÍFICOS:
+- Si el prompt menciona un artista específico: incluye ese artista en priority_artists
+- NO uses artistas genéricos como fallback si hay un artista específico mencionado
 - Si detectas exclusiones, marca correctamente en exclusions.artists
-- Ejemplo: "estilo de D.Valentino" → Marca D.Valentino como priority_artists, genera tracks similares
-- Ejemplo: "como Bad Bunny" → Marca Bad Bunny como priority_artists, genera tracks similares
 - Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → NO generes tracks de Bad Bunny, PERO genera tracks de J Balvin, Maluma, Ozuna, etc.
 - Ejemplo: "rock sin Metallica" → NO generes tracks de Metallica, PERO genera tracks de Iron Maiden, AC/DC, etc.
 - Las exclusiones son ABSOLUTAS pero NO impiden generar tracks de otros artistas
 - SIEMPRE genera al menos 5-10 tracks para que Spotify pueda crear radios
 
-Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.` },
+Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.
+
+IMPORTANTE FINAL: Si el prompt menciona un artista específico (ej: "estilo de D.Valentino"), SIEMPRE marca ese artista como priority_artists. NUNCA uses artistas genéricos como ["pop", "rock", "electronic"] cuando hay un artista específico mencionado.` },
             { role: "user", content: userMessage }
           ],
           tools: [{
