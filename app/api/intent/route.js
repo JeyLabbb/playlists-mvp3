@@ -216,8 +216,9 @@ MODOS DISPONIBLES Y CUÁNDO USARLOS:
 IMPORTANTE: DIFERENCIA ENTRE ARTISTA ESPECÍFICO Y ESTILO DE ARTISTA:
 - Si el prompt es SOLO el nombre del artista (ej: "D.Valentino"): 
   * Marca como SINGLE_ARTIST mode
-  * Spotify debe buscar SOLO tracks donde ese artista es artista principal
-  * NO incluir colaboradores ni artistas similares
+  * Spotify debe buscar TODAS las tracks donde ese artista aparece (principal O colaborador)
+  * Incluye colaboraciones donde el artista es colaborador
+  * NO incluir artistas similares, solo el artista específico
 - Si el prompt incluye "estilo de", "como", "música de" (ej: "estilo de D.Valentino"):
   * Usa NORMAL mode con priority_artists
   * Spotify puede incluir colaboradores y artistas similares
@@ -242,8 +243,9 @@ IMPORTANTE: DIFERENCIA ENTRE ARTISTA ESPECÍFICO Y ESTILO DE ARTISTA:
 
 4. SINGLE_ARTIST:
    - Cuando el prompt es SOLO el nombre de un artista (ej: "D.Valentino")
-   - Spotify debe buscar SOLO tracks donde ese artista es artista principal
-   - NO incluir colaboradores ni artistas similares
+   - Spotify debe buscar TODAS las tracks donde ese artista aparece (artista principal O colaborador)
+   - Incluye colaboraciones donde el artista es colaborador
+   - NO incluir artistas similares, solo el artista específico
    - DELEGA COMPLETAMENTE A SPOTIFY
 
 5. ARTIST_STYLE:

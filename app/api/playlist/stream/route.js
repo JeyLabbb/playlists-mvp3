@@ -616,16 +616,18 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         } else {
           console.log(`[STREAM:${traceId}] SINGLE_ARTIST: Searching tracks for "${artistName}"`);
           
-          // Search for tracks where the artist is the main artist (not collaborator)
+          // Search for tracks where the artist appears (main artist OR collaborator)
           spotifyTracks = await searchTracksByArtists(accessToken, [artistName], remaining);
           
-          // Filter to ensure the artist is the main artist (not just a collaborator)
+          // Filter to ensure the artist appears in the track (main artist OR collaborator)
           spotifyTracks = spotifyTracks.filter(track => {
             const artists = track.artistNames || track.artists || [];
-            return artists.length > 0 && artists[0].toLowerCase().includes(artistName.toLowerCase());
+            return artists.some(artist => 
+              artist.toLowerCase().includes(artistName.toLowerCase())
+            );
           });
           
-          console.log(`[STREAM:${traceId}] SINGLE_ARTIST: Found ${spotifyTracks.length} tracks where "${artistName}" is main artist`);
+          console.log(`[STREAM:${traceId}] SINGLE_ARTIST: Found ${spotifyTracks.length} tracks where "${artistName}" appears (main artist or collaborator)`);
         }
         
         spotifyTracks = spotifyTracks.slice(0, remaining); // Ensure exact count
