@@ -633,8 +633,10 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
         // Assign tracks_llm for streaming endpoint
         intent.tracks_llm = intent.tracks || [];
         intent.artists_llm = intent.artists || [];
+        intent.prompt = prompt; // Assign original prompt for mode detection
         console.log(`[INTENT] Assigned tracks_llm: ${intent.tracks_llm.length} tracks`);
         console.log(`[INTENT] Assigned artists_llm: ${intent.artists_llm.length} artists`);
+        console.log(`[INTENT] Assigned prompt: "${intent.prompt}"`);
         
         const endTime = Date.now();
         const duration = endTime - startTime;
