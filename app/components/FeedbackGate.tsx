@@ -149,7 +149,7 @@ export default function FeedbackGate({ currentPrompt = '' }: Props) {
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4">
-      <div className={`relative w-full max-w-lg rounded-2xl bg-black-surface p-5 shadow-2xl ${sparkle}`} style={{ animationDuration: '2.2s' }}>
+      <div className={`relative w-full max-w-lg rounded-2xl bg-black-surface p-5 shadow-2xl mobile-modal-feedback ${sparkle}`} style={{ animationDuration: '2.2s' }}>
         <div className="relative rounded-2xl border border-gray-dark bg-black-surface p-4">
           <div className="flex items-start justify-between">
             <div>

@@ -60,6 +60,15 @@ export default function Home() {
     }
   }, []);
 
+  // Show Early Access modal automatically if user is not logged in
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      setShowRequestAccessModal(true);
+    } else if (status === 'authenticated') {
+      setShowRequestAccessModal(false);
+    }
+  }, [status]);
+
   // Example prompts
   const examplePrompts = [
     t('prompt.example1'),
@@ -488,8 +497,9 @@ export default function Home() {
       const isProduction = process.env.NODE_ENV === 'production';
       const endpoint = session?.user ? "/api/playlist/llm" : "/api/playlist/demo";
       
+      // Use streaming SSE for both mobile and desktop - SAME LOGIC
       if (session?.user) {
-        // Use streaming SSE always (both production and development)
+        // Both mobile and desktop use streaming - EXACTLY THE SAME
         await generatePlaylistWithStreaming(prompt, wanted, playlistName);
       } else {
         // Use regular fetch for demo or development
@@ -911,8 +921,9 @@ export default function Home() {
           {tracks.length > 0 && (
             <div className="spotify-card">
               <h3 className="text-xl font-semibold text-white mb-6">
-                {t('playlist.tracksTitle')}
+                {t('playlist.tracksTitle')} ({tracks.length} tracks)
               </h3>
+              
               
               <div className="max-h-96 overflow-y-auto mobile-track-list">
                 {tracks.map((track, i) => (

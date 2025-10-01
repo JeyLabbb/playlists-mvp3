@@ -507,6 +507,44 @@ body {
     max-height: 60vh !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+  
+  /* Ensure track items are visible on mobile - stronger colors */
+  .spotify-track-item {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    margin-bottom: 12px !important;
+    padding: 12px !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-radius: 8px !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+  }
+  
+  /* Mobile track info */
+  .spotify-track-info {
+    display: block !important;
+    width: 100% !important;
+  }
+  
+  .spotify-track-name {
+    font-size: 16px !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+    margin-bottom: 4px !important;
+    line-height: 1.3 !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+  }
+  
+  .spotify-track-artist {
+    font-size: 14px !important;
+    color: #d1d1d1 !important;
+    line-height: 1.4 !important;
+    font-weight: 500 !important;
   }
   
   /* Modal improvements */
@@ -515,6 +553,17 @@ body {
     margin: 16px !important;
     max-height: 90vh !important;
     overflow-y: auto !important;
+  }
+  
+  /* Mobile feedback modal - specific fixes */
+  .mobile-modal-feedback {
+    max-height: 95vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    margin: 8px !important;
+    padding: 16px !important;
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
   }
   
   /* Footer improvements */
@@ -597,4 +646,68 @@ html.dark .thinking-text{
     rgba(255,255,255,0.9) 15%,
     rgba(200,200,200,0.25) 30%
   );
+}
+/* Extra small mobile devices (phones in portrait) */
+@media (max-width: 480px) {
+  /* Force track list visibility on very small screens */
+  .mobile-track-list {
+    max-height: 50vh !important;
+    padding: 8px !important;
+    margin: 8px 0 !important;
+  }
+  
+  .spotify-track-item {
+    padding: 10px !important;
+    margin-bottom: 8px !important;
+    font-size: 14px !important;
+  }
+  
+  .spotify-track-name {
+    font-size: 15px !important;
+    margin-bottom: 3px !important;
+  }
+  
+  .spotify-track-artist {
+    font-size: 13px !important;
+  }
+  
+  /* Ensure cards are visible */
+  .spotify-card {
+    margin: 8px !important;
+    padding: 16px !important;
+  }
+  
+  /* Make sure playlist creation section is visible - stronger colors */
+  .spotify-card h3 {
+    font-size: 18px !important;
+    margin-bottom: 12px !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+  }
+  
+  /* Mobile buttons - stronger colors */
+  .spotify-button {
+    background: linear-gradient(135deg, #1db954 0%, #1ed760 100%) !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+    box-shadow: 0 2px 8px rgba(29, 185, 84, 0.3) !important;
+  }
+  
+  .spotify-button-secondary {
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  }
+  
+  /* Extra small mobile feedback modal */
+  .mobile-modal-feedback {
+    max-height: 98vh !important;
+    margin: 4px !important;
+    padding: 12px !important;
+    width: calc(100vw - 8px) !important;
+    max-width: calc(100vw - 8px) !important;
+  }
 }

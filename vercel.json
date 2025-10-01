@@ -1,0 +1,23 @@
+{
+  "functions": {
+    "app/api/playlist/stream/route.js": {
+      "maxDuration": 300
+    },
+    "app/api/playlist/llm/route.js": {
+      "maxDuration": 180
+    },
+    "app/api/intent/route.js": {
+      "maxDuration": 30
+    }
+  },
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "build": {
+    "env": {
+      "NODE_ENV": "production"
+    }
+  },
+  "regions": ["iad1"],
+  "framework": "nextjs"
+}
