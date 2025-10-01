@@ -679,24 +679,38 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           console.log(`[STREAM:${traceId}] NORMAL: Creating radios from LLM tracks`);
           console.log(`[STREAM:${traceId}] NORMAL: LLM tracks sample:`, llmTracks.slice(0, 3).map(t => ({ title: t.title, artist: t.artist })));
           
-          // First resolve LLM tracks to Spotify IDs
-          const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks);
-          console.log(`[STREAM:${traceId}] NORMAL: Resolved ${resolvedLLMTracks.length} LLM tracks to Spotify IDs`);
-          
-          if (resolvedLLMTracks.length > 0) {
-            // Use resolved track IDs for radio generation
-            const trackIds = resolvedLLMTracks.map(t => t.id).filter(Boolean);
-            console.log(`[STREAM:${traceId}] NORMAL: Using track IDs for radio:`, trackIds.slice(0, 5));
-            spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
-          } else {
-            console.log(`[STREAM:${traceId}] NORMAL: No resolved tracks, using LLM artists as fallback`);
-            // Search for tracks by artist names first
-            const artistTracks = await searchTracksByArtists(accessToken, llmArtists.slice(0, 10), remaining);
-            if (artistTracks.length > 0) {
-              const trackIds = artistTracks.map(t => t.id).filter(Boolean);
+          // PRIORITY: If there's a priority artist, search for their tracks first
+          const priorityArtists = intent.priority_artists || [];
+          if (priorityArtists.length > 0) {
+            console.log(`[STREAM:${traceId}] NORMAL: Priority artist detected:`, priorityArtists);
+            
+            // Search for tracks by the priority artist specifically
+            const priorityTracks = await searchTracksByArtists(accessToken, priorityArtists, Math.min(remaining, 20));
+            console.log(`[STREAM:${traceId}] NORMAL: Found ${priorityTracks.length} tracks from priority artist`);
+            
+            if (priorityTracks.length > 0) {
+              // Use priority artist tracks for radio generation (this will find "sus oyentes también escuchan")
+              const trackIds = priorityTracks.map(t => t.id).filter(Boolean);
+              console.log(`[STREAM:${traceId}] NORMAL: Using priority artist track IDs for radio:`, trackIds.slice(0, 5));
               spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
             } else {
-              spotifyTracks = await searchGenericTracks(accessToken, remaining);
+              // Fallback to LLM tracks if priority artist search fails
+              console.log(`[STREAM:${traceId}] NORMAL: Priority artist search failed, using LLM tracks`);
+              const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks);
+              if (resolvedLLMTracks.length > 0) {
+                const trackIds = resolvedLLMTracks.map(t => t.id).filter(Boolean);
+                spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
+              }
+            }
+          } else {
+            // No priority artist, use LLM tracks directly
+            const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks);
+            console.log(`[STREAM:${traceId}] NORMAL: Resolved ${resolvedLLMTracks.length} LLM tracks to Spotify IDs`);
+            
+            if (resolvedLLMTracks.length > 0) {
+              const trackIds = resolvedLLMTracks.map(t => t.id).filter(Boolean);
+              console.log(`[STREAM:${traceId}] NORMAL: Using track IDs for radio:`, trackIds.slice(0, 5));
+              spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
             }
           }
         } else if (llmArtists.length > 0) {
@@ -782,13 +796,18 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       console.log(`[STREAM:${traceId}] BROADER SEARCH: Still need ${needMore} tracks, compensation needed: ${compensationNeeded}, total: ${totalNeeded}`);
       
       try {
-        // Priority: LLM tracks -> LLM artists -> Context artists (NO generic terms)
+        // Priority: Priority artists -> LLM tracks -> LLM artists -> Context artists (NO generic terms)
         let searchArtists = [];
         
         const llmTracks = intent.tracks_llm || [];
         const llmArtists = intent.artists_llm || [];
+        const priorityArtists = intent.priority_artists || [];
         
-        if (llmTracks.length > 0) {
+        if (priorityArtists.length > 0) {
+          // PRIORITY: Use priority artists first for "sus oyentes también escuchan"
+          searchArtists = [...priorityArtists.slice(0, 5), ...searchArtists];
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: Using priority artists:`, priorityArtists.slice(0, 5));
+        } else if (llmTracks.length > 0) {
           // Use LLM track artists
           const trackArtists = llmTracks.map(t => t.artist).filter(Boolean);
           searchArtists = [...trackArtists.slice(0, 8), ...searchArtists];
