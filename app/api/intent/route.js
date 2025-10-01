@@ -565,7 +565,6 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
         } else {
           console.log(`[INTENT] No priority artists found`);
         }
-        }
 
         // Add contexts information
         console.log(`[INTENT] ===== ADDING CONTEXT INFORMATION =====`);
