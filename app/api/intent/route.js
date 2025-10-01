@@ -366,6 +366,9 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
           usage: completion.usage
         });
         
+        // Log the raw response for debugging
+        console.log(`[INTENT] Raw LLM Response:`, completion.choices[0]?.message?.content);
+        
         if (!result || !result.tool_calls || result.tool_calls.length === 0) {
           console.log(`[INTENT] ERROR: No tool calls in OpenAI response`);
           console.log(`[INTENT] Result:`, result);
