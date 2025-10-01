@@ -272,6 +272,14 @@ DELEGACIÓN A SPOTIFY:
 - Spotify puede filtrar por oyentes mensuales en CUALQUIER modo
 - Pasa información clara para que Spotify sepa qué buscar
 
+REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
+- NUNCA generes tracks de artistas que estén en exclusions.artists
+- Si el prompt dice "sin X artista", NUNCA incluyas tracks de ese artista
+- Si detectas exclusiones, marca correctamente en exclusions.artists
+- Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → NO generes tracks de Bad Bunny
+- Ejemplo: "rock sin Metallica" → NO generes tracks de Metallica
+- Las exclusiones son ABSOLUTAS y deben respetarse siempre
+
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.` },
             { role: "user", content: userMessage }
           ],
@@ -613,6 +621,12 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
         console.log(`[INTENT] Full exclusions:`, intent.exclusions);
         console.log(`[INTENT] Full contexts:`, intent.contexts);
         console.log(`[INTENT] Full canonized:`, intent.canonized);
+        
+        // Assign tracks_llm for streaming endpoint
+        intent.tracks_llm = intent.tracks || [];
+        intent.artists_llm = intent.artists || [];
+        console.log(`[INTENT] Assigned tracks_llm: ${intent.tracks_llm.length} tracks`);
+        console.log(`[INTENT] Assigned artists_llm: ${intent.artists_llm.length} artists`);
         
         const endTime = Date.now();
         const duration = endTime - startTime;

@@ -18,6 +18,7 @@
     "test:all": "npm run test:normal && npm run test:festival && npm run test:recientes && npm run test:debug"
   },
   "dependencies": {
+    "@vercel/analytics": "^1.5.0",
     "next": "15.5.2",
     "next-auth": "^4.24.11",
     "openai": "^5.20.1",

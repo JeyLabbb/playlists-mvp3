@@ -3,6 +3,7 @@ import Providers from "./providers";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import { Toaster } from "sonner";
 import SessionWatcher from "./components/SessionWatcher";
+import { Analytics } from '@vercel/analytics/react';
 
 export const metadata = {
   title: "JeyLabbb — Playlist Generator",
@@ -23,6 +24,7 @@ export default function RootLayout({ children }) {
           </Providers>
           <Toaster position="top-right" richColors />
         </LanguageProvider>
+        <Analytics />
       </body>
     </html>
   );

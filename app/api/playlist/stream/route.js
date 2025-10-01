@@ -457,18 +457,45 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       }
       
     } else {
-      // NORMAL mode: Standard Spotify recommendations
-      console.log(`[STREAM:${traceId}] NORMAL MODE: Using standard recommendations`);
+      // NORMAL mode: Use LLM tracks to create Spotify radios
+      console.log(`[STREAM:${traceId}] NORMAL MODE: Using LLM tracks for Spotify radios`);
       console.log(`[STREAM:${traceId}] NORMAL mode details:`, {
+        llmTracks: intent.tracks_llm?.length || 0,
         artists: intent.artists_llm?.length || 0,
         remaining: remaining
       });
       
       try {
+        const llmTracks = intent.tracks_llm || [];
         const llmArtists = intent.artists_llm || [];
-        console.log(`[STREAM:${traceId}] NORMAL: Using artists:`, llmArtists.slice(0, 5));
         
-        spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
+        console.log(`[STREAM:${traceId}] NORMAL: LLM tracks available:`, llmTracks.length);
+        console.log(`[STREAM:${traceId}] NORMAL: LLM artists available:`, llmArtists.length);
+        
+        if (llmTracks.length > 0) {
+          // Use LLM tracks to create radios
+          console.log(`[STREAM:${traceId}] NORMAL: Creating radios from LLM tracks`);
+          const trackArtists = llmTracks.map(t => t.artist).filter(Boolean);
+          console.log(`[STREAM:${traceId}] NORMAL: Using track artists:`, trackArtists.slice(0, 5));
+          
+          spotifyTracks = await radioFromRelatedTop(accessToken, trackArtists, remaining);
+        } else if (llmArtists.length > 0) {
+          // Fallback to LLM artists
+          console.log(`[STREAM:${traceId}] NORMAL: Using LLM artists as fallback`);
+          spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
+        } else {
+          console.log(`[STREAM:${traceId}] NORMAL: No LLM data available, using context artists`);
+          // Use context artists as last resort
+          if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
+            const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
+            console.log(`[STREAM:${traceId}] NORMAL: Using context artists:`, contextArtists.slice(0, 5));
+            spotifyTracks = await radioFromRelatedTop(accessToken, contextArtists, remaining);
+          } else {
+            console.log(`[STREAM:${traceId}] NORMAL: No context available, using generic terms`);
+            spotifyTracks = await radioFromRelatedTop(accessToken, ['pop', 'rock', 'electronic', 'hip hop', 'indie'], remaining);
+          }
+        }
+        
         console.log(`[STREAM:${traceId}] NORMAL: Generated ${spotifyTracks.length}/${remaining} tracks`);
         console.log(`[STREAM:${traceId}] NORMAL tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
       } catch (err) {
@@ -480,6 +507,12 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
     // Filter and yield tracks
     console.log(`[STREAM:${traceId}] Filtering tracks: ${spotifyTracks.length} -> ${spotifyTracks.filter(track => notExcluded(track, intent.exclusions)).length}`);
     const filtered = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+    
+    // COMPENSATION LOGIC: If tracks were filtered out, we need to compensate
+    const filteredOut = spotifyTracks.length - filtered.length;
+    if (filteredOut > 0) {
+      console.log(`[STREAM:${traceId}] COMPENSATION: ${filteredOut} tracks were filtered out, need to compensate`);
+    }
     
     console.log(`[STREAM:${traceId}] Starting to yield ${filtered.length} filtered tracks in chunks`);
     
@@ -506,10 +539,38 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
     
     // If we still need more tracks, try with broader search terms
     if (totalYielded < remaining) {
-      console.log(`[STREAM:${traceId}] BROADER SEARCH: Still need ${remaining - totalYielded} tracks, trying broader search...`);
+      const needMore = remaining - totalYielded;
+      const compensationNeeded = filteredOut > 0 ? filteredOut : 0;
+      const totalNeeded = needMore + compensationNeeded;
+      
+      console.log(`[STREAM:${traceId}] BROADER SEARCH: Still need ${needMore} tracks, compensation needed: ${compensationNeeded}, total: ${totalNeeded}`);
       
       try {
-        const broaderTracks = await radioFromRelatedTop(accessToken, ['pop', 'rock', 'electronic', 'hip hop', 'indie', 'alternative'], remaining - totalYielded);
+        // Priority: LLM tracks -> LLM artists -> Context artists -> Generic terms
+        let searchArtists = ['pop', 'rock', 'electronic', 'hip hop', 'indie', 'alternative'];
+        
+        const llmTracks = intent.tracks_llm || [];
+        const llmArtists = intent.artists_llm || [];
+        
+        if (llmTracks.length > 0) {
+          // Use LLM track artists
+          const trackArtists = llmTracks.map(t => t.artist).filter(Boolean);
+          searchArtists = [...trackArtists.slice(0, 8), ...searchArtists];
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: Using LLM track artists:`, trackArtists.slice(0, 5));
+        } else if (llmArtists.length > 0) {
+          // Use LLM artists
+          searchArtists = [...llmArtists.slice(0, 8), ...searchArtists];
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: Using LLM artists:`, llmArtists.slice(0, 5));
+        } else if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
+          // Use context artists
+          const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
+          searchArtists = [...contextArtists.slice(0, 8), ...searchArtists];
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: Using context artists:`, contextArtists.slice(0, 5));
+        } else {
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: Using generic terms`);
+        }
+        
+        const broaderTracks = await radioFromRelatedTop(accessToken, searchArtists, totalNeeded);
         const broaderFiltered = broaderTracks.filter(track => notExcluded(track, intent.exclusions));
         
         console.log(`[STREAM:${traceId}] BROADER SEARCH: Found ${broaderTracks.length} tracks, ${broaderFiltered.length} after filtering`);
@@ -798,9 +859,16 @@ export async function GET(request) {
               // If we didn't get any new tracks, try with broader search terms
               if (spotifyYielded === 0 && remaining > 0) {
                 console.log(`[STREAM:${traceId}] No new tracks from Spotify, trying broader search...`);
-                // Add generic terms to intent for next attempt
+                // Add context artists to intent for next attempt
                 if (!intent.artists_llm) intent.artists_llm = [];
-                intent.artists_llm.push('pop', 'rock', 'electronic', 'hip hop', 'indie');
+                if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
+                  const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
+                  console.log(`[STREAM:${traceId}] Adding context artists:`, contextArtists.slice(0, 5));
+                  intent.artists_llm.push(...contextArtists.slice(0, 10));
+                } else {
+                  console.log(`[STREAM:${traceId}] No context found, using generic terms`);
+                  intent.artists_llm.push('pop', 'rock', 'electronic', 'hip hop', 'indie');
+                }
               }
               
               // Update remaining for next iteration
@@ -1136,9 +1204,16 @@ export async function POST(request) {
               // If we didn't get any new tracks, try with broader search terms
               if (spotifyYielded === 0 && remaining > 0) {
                 console.log(`[STREAM:${traceId}] No new tracks from Spotify, trying broader search...`);
-                // Add generic terms to intent for next attempt
+                // Add context artists to intent for next attempt
                 if (!intent.artists_llm) intent.artists_llm = [];
-                intent.artists_llm.push('pop', 'rock', 'electronic', 'hip hop', 'indie');
+                if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
+                  const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
+                  console.log(`[STREAM:${traceId}] Adding context artists:`, contextArtists.slice(0, 5));
+                  intent.artists_llm.push(...contextArtists.slice(0, 10));
+                } else {
+                  console.log(`[STREAM:${traceId}] No context found, using generic terms`);
+                  intent.artists_llm.push('pop', 'rock', 'electronic', 'hip hop', 'indie');
+                }
               }
               
               // Update remaining for next iteration
