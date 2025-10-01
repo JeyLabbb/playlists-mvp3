@@ -727,8 +727,8 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
             console.log(`[STREAM:${traceId}] NORMAL: Using context artists:`, contextArtists.slice(0, 5));
             spotifyTracks = await radioFromRelatedTop(accessToken, contextArtists, remaining);
           } else {
-            console.log(`[STREAM:${traceId}] NORMAL: No context available, using generic terms`);
-            spotifyTracks = await radioFromRelatedTop(accessToken, ['pop', 'rock', 'electronic', 'hip hop', 'indie'], remaining);
+            console.log(`[STREAM:${traceId}] NORMAL: No context available, skipping this attempt`);
+            spotifyTracks = [];
           }
         }
         
@@ -782,8 +782,8 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       console.log(`[STREAM:${traceId}] BROADER SEARCH: Still need ${needMore} tracks, compensation needed: ${compensationNeeded}, total: ${totalNeeded}`);
       
       try {
-        // Priority: LLM tracks -> LLM artists -> Context artists -> Generic terms
-        let searchArtists = ['pop', 'rock', 'electronic', 'hip hop', 'indie', 'alternative'];
+        // Priority: LLM tracks -> LLM artists -> Context artists (NO generic terms)
+        let searchArtists = [];
         
         const llmTracks = intent.tracks_llm || [];
         const llmArtists = intent.artists_llm || [];
@@ -1102,8 +1102,7 @@ export async function GET(request) {
                   console.log(`[STREAM:${traceId}] Adding context artists:`, contextArtists.slice(0, 5));
                   intent.artists_llm.push(...contextArtists.slice(0, 10));
                 } else {
-                  console.log(`[STREAM:${traceId}] No context found, using generic terms`);
-                  intent.artists_llm.push('pop', 'rock', 'electronic', 'hip hop', 'indie');
+                  console.log(`[STREAM:${traceId}] No context found, skipping generic terms`);
                 }
               }
               
@@ -1118,7 +1117,9 @@ export async function GET(request) {
               controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Final attempt with broad search...", "remaining": ${target_tracks - allTracks.length}, "target": ${target_tracks}}\n\n`));
               
               try {
-                const finalTracks = await radioFromRelatedTop(accessToken, ['pop', 'rock', 'electronic', 'hip hop', 'indie', 'alternative'], target_tracks - allTracks.length);
+                // Skip final attempt with generic terms - they cause problems
+                console.log(`[STREAM:${traceId}] Skipping final attempt with generic terms`);
+                const finalTracks = [];
                 const filtered = finalTracks.filter(track => notExcluded(track, intent.exclusions));
                 
                 if (filtered.length > 0) {
@@ -1447,8 +1448,7 @@ export async function POST(request) {
                   console.log(`[STREAM:${traceId}] Adding context artists:`, contextArtists.slice(0, 5));
                   intent.artists_llm.push(...contextArtists.slice(0, 10));
                 } else {
-                  console.log(`[STREAM:${traceId}] No context found, using generic terms`);
-                  intent.artists_llm.push('pop', 'rock', 'electronic', 'hip hop', 'indie');
+                  console.log(`[STREAM:${traceId}] No context found, skipping generic terms`);
                 }
               }
               
@@ -1463,7 +1463,9 @@ export async function POST(request) {
               controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Final attempt with broad search...", "remaining": ${target_tracks - allTracks.length}, "target": ${target_tracks}}\n\n`));
               
               try {
-                const finalTracks = await radioFromRelatedTop(accessToken, ['pop', 'rock', 'electronic', 'hip hop', 'indie', 'alternative'], target_tracks - allTracks.length);
+                // Skip final attempt with generic terms - they cause problems
+                console.log(`[STREAM:${traceId}] Skipping final attempt with generic terms`);
+                const finalTracks = [];
                 const filtered = finalTracks.filter(track => notExcluded(track, intent.exclusions));
                 
                 if (filtered.length > 0) {
