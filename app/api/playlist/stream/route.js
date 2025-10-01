@@ -383,7 +383,28 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       console.log(`[STREAM:${traceId}] Allowed artists sample:`, allowedArtists.slice(0, 5));
       console.log(`[STREAM:${traceId}] Priority artists:`, priorityArtists);
       
-      const undergroundTracks = await searchUndergroundTracks(accessToken, allowedArtists, remaining, maxPerArtist, null, priorityArtists);
+      // Add randomness component for UNDERGROUND mode
+      function h32(s) {
+        let h = 2166136261 >>> 0;
+        for (let i = 0; i < s.length; i++) {
+          h ^= s.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      }
+      function rngSeeded(seed) {
+        return function() {
+          let t = seed += 0x6D2B79F5;
+          t = Math.imul(t ^ t >>> 15, t | 1);
+          t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+          return ((t ^ t >>> 14) >>> 0) / 4294967296;
+        };
+      }
+      const seedStr = `${prompt}|${allowedArtists.length}|${Math.floor(Date.now() / 300000)}`; // 5 min window
+      const rng = rngSeeded(h32(seedStr));
+      console.log(`[STREAM:${traceId}] UNDERGROUND: RNG seeded with "${seedStr}"`);
+      
+      const undergroundTracks = await searchUndergroundTracks(accessToken, allowedArtists, remaining, maxPerArtist, rng, priorityArtists);
       
       console.log(`[STREAM:${traceId}] Underground search completed: ${undergroundTracks.length} tracks found`);
       console.log(`[STREAM:${traceId}] Underground tracks sample:`, undergroundTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
@@ -443,6 +464,27 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
             target: remaining
           });
           
+          // Add randomness component for VIRAL mode
+          function h32(s) {
+            let h = 2166136261 >>> 0;
+            for (let i = 0; i < s.length; i++) {
+              h ^= s.charCodeAt(i);
+              h = Math.imul(h, 16777619);
+            }
+            return h >>> 0;
+          }
+          function rngSeeded(seed) {
+            return function() {
+              let t = seed += 0x6D2B79F5;
+              t = Math.imul(t ^ t >>> 15, t | 1);
+              t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+              return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            };
+          }
+          const seedStr = `${canonized.baseQuery}|${canonized.year}|${Math.floor(Date.now() / 300000)}`; // 5 min window
+          const rng = rngSeeded(h32(seedStr));
+          console.log(`[STREAM:${traceId}] VIRAL: RNG seeded with "${seedStr}"`);
+          
           // Search for viral/festival playlists first
           const viralPlaylists = await searchFestivalLikePlaylists({
             accessToken,
@@ -452,14 +494,15 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           
           console.log(`[STREAM:${traceId}] VIRAL: Found ${viralPlaylists.length} playlists`);
           
-          if (viralPlaylists.length > 0) {
-            // Use consensus from viral playlists
-            spotifyTracks = await collectFromPlaylistsByConsensus({
-              accessToken,
-              playlists: viralPlaylists,
-              target: remaining,
-              artistCap: 3
-            });
+            if (viralPlaylists.length > 0) {
+              // Use consensus from viral playlists with randomness
+              spotifyTracks = await collectFromPlaylistsByConsensus({
+                accessToken,
+                playlists: viralPlaylists,
+                target: remaining,
+                artistCap: 3,
+                rng: rng // Pass the seeded RNG for randomness
+              });
           } else {
             console.log(`[STREAM:${traceId}] VIRAL: No playlists found, using generic search`);
             spotifyTracks = await searchGenericTracks(accessToken, remaining);
@@ -492,6 +535,27 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
             target: remaining
           });
           
+          // Add randomness component for FESTIVAL mode
+          function h32(s) {
+            let h = 2166136261 >>> 0;
+            for (let i = 0; i < s.length; i++) {
+              h ^= s.charCodeAt(i);
+              h = Math.imul(h, 16777619);
+            }
+            return h >>> 0;
+          }
+          function rngSeeded(seed) {
+            return function() {
+              let t = seed += 0x6D2B79F5;
+              t = Math.imul(t ^ t >>> 15, t | 1);
+              t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+              return ((t ^ t >>> 14) >>> 0) / 4294967296;
+            };
+          }
+          const seedStr = `${canonized.baseQuery}|${canonized.year}|${Math.floor(Date.now() / 300000)}`; // 5 min window
+          const rng = rngSeeded(h32(seedStr));
+          console.log(`[STREAM:${traceId}] FESTIVAL: RNG seeded with "${seedStr}"`);
+          
           // Search for festival playlists first
           const festivalPlaylists = await searchFestivalLikePlaylists({
             accessToken,
@@ -502,12 +566,13 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           console.log(`[STREAM:${traceId}] FESTIVAL: Found ${festivalPlaylists.length} playlists`);
           
           if (festivalPlaylists.length > 0) {
-            // Use consensus from festival playlists
+            // Use consensus from festival playlists with randomness
             spotifyTracks = await collectFromPlaylistsByConsensus({
               accessToken,
               playlists: festivalPlaylists,
               target: remaining,
-              artistCap: 3
+              artistCap: 3,
+              rng: rng // Pass the seeded RNG for randomness
             });
           } else {
             console.log(`[STREAM:${traceId}] FESTIVAL: No playlists found, using radio fallback`);
