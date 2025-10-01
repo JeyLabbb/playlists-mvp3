@@ -23,6 +23,7 @@ import { toTrackId } from "../../../../lib/spotify/ids";
 import { fetchTracksMeta } from "../../../../lib/spotify/meta";
 import { normalizeArtistName, MUSICAL_CONTEXTS } from "../../../../lib/music/contexts";
 import { searchUndergroundTracks } from "../../../../lib/spotify/artistSearch";
+import { searchTracksByArtists, searchGenericTracks } from "../../../../search_helpers";
 
 // Festival and scene detection
 import { extractFestivalInfo, calculateStringSimilarity } from "../../../../lib/intent/festival";
@@ -536,12 +537,32 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
             spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
           } else {
             console.log(`[STREAM:${traceId}] NORMAL: No resolved tracks, using LLM artists as fallback`);
-            spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
+            // Search for tracks by artist names first
+            const artistTracks = await searchTracksByArtists(accessToken, llmArtists.slice(0, 10), remaining);
+            if (artistTracks.length > 0) {
+              const trackIds = artistTracks.map(t => t.id).filter(Boolean);
+              spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
+            } else {
+              spotifyTracks = await searchGenericTracks(accessToken, remaining);
+            }
           }
         } else if (llmArtists.length > 0) {
-          // Fallback to LLM artists
+          // Fallback to LLM artists - need to search for tracks first
           console.log(`[STREAM:${traceId}] NORMAL: Using LLM artists as fallback`);
-          spotifyTracks = await radioFromRelatedTop(accessToken, llmArtists, remaining);
+          console.log(`[STREAM:${traceId}] NORMAL: LLM artists sample:`, llmArtists.slice(0, 5));
+          
+          // Search for tracks by artist names
+          const artistTracks = await searchTracksByArtists(accessToken, llmArtists.slice(0, 10), remaining);
+          console.log(`[STREAM:${traceId}] NORMAL: Found ${artistTracks.length} tracks from artist search`);
+          
+          if (artistTracks.length > 0) {
+            // Use found tracks for radio generation
+            const trackIds = artistTracks.map(t => t.id).filter(Boolean);
+            spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
+          } else {
+            console.log(`[STREAM:${traceId}] NORMAL: No tracks found from artists, using generic search`);
+            spotifyTracks = await searchGenericTracks(accessToken, remaining);
+          }
         } else {
           console.log(`[STREAM:${traceId}] NORMAL: No LLM data available, using context artists`);
           console.log(`[STREAM:${traceId}] NORMAL: Intent contexts:`, intent.contexts);
