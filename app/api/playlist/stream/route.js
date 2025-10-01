@@ -337,6 +337,8 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
   }
   
   const mode = determineMode(intent, intent.prompt || '');
+  console.log(`[STREAM:${traceId}] DETERMINED MODE: ${mode}`);
+  console.log(`[STREAM:${traceId}] PROMPT: "${intent.prompt}"`);
              const chunkSize = 20; // Increased chunk size
   let totalYielded = 0;
   let attempts = 0;
@@ -407,6 +409,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
     
     if (mode === 'VIRAL') {
       // VIRAL mode: Use consensus from popular playlists
+      console.log(`[STREAM:${traceId}] ===== ENTERING VIRAL MODE =====`);
       console.log(`[STREAM:${traceId}] VIRAL MODE: Using playlist consensus`);
       console.log(`[STREAM:${traceId}] VIRAL mode details:`, {
         llmTracks: intent.tracks_llm?.length || 0,
