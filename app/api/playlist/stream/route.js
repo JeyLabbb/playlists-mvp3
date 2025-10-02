@@ -125,6 +125,16 @@ function dedupeById(tracks) {
 }
 
 /**
+ * Deduplicate tracks against a global set of used tracks
+ */
+function dedupeAgainstUsed(tracks, usedTracks) {
+  return tracks.filter(track => {
+    if (!track.id) return false;
+    return !usedTracks.has(track.id);
+  });
+}
+
+/**
  * Gets intent from LLM
  */
 async function getIntentFromLLM(prompt, target_tracks) {
@@ -219,7 +229,7 @@ function determineMode(intent, prompt) {
 /**
  * Generator for LLM tracks in chunks - MODE NORMAL: 75% LLM (get 50 by default), others: exact target
  */
-async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
+async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks = new Set()) {
   console.log(`[STREAM:${traceId}] Starting LLM phase - target: ${target_tracks}`);
   console.log(`[STREAM:${traceId}] Intent data:`, {
     mode: determineMode(intent, intent.prompt || ''),
@@ -277,11 +287,12 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
     try {
       const resolved = await resolveTracksBySearch(accessToken, chunk);
       const filtered = resolved.filter(track => notExcluded(track, intent.exclusions));
+      const deduped = dedupeAgainstUsed(filtered, usedTracks);
       
-      if (filtered.length > 0) {
+      if (deduped.length > 0) {
         // Only yield up to the remaining LLM target
         const remaining = llmTarget - totalYielded;
-        const toYield = filtered.slice(0, remaining);
+        const toYield = deduped.slice(0, remaining);
         totalYielded += toYield.length;
         
         console.log(`[STREAM:${traceId}] LLM chunk yielded: ${toYield.length} tracks, total: ${totalYielded}/${llmTarget}`);
@@ -338,7 +349,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId) {
 /**
  * Generator for Spotify tracks in chunks - guarantees exact remaining count for all modes
  */
-async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
+async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks = new Set()) {
   console.log(`[STREAM:${traceId}] Starting Spotify phase, remaining: ${remaining}`);
   console.log(`[STREAM:${traceId}] Spotify phase intent data:`, {
     mode: determineMode(intent, intent.prompt || ''),
@@ -790,18 +801,19 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
     // Filter and yield tracks
     console.log(`[STREAM:${traceId}] Filtering tracks: ${spotifyTracks.length} -> ${spotifyTracks.filter(track => notExcluded(track, intent.exclusions)).length}`);
     const filtered = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+    const deduped = dedupeAgainstUsed(filtered, usedTracks);
     
     // COMPENSATION LOGIC: If tracks were filtered out, we need to compensate
-    const filteredOut = spotifyTracks.length - filtered.length;
+    const filteredOut = spotifyTracks.length - deduped.length;
     if (filteredOut > 0) {
       console.log(`[STREAM:${traceId}] COMPENSATION: ${filteredOut} tracks were filtered out, need to compensate`);
     }
     
-    console.log(`[STREAM:${traceId}] Starting to yield ${filtered.length} filtered tracks in chunks`);
+    console.log(`[STREAM:${traceId}] Starting to yield ${deduped.length} deduped tracks in chunks`);
     
     // Yield in chunks
-    for (let i = 0; i < filtered.length && totalYielded < remaining; i += chunkSize) {
-      const chunk = filtered.slice(i, i + chunkSize);
+    for (let i = 0; i < deduped.length && totalYielded < remaining; i += chunkSize) {
+      const chunk = deduped.slice(i, i + chunkSize);
       const toYield = chunk.slice(0, remaining - totalYielded);
       totalYielded += toYield.length;
       
@@ -860,11 +872,12 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         
         const broaderTracks = dedupeById(await radioFromRelatedTop(accessToken, searchArtists, totalNeeded));
         const broaderFiltered = broaderTracks.filter(track => notExcluded(track, intent.exclusions));
+        const broaderDeduped = dedupeAgainstUsed(broaderFiltered, usedTracks);
         
-        console.log(`[STREAM:${traceId}] BROADER SEARCH: Found ${broaderTracks.length} tracks, ${broaderFiltered.length} after filtering`);
+        console.log(`[STREAM:${traceId}] BROADER SEARCH: Found ${broaderTracks.length} tracks, ${broaderDeduped.length} after deduplication`);
         
-        if (broaderFiltered.length > 0) {
-          const toYield = broaderFiltered.slice(0, remaining - totalYielded);
+        if (broaderDeduped.length > 0) {
+          const toYield = broaderDeduped.slice(0, remaining - totalYielded);
           totalYielded += toYield.length;
           
           if (toYield.length > 0) {
@@ -1059,7 +1072,11 @@ export async function GET(request) {
                    
                    console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
             
-            for await (const chunk of yieldLLMChunks(accessToken, intent, target_tracks, traceId)) {
+            for await (const chunk of yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks)) {
+              // Add new tracks to usedTracks set to prevent repetition
+              chunk.forEach(track => {
+                if (track.id) usedTracks.add(track.id);
+              });
               allTracks = [...allTracks, ...chunk];
               
               try {
@@ -1123,7 +1140,11 @@ export async function GET(request) {
               controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Getting Spotify recommendations...", "remaining": ${remaining}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
               
               let spotifyYielded = 0;
-              for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId)) {
+              for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks)) {
+                // Add new tracks to usedTracks set to prevent repetition
+                chunk.forEach(track => {
+                  if (track.id) usedTracks.add(track.id);
+                });
                 allTracks = [...allTracks, ...chunk];
                 spotifyYielded += chunk.length;
                 
@@ -1405,7 +1426,11 @@ export async function POST(request) {
                    
                    console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
             
-            for await (const chunk of yieldLLMChunks(accessToken, intent, target_tracks, traceId)) {
+            for await (const chunk of yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks)) {
+              // Add new tracks to usedTracks set to prevent repetition
+              chunk.forEach(track => {
+                if (track.id) usedTracks.add(track.id);
+              });
               allTracks = [...allTracks, ...chunk];
               
               try {
@@ -1469,7 +1494,11 @@ export async function POST(request) {
               controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Getting Spotify recommendations...", "remaining": ${remaining}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
               
               let spotifyYielded = 0;
-              for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId)) {
+              for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks)) {
+                // Add new tracks to usedTracks set to prevent repetition
+                chunk.forEach(track => {
+                  if (track.id) usedTracks.add(track.id);
+                });
                 allTracks = [...allTracks, ...chunk];
                 spotifyYielded += chunk.length;
                 
