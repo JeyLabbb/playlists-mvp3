@@ -414,7 +414,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
       const rng = rngSeeded(h32(seedStr));
       console.log(`[STREAM:${traceId}] UNDERGROUND: RNG seeded with "${seedStr}"`);
       
-      const undergroundTracks = await searchUndergroundTracks(accessToken, allowedArtists, remaining, maxPerArtist, rng, priorityArtists);
+      const undergroundTracks = dedupeById(await searchUndergroundTracks(accessToken, allowedArtists, remaining, maxPerArtist, rng, priorityArtists));
       
       console.log(`[STREAM:${traceId}] Underground search completed: ${undergroundTracks.length} tracks found`);
       console.log(`[STREAM:${traceId}] Underground tracks sample:`, undergroundTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
@@ -465,7 +465,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         const canonized = intent.canonized;
         if (!canonized) {
           console.warn(`[STREAM:${traceId}] VIRAL: No canonized data found, using fallback`);
-          spotifyTracks = await searchGenericTracks(accessToken, remaining);
+          spotifyTracks = dedupeById(await searchGenericTracks(accessToken, remaining));
           console.log(`[STREAM:${traceId}] VIRAL fallback: ${spotifyTracks.length} tracks`);
         } else {
           console.log(`[STREAM:${traceId}] VIRAL: Using canonized data`, {
@@ -506,16 +506,16 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           
             if (viralPlaylists.length > 0) {
               // Use consensus from viral playlists with randomness
-              spotifyTracks = await collectFromPlaylistsByConsensus({
+              spotifyTracks = dedupeById(await collectFromPlaylistsByConsensus({
                 accessToken,
                 playlists: viralPlaylists,
                 target: remaining,
                 artistCap: 3,
                 rng: rng // Pass the seeded RNG for randomness
-              });
+              }));
           } else {
             console.log(`[STREAM:${traceId}] VIRAL: No playlists found, using generic search`);
-            spotifyTracks = await searchGenericTracks(accessToken, remaining);
+            spotifyTracks = dedupeById(await searchGenericTracks(accessToken, remaining));
           }
           
           console.log(`[STREAM:${traceId}] VIRAL consensus: ${spotifyTracks.length} tracks`);
@@ -536,7 +536,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         const canonized = intent.canonized;
         if (!canonized) {
           console.warn(`[STREAM:${traceId}] FESTIVAL: No canonized data found, using fallback`);
-          spotifyTracks = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining);
+          spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining));
           console.log(`[STREAM:${traceId}] FESTIVAL fallback: ${spotifyTracks.length} tracks`);
         } else {
           console.log(`[STREAM:${traceId}] FESTIVAL: Using canonized data`, {
@@ -586,7 +586,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
             });
           } else {
             console.log(`[STREAM:${traceId}] FESTIVAL: No playlists found, using radio fallback`);
-            spotifyTracks = await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining);
+            spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, intent.artists_llm || [], remaining));
           }
           
           console.log(`[STREAM:${traceId}] FESTIVAL consensus: ${spotifyTracks.length} tracks`);
@@ -612,12 +612,12 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
         const artistName = intent.prompt?.trim();
         if (!artistName) {
           console.warn(`[STREAM:${traceId}] SINGLE_ARTIST: No artist name found in prompt`);
-          spotifyTracks = await searchGenericTracks(accessToken, remaining);
+          spotifyTracks = dedupeById(await searchGenericTracks(accessToken, remaining));
         } else {
           console.log(`[STREAM:${traceId}] SINGLE_ARTIST: Searching tracks for "${artistName}"`);
           
           // Search for tracks where the artist appears (main artist OR collaborator)
-          spotifyTracks = await searchTracksByArtists(accessToken, [artistName], remaining);
+          spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, [artistName], remaining));
           
           // Filter to ensure the artist appears in the track (main artist OR collaborator)
           spotifyTracks = spotifyTracks.filter(track => {
@@ -672,16 +672,16 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           
           if (playlists.length > 0) {
             // Collect tracks from playlists by consensus (same as VIRAL/FESTIVAL)
-            spotifyTracks = await collectFromPlaylistsByConsensus(accessToken, playlists, remaining, rng);
+            spotifyTracks = dedupeById(await collectFromPlaylistsByConsensus(accessToken, playlists, remaining, rng));
             console.log(`[STREAM:${traceId}] ARTIST_STYLE: Collected ${spotifyTracks.length} tracks from playlists`);
           } else {
             console.log(`[STREAM:${traceId}] ARTIST_STYLE: No playlists found, using artist search fallback`);
             // Fallback: search for tracks by the artist
-            spotifyTracks = await searchTracksByArtists(accessToken, [artistName], remaining);
+            spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, [artistName], remaining));
           }
         } else {
           console.log(`[STREAM:${traceId}] ARTIST_STYLE: No priority artists, using generic search`);
-          spotifyTracks = await searchGenericTracks(accessToken, remaining);
+          spotifyTracks = dedupeById(await searchGenericTracks(accessToken, remaining));
         }
         
         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Generated ${spotifyTracks.length}/${remaining} tracks`);
@@ -718,21 +718,21 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
             console.log(`[STREAM:${traceId}] NORMAL: Priority artist detected:`, priorityArtists);
             
             // Search for tracks by the priority artist specifically
-            const priorityTracks = await searchTracksByArtists(accessToken, priorityArtists, Math.min(remaining, 20));
+            const priorityTracks = dedupeById(await searchTracksByArtists(accessToken, priorityArtists, Math.min(remaining, 20)));
             console.log(`[STREAM:${traceId}] NORMAL: Found ${priorityTracks.length} tracks from priority artist`);
             
             if (priorityTracks.length > 0) {
               // Use priority artist tracks for radio generation (this will find "sus oyentes también escuchan")
               const trackIds = priorityTracks.map(t => t.id).filter(Boolean);
               console.log(`[STREAM:${traceId}] NORMAL: Using priority artist track IDs for radio:`, trackIds.slice(0, 5));
-              spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
+              spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, trackIds, remaining));
             } else {
               // Fallback to LLM tracks if priority artist search fails
               console.log(`[STREAM:${traceId}] NORMAL: Priority artist search failed, using LLM tracks`);
               const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks);
               if (resolvedLLMTracks.length > 0) {
                 const trackIds = resolvedLLMTracks.map(t => t.id).filter(Boolean);
-                spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
+                spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, trackIds, remaining));
               }
             }
           } else {
@@ -743,7 +743,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
             if (resolvedLLMTracks.length > 0) {
               const trackIds = resolvedLLMTracks.map(t => t.id).filter(Boolean);
               console.log(`[STREAM:${traceId}] NORMAL: Using track IDs for radio:`, trackIds.slice(0, 5));
-              spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
+              spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, trackIds, remaining));
             }
           }
         } else if (llmArtists.length > 0) {
@@ -752,7 +752,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           console.log(`[STREAM:${traceId}] NORMAL: LLM artists sample:`, llmArtists.slice(0, 5));
           
           // Search for tracks by artist names
-          const artistTracks = await searchTracksByArtists(accessToken, llmArtists.slice(0, 10), remaining);
+            const artistTracks = dedupeById(await searchTracksByArtists(accessToken, llmArtists.slice(0, 10), remaining));
           console.log(`[STREAM:${traceId}] NORMAL: Found ${artistTracks.length} tracks from artist search`);
           
           if (artistTracks.length > 0) {
@@ -761,7 +761,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
             spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
           } else {
             console.log(`[STREAM:${traceId}] NORMAL: No tracks found from artists, using generic search`);
-            spotifyTracks = await searchGenericTracks(accessToken, remaining);
+            spotifyTracks = dedupeById(await searchGenericTracks(accessToken, remaining));
           }
         } else {
           console.log(`[STREAM:${traceId}] NORMAL: No LLM data available, using context artists`);
@@ -772,7 +772,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
             const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
             console.log(`[STREAM:${traceId}] NORMAL: Using context artists:`, contextArtists.slice(0, 5));
-            spotifyTracks = await radioFromRelatedTop(accessToken, contextArtists, remaining);
+            spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, contextArtists, remaining));
           } else {
             console.log(`[STREAM:${traceId}] NORMAL: No context available, skipping this attempt`);
             spotifyTracks = [];
@@ -858,7 +858,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId) {
           console.log(`[STREAM:${traceId}] BROADER SEARCH: Using generic terms`);
         }
         
-        const broaderTracks = await radioFromRelatedTop(accessToken, searchArtists, totalNeeded);
+        const broaderTracks = dedupeById(await radioFromRelatedTop(accessToken, searchArtists, totalNeeded));
         const broaderFiltered = broaderTracks.filter(track => notExcluded(track, intent.exclusions));
         
         console.log(`[STREAM:${traceId}] BROADER SEARCH: Found ${broaderTracks.length} tracks, ${broaderFiltered.length} after filtering`);
