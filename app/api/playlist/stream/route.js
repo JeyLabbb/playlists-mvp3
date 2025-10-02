@@ -999,6 +999,7 @@ export async function GET(request) {
     const stream = new ReadableStream({
       start(controller) {
         let allTracks = [];
+        let usedTracks = new Set(); // Global set to track all used track IDs
         let heartbeatInterval;
         
         // Set up heartbeat
@@ -1353,6 +1354,7 @@ export async function POST(request) {
     const stream = new ReadableStream({
       start(controller) {
         let allTracks = [];
+        let usedTracks = new Set(); // Global set to track all used track IDs
         let heartbeatInterval;
         
         // Set up heartbeat
