@@ -6,6 +6,10 @@ import { useLanguage } from "../contexts/LanguageContext";
 export default function PromptTips() {
   const { t, isLoading: translationsLoading } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
+  
+  // Debug: log translation state
+  console.log('PromptTips - translationsLoading:', translationsLoading);
+  console.log('PromptTips - festivalFormat title:', t('tips.festivalFormat.title'));
 
   const tips = [
     {
@@ -59,9 +63,9 @@ export default function PromptTips() {
       example: t('tips.moodDescriptors.example')
     },
     {
-      title: t('tips.festivalYear.title'),
-      description: t('tips.festivalYear.description'),
-      example: t('tips.festivalYear.example')
+      title: t('tips.festivalFormat.title'),
+      description: t('tips.festivalFormat.description'),
+      example: t('tips.festivalFormat.example')
     }
   ];
 
