@@ -1320,7 +1320,7 @@ export async function GET(request) {
                     target: target_tracks,
                     progress: Math.round((allTracks.length / target_tracks) * 100),
                     final: true,
-                    message: `🔹 Construcción de la playlist (${allTracks.length}/${target_tracks})\\n\\n“Añadiendo canciones: [${allTracks.length}/${target_tracks}]”`
+                    message: `🔹 Construcción de la playlist (${allTracks.length}/${target_tracks})\n\n“Añadiendo canciones: [${allTracks.length}/${target_tracks}]”`
                   })}\n\n`));
                   
                   console.log(`[STREAM:${traceId}] Final attempt yielded: ${toAdd.length} tracks, total: ${allTracks.length}/${target_tracks}`);
