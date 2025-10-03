@@ -112,6 +112,9 @@ function notExcluded(track, exclusions){
   return true;
 }
 
+// Global usedTracks to prevent repetition across all streaming contexts
+let globalUsedTracks = new Set();
+
 /**
  * Deduplicate tracks by ID
  */
@@ -229,7 +232,7 @@ function determineMode(intent, prompt) {
 /**
  * Generator for LLM tracks in chunks - MODE NORMAL: 75% LLM (get 50 by default), others: exact target
  */
-async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks = new Set()) {
+async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks = globalUsedTracks) {
   console.log(`[STREAM:${traceId}] Starting LLM phase - target: ${target_tracks}`);
   console.log(`[STREAM:${traceId}] Intent data:`, {
     mode: determineMode(intent, intent.prompt || ''),
@@ -349,7 +352,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
 /**
  * Generator for Spotify tracks in chunks - guarantees exact remaining count for all modes
  */
-async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks = new Set()) {
+async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks = globalUsedTracks) {
   console.log(`[STREAM:${traceId}] Starting Spotify phase, remaining: ${remaining}`);
   console.log(`[STREAM:${traceId}] Spotify phase intent data:`, {
     mode: determineMode(intent, intent.prompt || ''),
@@ -971,6 +974,9 @@ export async function GET(request) {
   const traceId = crypto.randomUUID();
   const startTime = Date.now();
   
+  // Reset global usedTracks for new session
+  globalUsedTracks.clear();
+  
   try {
     const { searchParams } = new URL(request.url);
     const prompt = searchParams.get('prompt');
@@ -999,7 +1005,8 @@ export async function GET(request) {
     const stream = new ReadableStream({
       start(controller) {
         let allTracks = [];
-        let usedTracks = new Set(); // Global set to track all used track IDs
+        // Use global usedTracks to prevent repetition across all contexts
+        let usedTracks = globalUsedTracks;
         let heartbeatInterval;
         
         // Set up heartbeat
@@ -1329,6 +1336,9 @@ export async function POST(request) {
   const traceId = crypto.randomUUID();
   const startTime = Date.now();
   
+  // Reset global usedTracks for new session
+  globalUsedTracks.clear();
+  
   try {
     const { prompt, target_tracks = 50 } = await request.json();
     
@@ -1354,7 +1364,8 @@ export async function POST(request) {
     const stream = new ReadableStream({
       start(controller) {
         let allTracks = [];
-        let usedTracks = new Set(); // Global set to track all used track IDs
+        // Use global usedTracks to prevent repetition across all contexts
+        let usedTracks = globalUsedTracks;
         let heartbeatInterval;
         
         // Set up heartbeat
