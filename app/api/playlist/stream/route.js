@@ -485,7 +485,28 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       const rng = rngSeeded(h32(seedStr));
       console.log(`[STREAM:${traceId}] UNDERGROUND: RNG seeded with "${seedStr}"`);
       
-      const undergroundTracks = dedupeById(await searchUndergroundTracks(accessToken, allowedArtists, remaining, maxPerArtist, rng, priorityArtists));
+      // Deterministically shuffle allowed artists within 5-min window to avoid always starting from the same heads
+      function shuffleWithRng(list, rngFn) {
+        const arr = list.slice();
+        for (let i = arr.length - 1; i > 0; i--) {
+          const j = Math.floor(rngFn() * (i + 1));
+          const tmp = arr[i];
+          arr[i] = arr[j];
+          arr[j] = tmp;
+        }
+        return arr;
+      }
+      const shuffledAllowed = shuffleWithRng(allowedArtists, rng);
+      console.log(`[STREAM:${traceId}] UNDERGROUND: Shuffled allowed artists (first 10):`, shuffledAllowed.slice(0, 10));
+
+      const undergroundTracks = dedupeById(await searchUndergroundTracks(
+        accessToken,
+        shuffledAllowed,
+        remaining,
+        maxPerArtist,
+        rng,
+        priorityArtists
+      ));
       
       console.log(`[STREAM:${traceId}] Underground search completed: ${undergroundTracks.length} tracks found`);
       console.log(`[STREAM:${traceId}] Underground tracks sample:`, undergroundTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
