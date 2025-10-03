@@ -149,6 +149,20 @@ async function getIntentFromLLM(prompt, target_tracks) {
     });
     
     if (!response.ok) {
+      let bodyText = '';
+      try {
+        bodyText = await response.text();
+      } catch (e) {
+        bodyText = `<failed to read body: ${e?.message || e}>`;
+      }
+      console.error('[INTENT][FETCH] Intent API failed', {
+        status: response.status,
+        statusText: response.statusText,
+        url: `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/intent`,
+        promptSnippet: (prompt || '').slice(0, 120),
+        target_tracks,
+        body: bodyText?.slice(0, 2000)
+      });
       throw new Error(`Intent API failed: ${response.status}`);
     }
     
