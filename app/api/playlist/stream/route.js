@@ -354,6 +354,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
  */
 async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks = globalUsedTracks) {
   console.log(`[STREAM:${traceId}] Starting Spotify phase, remaining: ${remaining}`);
+  console.log(`[STREAM:${traceId}] Global usedTracks size: ${usedTracks.size}`);
   console.log(`[STREAM:${traceId}] Spotify phase intent data:`, {
     mode: determineMode(intent, intent.prompt || ''),
     contexts: intent.contexts?.key || 'none',
@@ -805,6 +806,9 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
     console.log(`[STREAM:${traceId}] Filtering tracks: ${spotifyTracks.length} -> ${spotifyTracks.filter(track => notExcluded(track, intent.exclusions)).length}`);
     const filtered = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
     const deduped = dedupeAgainstUsed(filtered, usedTracks);
+    
+    console.log(`[STREAM:${traceId}] Deduplication: ${filtered.length} -> ${deduped.length} (filtered out ${filtered.length - deduped.length} already used tracks)`);
+    console.log(`[STREAM:${traceId}] Current global usedTracks size: ${usedTracks.size}`);
     
     // COMPENSATION LOGIC: If tracks were filtered out, we need to compensate
     const filteredOut = spotifyTracks.length - deduped.length;
