@@ -1157,7 +1157,7 @@ export async function GET(request) {
         (async () => {
           try {
                    // Get intent from LLM
-                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "🔹 Inicio (interpretando el prompt)\n\n“Analizando tu intención musical…”"}\n\n`));
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Analizando tu intención musical..."}\n\n`));
                    
                    console.log(`[STREAM:${traceId}] ===== STARTING PLAYLIST GENERATION =====`);
                    console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
@@ -1181,7 +1181,7 @@ export async function GET(request) {
                    });
             
                    // Process LLM tracks
-                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "🔹 Construcción de la playlist (0/${target_tracks})\n\n“Añadiendo canciones: [0/${target_tracks}]”", "target": ${target_tracks}}\n\n`));
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Añadiendo canciones: [0/${target_tracks}]", "target": ${target_tracks}}\n\n`));
                    
                    console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
             
@@ -1251,7 +1251,7 @@ export async function GET(request) {
               spotifyAttempts++;
               console.log(`[STREAM:${traceId}] Spotify attempt ${spotifyAttempts}/${maxSpotifyAttempts}, need: ${remaining} more tracks`);
               
-              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "🔹 Búsqueda de canciones / artistas\n\n“Explorando catálogos y conexiones…”", "remaining": ${remaining}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Explorando catálogos y conexiones...", "remaining": ${remaining}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
               
               let spotifyYielded = 0;
               for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks)) {
@@ -1559,7 +1559,8 @@ export async function POST(request) {
                   tracks: chunk,
                   totalSoFar: allTracks.length,
                   target: target_tracks,
-                  progress: Math.round((allTracks.length / target_tracks) * 100)
+                  progress: Math.round((allTracks.length / target_tracks) * 100),
+                  message: `Añadiendo canciones: [${allTracks.length}/${target_tracks}]`
                 })}\n\n`));
               } catch (error) {
                 if (error.code === 'ERR_INVALID_STATE') {
@@ -1628,7 +1629,8 @@ export async function POST(request) {
                   totalSoFar: allTracks.length,
                   target: target_tracks,
                   progress: Math.round((allTracks.length / target_tracks) * 100),
-                  attempt: spotifyAttempts
+                  attempt: spotifyAttempts,
+                  message: `Añadiendo canciones: [${allTracks.length}/${target_tracks}]`
                 })}\n\n`));
                 
                 console.log(`[STREAM:${traceId}] Spotify chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
@@ -1662,7 +1664,7 @@ export async function POST(request) {
             if (allTracks.length < target_tracks) {
               console.log(`[STREAM:${traceId}] Final attempt: need ${target_tracks - allTracks.length} more tracks`);
               
-              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Final attempt with broad search...", "remaining": ${target_tracks - allTracks.length}, "target": ${target_tracks}}\n\n`));
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Últimos retoques antes de lanzar tu playlist...", "remaining": ${target_tracks - allTracks.length}, "target": ${target_tracks}}\n\n`));
               
               try {
                 // Skip final attempt with generic terms - they cause problems
@@ -1679,7 +1681,8 @@ export async function POST(request) {
                     totalSoFar: allTracks.length,
                     target: target_tracks,
                     progress: Math.round((allTracks.length / target_tracks) * 100),
-                    final: true
+                    final: true,
+                    message: `Añadiendo canciones: [${allTracks.length}/${target_tracks}]`
                   })}\n\n`));
                   
                   console.log(`[STREAM:${traceId}] Final attempt yielded: ${toAdd.length} tracks, total: ${allTracks.length}/${target_tracks}`);
