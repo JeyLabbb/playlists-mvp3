@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLanguage } from "../contexts/LanguageContext";
 
 export default function PromptTips() {
-  const { t } = useLanguage();
+  const { t, isLoading: translationsLoading } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
 
   const tips = [
@@ -72,7 +72,7 @@ export default function PromptTips() {
         className="inline-flex items-center gap-2 px-4 py-2 bg-gray-dark hover:bg-gray-700 text-white rounded-full border border-gray-600 hover:border-gray-500 transition-all duration-200 text-sm font-medium shadow-lg hover:shadow-xl"
       >
         <span className="text-lg">💡</span>
-        <span>{t('prompt.tipsButton')}</span>
+        <span>{translationsLoading ? 'Cargando...' : t('prompt.tipsButton')}</span>
       </button>
 
       {isOpen && (
@@ -106,24 +106,33 @@ export default function PromptTips() {
 
             {/* Content */}
             <div className="p-6 overflow-y-auto max-h-[70vh]">
-              <div className="grid gap-4 md:grid-cols-2">
-                {tips.map((tip, index) => (
-                  <div key={index} className="bg-gray-800/50 rounded-xl p-5 border border-gray-700/50 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70">
-                    <h3 className="text-lg font-semibold text-white mb-3 flex items-start gap-3">
-                      <span className="text-xl">{tip.title.split(' ')[0]}</span>
-                      <span className="flex-1">{tip.title.split(' ').slice(1).join(' ')}</span>
-                    </h3>
-                    <p className="text-gray-300 mb-4 leading-relaxed text-sm">
-                      {tip.description}
-                    </p>
-                    <div className="bg-gray-900/80 rounded-lg p-3 border border-gray-600/30">
-                      <p className="text-sm text-cyan-400 font-mono">
-                        &ldquo;{tip.example}&rdquo;
-                      </p>
-                    </div>
+              {translationsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                    <p className="text-gray-400">Cargando consejos...</p>
                   </div>
-                ))}
-              </div>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2">
+                  {tips.map((tip, index) => (
+                    <div key={index} className="bg-gray-800/50 rounded-xl p-5 border border-gray-700/50 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70">
+                      <h3 className="text-lg font-semibold text-white mb-3 flex items-start gap-3">
+                        <span className="text-xl">{tip.title.split(' ')[0]}</span>
+                        <span className="flex-1">{tip.title.split(' ').slice(1).join(' ')}</span>
+                      </h3>
+                      <p className="text-gray-300 mb-4 leading-relaxed text-sm">
+                        {tip.description}
+                      </p>
+                      <div className="bg-gray-900/80 rounded-lg p-3 border border-gray-600/30">
+                        <p className="text-sm text-cyan-400 font-mono">
+                          &ldquo;{tip.example}&rdquo;
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Pro Tip */}
               <div className="mt-6 p-5 bg-gradient-to-r from-green-500/20 to-cyan-500/20 rounded-xl border border-green-500/30">
