@@ -79,7 +79,7 @@ export default function Home() {
   ];
 
   // Progress helpers
-  function startProgress(label = t('progress.parsingIntent')) {
+  function startProgress(label = 'Analizando tu intención musical...') {
     setStatusText(label);
     setProgress(0);
     setError(null);
@@ -451,10 +451,10 @@ export default function Home() {
     setIsCreated(false);
     setSpotifyUrl(null);
     setCreateError(null);
-    startProgress(t('progress.parsingIntent'));
+    startProgress('Analizando tu intención musical...');
 
     try {
-      bumpPhase(t('progress.parsingIntent'), 20);
+      bumpPhase('Analizando tu intención musical...', 20);
       
       // Step 1: Parse intent (con fallback cliente)
       let intent;
@@ -484,12 +484,7 @@ export default function Home() {
         intent = buildHeuristicIntent(prompt, wanted);
       }
       
-      bumpPhase(
-        intent.mode === "festival" 
-          ? t('progress.searchingFestival')
-          : t('progress.findingTracks'),
-        40
-      );
+      bumpPhase('Explorando catálogos y conexiones...', 40);
 
       // Step 2: Generate playlist
       // Use streaming in production, fallback to regular endpoint
