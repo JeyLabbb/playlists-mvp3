@@ -165,14 +165,27 @@ async function getIntentFromLLM(prompt, target_tracks) {
 function determineMode(intent, prompt) {
   const promptLower = (prompt || '').toLowerCase();
   
+  console.log(`[MODE-DETECTION] ===== STARTING MODE DETECTION =====`);
+  console.log(`[MODE-DETECTION] Original prompt: "${prompt}"`);
+  console.log(`[MODE-DETECTION] Intent data:`, {
+    mode: intent.mode,
+    contexts: intent.contexts?.key || 'none',
+    artists_llm: intent.artists_llm?.length || 0,
+    tracks_llm: intent.tracks_llm?.length || 0,
+    priority_artists: intent.priority_artists?.length || 0,
+    filtered_artists: intent.filtered_artists?.length || 0,
+    exclusions: intent.exclusions ? 'yes' : 'no'
+  });
+  
   // Check for underground mode FIRST (highest priority) - only if explicitly underground
   const undergroundKeywords = ['underground', 'indie', 'alternativo', 'alternativa', 'independiente'];
   const hasUndergroundKeyword = undergroundKeywords.some(keyword => promptLower.includes(keyword));
   const hasUndergroundContext = intent.contexts && intent.contexts.key === 'underground_es';
   const hasFilteredArtists = intent.filtered_artists && intent.filtered_artists.length > 0;
   
-  console.log(`[MODE-DETECTION] Prompt: "${prompt}"`);
-  console.log(`[MODE-DETECTION] Underground check:`, {
+  console.log(`[MODE-DETECTION] Underground analysis:`, {
+    promptLower,
+    undergroundKeywords,
     hasUndergroundKeyword,
     hasUndergroundContext,
     hasFilteredArtists,
@@ -182,30 +195,35 @@ function determineMode(intent, prompt) {
   
   // Only return UNDERGROUND if explicitly underground OR has underground context
   if ((hasUndergroundKeyword && hasUndergroundContext) || (hasUndergroundContext && hasFilteredArtists)) {
-    console.log(`[MODE-DETECTION] Returning UNDERGROUND mode`);
+    console.log(`[MODE-DETECTION] ✅ UNDERGROUND MODE DETECTED`);
+    console.log(`[MODE-DETECTION] Reason: hasUndergroundKeyword=${hasUndergroundKeyword}, hasUndergroundContext=${hasUndergroundContext}, hasFilteredArtists=${hasFilteredArtists}`);
     return 'UNDERGROUND';
   }
   
   // Check for viral/current mode
   const viralKeywords = ['tiktok', 'viral', 'virales', 'top', 'charts', 'tendencia', 'tendencias', '2024', '2025'];
-  if (viralKeywords.some(keyword => promptLower.includes(keyword))) {
-    console.log(`[MODE-DETECTION] Returning VIRAL mode`);
+  const matchedViralKeywords = viralKeywords.filter(keyword => promptLower.includes(keyword));
+  if (matchedViralKeywords.length > 0) {
+    console.log(`[MODE-DETECTION] ✅ VIRAL MODE DETECTED`);
+    console.log(`[MODE-DETECTION] Reason: Matched viral keywords:`, matchedViralKeywords);
     return 'VIRAL';
   }
   
   // Check for festival mode - detect festival names even without year
   const festivalKeywords = ['coachella', 'ultra', 'tomorrowland', 'edc', 'lollapalooza', 'glastonbury', 'bonnaroo', 'sxsw', 'primavera', 'sonar', 'ibiza', 'festival', 'festivales'];
-  const hasFestivalKeyword = festivalKeywords.some(keyword => promptLower.includes(keyword));
+  const matchedFestivalKeywords = festivalKeywords.filter(keyword => promptLower.includes(keyword));
   
-  if (hasFestivalKeyword) {
-    console.log(`[MODE-DETECTION] Returning FESTIVAL mode (detected festival keyword)`);
+  if (matchedFestivalKeywords.length > 0) {
+    console.log(`[MODE-DETECTION] ✅ FESTIVAL MODE DETECTED`);
+    console.log(`[MODE-DETECTION] Reason: Matched festival keywords:`, matchedFestivalKeywords);
     return 'FESTIVAL';
   }
   
   // Also check with extractFestivalInfo for more complex festival detection
   const festivalInfo = extractFestivalInfo(prompt);
   if (festivalInfo.name) {
-    console.log(`[MODE-DETECTION] Returning FESTIVAL mode (extracted festival: ${festivalInfo.name})`);
+    console.log(`[MODE-DETECTION] ✅ FESTIVAL MODE DETECTED (extracted)`);
+    console.log(`[MODE-DETECTION] Reason: extractFestivalInfo found festival:`, festivalInfo);
     return 'FESTIVAL';
   }
   
@@ -214,18 +232,29 @@ function determineMode(intent, prompt) {
   const hasStyleKeywords = styleKeywords.some(keyword => promptLower.includes(keyword));
   const words = prompt.trim().split(/\s+/);
   
+  console.log(`[MODE-DETECTION] Single artist analysis:`, {
+    hasStyleKeywords,
+    styleKeywords,
+    matchedStyleKeywords: styleKeywords.filter(k => promptLower.includes(k)),
+    words,
+    wordCount: words.length
+  });
+  
   if (!hasStyleKeywords && words.length <= 3 && words.length >= 1) {
-    console.log(`[MODE-DETECTION] Returning SINGLE_ARTIST mode (detected artist name: "${prompt}")`);
+    console.log(`[MODE-DETECTION] ✅ SINGLE_ARTIST MODE DETECTED`);
+    console.log(`[MODE-DETECTION] Reason: No style keywords, word count=${words.length}, prompt="${prompt}"`);
     return 'SINGLE_ARTIST';
   }
   
   // Check for artist style mode (contains "como" or "like") - but not if it's just exclusion
   if ((promptLower.includes('como') || promptLower.includes('like')) && !promptLower.includes('sin')) {
-    console.log(`[MODE-DETECTION] Returning ARTIST_STYLE mode`);
+    console.log(`[MODE-DETECTION] ✅ ARTIST_STYLE MODE DETECTED`);
+    console.log(`[MODE-DETECTION] Reason: Contains "como" or "like" without "sin"`);
     return 'ARTIST_STYLE';
   }
   
-  console.log(`[MODE-DETECTION] Returning NORMAL mode`);
+  console.log(`[MODE-DETECTION] ✅ NORMAL MODE DETECTED (default)`);
+  console.log(`[MODE-DETECTION] Reason: No specific mode conditions met`);
   return 'NORMAL';
 }
 
@@ -233,7 +262,8 @@ function determineMode(intent, prompt) {
  * Generator for LLM tracks in chunks - MODE NORMAL: 75% LLM (get 50 by default), others: exact target
  */
 async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks = globalUsedTracks) {
-  console.log(`[STREAM:${traceId}] Starting LLM phase - target: ${target_tracks}`);
+  console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
+  console.log(`[STREAM:${traceId}] Target tracks: ${target_tracks}`);
   console.log(`[STREAM:${traceId}] Intent data:`, {
     mode: determineMode(intent, intent.prompt || ''),
     contexts: intent.contexts?.key || 'none',
@@ -242,6 +272,18 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
     filteredArtistsCount: intent.filtered_artists?.length || 0,
     priorityArtistsCount: intent.priority_artists?.length || 0,
     exclusions: intent.exclusions ? 'yes' : 'no'
+  });
+  
+  console.log(`[STREAM:${traceId}] LLM TRACKS SOURCE:`, {
+    tracks_llm: intent.tracks_llm?.slice(0, 5) || [],
+    total_llm_tracks: intent.tracks_llm?.length || 0,
+    sample_tracks: intent.tracks_llm?.slice(0, 3).map(t => ({ title: t.title, artist: t.artist })) || []
+  });
+  
+  console.log(`[STREAM:${traceId}] LLM ARTISTS SOURCE:`, {
+    artists_llm: intent.artists_llm || [],
+    priority_artists: intent.priority_artists || [],
+    filtered_artists: intent.filtered_artists || []
   });
   
   const llmTracks = intent.tracks_llm || [];
@@ -708,11 +750,21 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       
     } else {
       // NORMAL mode: Use LLM tracks to create Spotify radios
+      console.log(`[STREAM:${traceId}] ===== NORMAL MODE FILLING PROCESS =====`);
       console.log(`[STREAM:${traceId}] NORMAL MODE: Using LLM tracks for Spotify radios`);
       console.log(`[STREAM:${traceId}] NORMAL mode details:`, {
         llmTracks: intent.tracks_llm?.length || 0,
         artists: intent.artists_llm?.length || 0,
-        remaining: remaining
+        remaining: remaining,
+        priority_artists: intent.priority_artists?.length || 0,
+        contexts: intent.contexts?.key || 'none'
+      });
+      
+      console.log(`[STREAM:${traceId}] NORMAL FILLING STRATEGY:`, {
+        step1: 'Priority artists -> LLM tracks -> LLM artists -> Context artists',
+        step2: 'Create Spotify radios from resolved tracks',
+        step3: 'Apply exclusions and deduplication',
+        step4: 'Yield in chunks until remaining filled'
       });
       
       try {
@@ -845,7 +897,9 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       const compensationNeeded = filteredOut > 0 ? filteredOut : 0;
       const totalNeeded = needMore + compensationNeeded;
       
+      console.log(`[STREAM:${traceId}] ===== BROADER SEARCH PROCESS =====`);
       console.log(`[STREAM:${traceId}] BROADER SEARCH: Still need ${needMore} tracks, compensation needed: ${compensationNeeded}, total: ${totalNeeded}`);
+      console.log(`[STREAM:${traceId}] BROADER SEARCH REASON: Initial search didn't yield enough tracks`);
       
       try {
         // Priority: Priority artists -> LLM tracks -> LLM artists -> Context artists (NO generic terms)
@@ -855,26 +909,38 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
         const llmArtists = intent.artists_llm || [];
         const priorityArtists = intent.priority_artists || [];
         
+        console.log(`[STREAM:${traceId}] BROADER SEARCH ARTIST SELECTION:`, {
+          priorityArtists: priorityArtists.length,
+          llmTracks: llmTracks.length,
+          llmArtists: llmArtists.length,
+          hasContexts: intent.contexts && MUSICAL_CONTEXTS[intent.contexts]
+        });
+        
         if (priorityArtists.length > 0) {
           // PRIORITY: Use priority artists first for "sus oyentes también escuchan"
           searchArtists = [...priorityArtists.slice(0, 5), ...searchArtists];
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: Using priority artists:`, priorityArtists.slice(0, 5));
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: ✅ Using priority artists:`, priorityArtists.slice(0, 5));
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: Strategy = Priority artists for "sus oyentes también escuchan"`);
         } else if (llmTracks.length > 0) {
           // Use LLM track artists
           const trackArtists = llmTracks.map(t => t.artist).filter(Boolean);
           searchArtists = [...trackArtists.slice(0, 8), ...searchArtists];
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: Using LLM track artists:`, trackArtists.slice(0, 5));
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: ✅ Using LLM track artists:`, trackArtists.slice(0, 5));
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: Strategy = Extract artists from LLM tracks`);
         } else if (llmArtists.length > 0) {
           // Use LLM artists
           searchArtists = [...llmArtists.slice(0, 8), ...searchArtists];
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: Using LLM artists:`, llmArtists.slice(0, 5));
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: ✅ Using LLM artists:`, llmArtists.slice(0, 5));
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: Strategy = Use LLM-generated artists`);
         } else if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
           // Use context artists
           const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
           searchArtists = [...contextArtists.slice(0, 8), ...searchArtists];
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: Using context artists:`, contextArtists.slice(0, 5));
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: ✅ Using context artists:`, contextArtists.slice(0, 5));
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: Strategy = Use context-specific artists`);
         } else {
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: Using generic terms`);
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: ❌ No artists available, skipping broader search`);
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: Strategy = No fallback available`);
         }
         
         const broaderTracks = dedupeById(await radioFromRelatedTop(accessToken, searchArtists, totalNeeded));
