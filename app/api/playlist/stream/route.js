@@ -1157,7 +1157,7 @@ export async function GET(request) {
         (async () => {
           try {
                    // Get intent from LLM
-                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Generating intent..."}\n\n`));
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "La IA está pensando..."}\n\n`));
                    
                    console.log(`[STREAM:${traceId}] ===== STARTING PLAYLIST GENERATION =====`);
                    console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
@@ -1181,7 +1181,7 @@ export async function GET(request) {
                    });
             
                    // Process LLM tracks
-                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Processing LLM tracks...", "target": ${target_tracks}}\n\n`));
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "La IA sigue pensando...", "target": ${target_tracks}}\n\n`));
                    
                    console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
             
@@ -1250,7 +1250,7 @@ export async function GET(request) {
               spotifyAttempts++;
               console.log(`[STREAM:${traceId}] Spotify attempt ${spotifyAttempts}/${maxSpotifyAttempts}, need: ${remaining} more tracks`);
               
-              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Getting Spotify recommendations...", "remaining": ${remaining}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "La IA está buscando canciones...", "remaining": ${remaining}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
               
               let spotifyYielded = 0;
               for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks)) {
@@ -1300,7 +1300,7 @@ export async function GET(request) {
             if (allTracks.length < target_tracks) {
               console.log(`[STREAM:${traceId}] Final attempt: need ${target_tracks - allTracks.length} more tracks`);
               
-              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Final attempt with broad search...", "remaining": ${target_tracks - allTracks.length}, "target": ${target_tracks}}\n\n`));
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "La IA está afinando los últimos detalles...", "remaining": ${target_tracks - allTracks.length}, "target": ${target_tracks}}\n\n`));
               
               try {
                 // Skip final attempt with generic terms - they cause problems
