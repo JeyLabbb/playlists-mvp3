@@ -246,7 +246,7 @@ export default function Home() {
         eventSource.addEventListener('LLM_START', (event) => {
           const data = JSON.parse(event.data);
           bumpPhase(data.message || 'Processing LLM tracks...', 30);
-          setStatusText(`🎵 ${data.message || 'Processing LLM tracks...'} (Target: ${data.target || wanted} tracks)`);
+          setStatusText(`🎵 ${data.message || 'Processing LLM tracks...'}`);
         });
         
         eventSource.addEventListener('LLM_CHUNK', (event) => {
@@ -263,9 +263,8 @@ export default function Home() {
           
           const progress = data.progress || Math.round((data.totalSoFar / data.target) * 100);
           const phaseProgress = Math.min(30 + (progress * 0.3), 60); // 30-60% for LLM phase
-          bumpPhase(`🎵 Found ${data.totalSoFar}/${data.target} tracks`, phaseProgress);
-          
-          setStatusText(`🎵 Found ${data.totalSoFar}/${data.target} tracks (${progress}%) - ${data.tracks.length} new tracks added`);
+          bumpPhase(data.message || `🎵 Found ${data.totalSoFar}/${data.target} tracks`, phaseProgress);
+          setStatusText(`🎵 ${data.message || `Found ${data.totalSoFar}/${data.target} tracks (${progress}%)`}`);
         });
         
         eventSource.addEventListener('LLM_DONE', (event) => {
@@ -277,8 +276,8 @@ export default function Home() {
         eventSource.addEventListener('SPOTIFY_START', (event) => {
           const data = JSON.parse(event.data);
           const attempt = data.attempt ? ` (Attempt ${data.attempt})` : '';
-          bumpPhase(`🎧 Getting Spotify recommendations${attempt}...`, 70);
-          setStatusText(`🎧 ${data.message || 'Getting Spotify recommendations...'}${attempt} - Need ${data.remaining} more tracks`);
+          bumpPhase(`🎧 ${data.message || 'Getting Spotify recommendations...'}${attempt}`, 70);
+          setStatusText(`🎧 ${data.message || 'Getting Spotify recommendations...'}${attempt}`);
         });
         
         eventSource.addEventListener('SPOTIFY_CHUNK', (event) => {
@@ -291,8 +290,8 @@ export default function Home() {
           const attempt = data.attempt ? ` (Attempt ${data.attempt})` : '';
           const final = data.final ? ' - Final attempt' : '';
           
-          bumpPhase(`🎧 Found ${data.totalSoFar}/${data.target} tracks${attempt}`, phaseProgress);
-          setStatusText(`🎧 Found ${data.totalSoFar}/${data.target} tracks (${progress}%)${attempt}${final} - ${data.tracks.length} new tracks added`);
+          bumpPhase(`🎧 ${data.message || `Found ${data.totalSoFar}/${data.target} tracks`}${attempt}`, phaseProgress);
+          setStatusText(`🎧 ${data.message || `Found ${data.totalSoFar}/${data.target} tracks (${progress}%)`}${attempt}${final}`);
         });
         
         eventSource.addEventListener('SPOTIFY_DONE', (event) => {
