@@ -9,6 +9,9 @@ export default function MyPlaylistsPage() {
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [previewPlaylist, setPreviewPlaylist] = useState(null);
+  const [previewTracks, setPreviewTracks] = useState([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   useEffect(() => {
     if (session?.user?.email) {
@@ -50,6 +53,41 @@ export default function MyPlaylistsPage() {
       // You could add a toast notification here
     } catch (error) {
       console.error('Failed to copy:', error);
+    }
+  };
+
+  const loadPlaylistDetails = async (playlist) => {
+    try {
+      setLoadingPreview(true);
+      setPreviewPlaylist(playlist);
+      
+      // Extract playlist ID from URL
+      const playlistIdMatch = playlist.url.match(/playlist\/([a-zA-Z0-9]+)/);
+      if (!playlistIdMatch) {
+        console.error('Could not extract playlist ID from URL:', playlist.url);
+        return;
+      }
+      
+      const playlistId = playlistIdMatch[1];
+      
+      // Fetch playlist tracks
+      const response = await fetch(`/api/spotify/playlist-tracks?id=${playlistId}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setPreviewTracks(data.tracks || []);
+      } else {
+        console.error('Failed to load playlist tracks:', response.status);
+        setPreviewTracks([]);
+      }
+    } catch (error) {
+      console.error('Error loading playlist details:', error);
+      setPreviewTracks([]);
+    } finally {
+      setLoadingPreview(false);
     }
   };
 
@@ -231,6 +269,15 @@ export default function MyPlaylistsPage() {
                 {/* Actions */}
                 <div className="flex gap-2">
                   <button
+                    onClick={() => loadPlaylistDetails(playlist)}
+                    disabled={loadingPreview}
+                    className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors duration-200 text-sm font-medium flex items-center justify-center gap-2"
+                  >
+                    <span>👁️</span>
+                    <span>{loadingPreview ? 'Cargando...' : 'Ver detalles'}</span>
+                  </button>
+                  
+                  <button
                     onClick={() => {
                       try {
                         if (playlist.url) {
@@ -242,10 +289,10 @@ export default function MyPlaylistsPage() {
                         console.error('Error opening playlist:', error);
                       }
                     }}
-                    className="flex-1 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 text-sm font-medium flex items-center justify-center gap-2"
+                    className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg transition-colors duration-200 text-sm flex items-center justify-center"
+                    title="Abrir en Spotify"
                   >
-                    <span>🎧</span>
-                    <span>Abrir en Spotify</span>
+                    🎧
                   </button>
                   
                   <button
@@ -261,6 +308,88 @@ export default function MyPlaylistsPage() {
           </div>
         </div>
       </div>
+
+      {/* Preview Modal */}
+      {previewPlaylist && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-green-500/20 to-cyan-500/20 p-6 border-b border-gray-700">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <h2 className="text-2xl font-bold text-white mb-2">
+                    {previewPlaylist.name}
+                  </h2>
+                  <p className="text-gray-300 text-base mb-2">
+                    "{previewPlaylist.prompt}"
+                  </p>
+                  <div className="flex items-center gap-4 text-sm text-gray-400">
+                    <span>{previewPlaylist.tracks} canciones</span>
+                    <span>•</span>
+                    <span>{formatDate(previewPlaylist.createdAt)}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPreviewPlaylist(null)}
+                  className="text-gray-400 hover:text-white transition-colors text-2xl p-2 hover:bg-gray-800 rounded-full ml-4"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              {loadingPreview ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                    <p className="text-gray-400">Cargando canciones...</p>
+                  </div>
+                </div>
+              ) : previewTracks.length > 0 ? (
+                <div className="space-y-3">
+                  {previewTracks.map((track, index) => (
+                    <div key={track.id || index} className="flex items-center gap-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                      <span className="text-gray-400 text-sm w-6">{index + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-white font-medium truncate">{track.name}</div>
+                        <div className="text-gray-400 text-sm truncate">
+                          {Array.isArray(track.artists) ? track.artists.join(', ') : track.artists || 'Unknown Artist'}
+                        </div>
+                      </div>
+                      <a
+                        href={track.open_url || `https://open.spotify.com/track/${track.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 rounded transition-colors"
+                      >
+                        Abrir
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <div className="text-gray-400 mb-4">⚠️</div>
+                  <p className="text-gray-400">No se pudieron cargar las canciones de esta playlist</p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-gray-700 bg-gray-800/30 flex justify-end">
+              <button
+                onClick={() => window.open(previewPlaylist.url, '_blank')}
+                className="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors duration-200"
+              >
+                Abrir en Spotify
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
