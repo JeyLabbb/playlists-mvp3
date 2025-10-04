@@ -19,9 +19,40 @@ export default function ProfilePage() {
   const [usernameAvailable, setUsernameAvailable] = useState(true);
   const [usernameDebounceTimer, setUsernameDebounceTimer] = useState(null);
 
+  // Simple localStorage loader
+  const loadFromLocalStorage = () => {
+    if (session?.user?.email) {
+      const localKey = `jey_user_profile:${session.user.email}`;
+      const localProfile = JSON.parse(localStorage.getItem(localKey) || 'null');
+      console.log('[PROFILE] Simple loader - localStorage data:', localProfile);
+      
+      if (localProfile) {
+        console.log('[PROFILE] Simple loader - found profile, updating formData');
+        setFormData({
+          displayName: localProfile.displayName || session.user.name || '',
+          username: localProfile.username || session.user.email.split('@')[0],
+          bio: localProfile.bio || '',
+          image: localProfile.image || session.user.image || ''
+        });
+        setProfile(localProfile);
+        console.log('[PROFILE] Simple loader - bio set to:', localProfile.bio || '');
+      } else {
+        console.log('[PROFILE] Simple loader - no profile found, creating default');
+        setFormData({
+          displayName: session.user.name || session.user.email.split('@')[0],
+          username: session.user.email.split('@')[0],
+          bio: '',
+          image: session.user.image || ''
+        });
+      }
+    }
+  };
+
   useEffect(() => {
     if (session?.user?.email) {
-      fetchProfile();
+      console.log('[PROFILE] useEffect - session available, loading from localStorage');
+      loadFromLocalStorage();
+      setLoading(false);
     } else if (status === 'unauthenticated') {
       setLoading(false);
     }
