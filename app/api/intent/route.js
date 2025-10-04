@@ -704,6 +704,26 @@ SIEMPRE genera nombres de canciones REALES, nunca "Track X"` },
         intent.tracks_llm = intent.tracks || [];
         intent.artists_llm = intent.artists || [];
         intent.prompt = prompt; // Assign original prompt for mode detection
+        
+        // 🚨 CRITICAL: Filter out banned artists from tracks_llm
+        if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
+          const bannedArtists = intent.exclusions.banned_artists.map(a => a.toLowerCase());
+          const originalCount = intent.tracks_llm.length;
+          
+          intent.tracks_llm = intent.tracks_llm.filter(track => {
+            const artistLower = (track.artist || '').toLowerCase();
+            const hasBannedArtist = bannedArtists.some(banned => artistLower.includes(banned));
+            
+            if (hasBannedArtist) {
+              console.log(`[INTENT] 🚨 FILTERED OUT BANNED TRACK: "${track.title}" by "${track.artist}"`);
+            }
+            
+            return !hasBannedArtist;
+          });
+          
+          console.log(`[INTENT] 🚨 EXCLUSION FILTERING: ${originalCount} → ${intent.tracks_llm.length} tracks (removed ${originalCount - intent.tracks_llm.length} banned tracks)`);
+        }
+        
         console.log(`[INTENT] Assigned tracks_llm: ${intent.tracks_llm.length} tracks`);
         console.log(`[INTENT] Assigned artists_llm: ${intent.artists_llm.length} artists`);
         console.log(`[INTENT] Assigned prompt: "${intent.prompt}"`);
