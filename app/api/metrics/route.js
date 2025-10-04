@@ -1,6 +1,4 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../../../../lib/auth/config';
 
 // Check if Vercel KV is available
 function hasKV() {
@@ -108,10 +106,8 @@ async function updatePlaylistMetrics(playlistId, type, increment = 1) {
 // POST: Update playlist metrics
 export async function POST(request) {
   try {
-    const session = await getServerSession(authOptions);
-    
     // For metrics, we don't require authentication (public playlists can be viewed by anyone)
-    // But we'll use session if available for logging
+    // This endpoint is for tracking views/clicks on public playlists
     
     const body = await request.json();
     const { playlistId, type } = body;
