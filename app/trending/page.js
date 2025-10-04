@@ -467,7 +467,7 @@ export default function TrendingPage() {
           {/* Preview Modal */}
           {previewPlaylist && (
             <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="bg-gray-900 rounded-xl border border-gray-700 max-w-2xl w-full max-h-[80vh] overflow-hidden">
+              <div className="bg-gray-900 rounded-xl border border-gray-700 max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col">
                 {/* Modal Header */}
                 <div className="flex items-center justify-between p-6 border-b border-gray-700">
                   <div>
@@ -495,7 +495,7 @@ export default function TrendingPage() {
                 </div>
 
                 {/* Modal Content */}
-                <div className="overflow-y-auto max-h-[60vh]">
+                <div className="overflow-y-auto flex-1 min-h-0">
                   {loadingPreview ? (
                     <div className="flex items-center justify-center py-8">
                       <div className="text-center">
@@ -504,18 +504,18 @@ export default function TrendingPage() {
                       </div>
                     </div>
                   ) : previewTracks.length > 0 ? (
-                    <div className="p-6">
-                      <div className="space-y-3">
+                    <div className="p-4">
+                      <div className="space-y-1">
                         {(() => {
                           // Shuffle tracks and take up to 15 random ones
                           const shuffledTracks = [...previewTracks].sort(() => Math.random() - 0.5);
                           const randomTracks = shuffledTracks.slice(0, 15);
                           
                           return randomTracks.map((track, index) => (
-                          <div key={`track-${previewPlaylist.playlistId}-${index}-${track.id}`} className="flex items-center gap-3 py-2 border-b border-gray-800 last:border-b-0">
-                            <span className="text-gray-500 text-sm w-8">{index + 1}</span>
-                            <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
-                              <span className="text-white text-lg">🎵</span>
+                          <div key={`track-${previewPlaylist.playlistId}-${index}-${track.id}`} className="flex items-center gap-3 py-1.5 border-b border-gray-800 last:border-b-0">
+                            <span className="text-gray-500 text-sm w-6">{index + 1}</span>
+                            <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
+                              <span className="text-white text-sm">🎵</span>
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-white font-medium truncate">{track.name}</p>
