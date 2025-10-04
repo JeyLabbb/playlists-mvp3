@@ -1655,21 +1655,46 @@ async function handleStreamingRequest(request) {
                        console.log(`[STREAM:${traceId}] UNIVERSAL COMPENSATION: Need ${missingTracks} more tracks`);
                        
                        try {
-                         // Try to get more tracks from available artists
+                         // Try to get more tracks from available artists, but avoid repetition
                          const availableArtists = intent.artists_llm || intent.contexts?.compass || [];
                          console.log(`[STREAM:${traceId}] UNIVERSAL COMPENSATION: Using available artists:`, availableArtists.slice(0, 5));
                          
-                         for (const artist of availableArtists) {
+                         // Get artists that haven't been used much (max 1 track per artist for compensation)
+                         const artistCounts = new Map();
+                         allTracks.forEach(track => {
+                           if (track.artistNames) {
+                             track.artistNames.forEach(artist => {
+                               artistCounts.set(artist, (artistCounts.get(artist) || 0) + 1);
+                             });
+                           }
+                         });
+                         
+                         // Prioritize artists with fewer tracks
+                         const sortedArtists = availableArtists.sort((a, b) => {
+                           const countA = artistCounts.get(a) || 0;
+                           const countB = artistCounts.get(b) || 0;
+                           return countA - countB;
+                         });
+                         
+                         console.log(`[STREAM:${traceId}] UNIVERSAL COMPENSATION: Artist usage before compensation:`, Array.from(artistCounts.entries()).slice(0, 5));
+                         
+                         for (const artist of sortedArtists) {
                            if (allTracks.length >= target_tracks) break;
                            
+                           const currentCount = artistCounts.get(artist) || 0;
+                           if (currentCount >= 5) {
+                             console.log(`[STREAM:${traceId}] UNIVERSAL COMPENSATION: Skipping ${artist} (already has ${currentCount} tracks)`);
+                             continue;
+                           }
+                           
                            try {
-                             console.log(`[STREAM:${traceId}] UNIVERSAL COMPENSATION: Getting more tracks for ${artist}`);
-                             const compensationTracks = await searchTracksByArtists(accessToken, [artist], missingTracks);
+                             console.log(`[STREAM:${traceId}] UNIVERSAL COMPENSATION: Getting more tracks for ${artist} (current: ${currentCount})`);
+                             const compensationTracks = await searchTracksByArtists(accessToken, [artist], Math.min(2, missingTracks));
                              
                              if (compensationTracks && compensationTracks.length > 0) {
                                const filteredCompensationTracks = compensationTracks.filter(track => notExcluded(track, intent.exclusions));
                                const dedupedCompensationTracks = dedupeById(dedupeAgainstUsed(filteredCompensationTracks, usedTracks));
-                               const toAdd = dedupedCompensationTracks.slice(0, missingTracks);
+                               const toAdd = dedupedCompensationTracks.slice(0, Math.min(2, missingTracks));
                                
                                if (toAdd.length > 0) {
                                  allTracks = [...allTracks, ...toAdd];
@@ -1683,6 +1708,15 @@ async function handleStreamingRequest(request) {
                                  })}\n\n`));
                                  
                                  console.log(`[STREAM:${traceId}] UNIVERSAL COMPENSATION: Added ${toAdd.length} tracks from ${artist}`);
+                                 
+                                 // Update artist counts
+                                 toAdd.forEach(track => {
+                                   if (track.artistNames) {
+                                     track.artistNames.forEach(artistName => {
+                                       artistCounts.set(artistName, (artistCounts.get(artistName) || 0) + 1);
+                                     });
+                                   }
+                                 });
                                }
                              }
                            } catch (error) {
