@@ -33,6 +33,27 @@ export default function ProfilePage() {
     console.log('[PROFILE] formData.bio:', formData.bio);
   }, [formData]);
 
+  // Direct localStorage check on component mount
+  useEffect(() => {
+    if (session?.user?.email && !loading) {
+      console.log('[PROFILE] Direct localStorage check on mount');
+      const localKey = `jey_user_profile:${session.user.email}`;
+      const localProfile = JSON.parse(localStorage.getItem(localKey) || 'null');
+      console.log('[PROFILE] Direct check - localStorage data:', localProfile);
+      
+      if (localProfile && localProfile.bio && !formData.bio) {
+        console.log('[PROFILE] Direct check - Setting bio from localStorage:', localProfile.bio);
+        setFormData(prev => ({
+          ...prev,
+          bio: localProfile.bio || '',
+          displayName: localProfile.displayName || prev.displayName,
+          username: localProfile.username || prev.username,
+          image: localProfile.image || prev.image
+        }));
+      }
+    }
+  }, [session?.user?.email, loading, formData.bio]);
+
   const fetchProfile = async () => {
     try {
       setLoading(true);
