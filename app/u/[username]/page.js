@@ -61,10 +61,41 @@ export default function PublicProfilePage({ params }) {
       
       // Extract profile info from the first playlist (they should all have same author)
       const authorInfo = userPlaylists[0].author;
+      
+      // Try to get full profile information
+      let fullProfile = null;
+      try {
+        // Look for user profile in localStorage
+        const allProfileKeys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith('jey_user_profile:')) {
+            allProfileKeys.push(key);
+          }
+        }
+        
+        // Find profile by username
+        for (const key of allProfileKeys) {
+          try {
+            const profileData = JSON.parse(localStorage.getItem(key) || 'null');
+            if (profileData && profileData.username === username) {
+              fullProfile = profileData;
+              break;
+            }
+          } catch (parseError) {
+            console.warn(`Error parsing profile key ${key}:`, parseError);
+          }
+        }
+      } catch (error) {
+        console.warn('Error searching for full profile:', error);
+      }
+      
+      // Use full profile if available, otherwise use basic author info
       setProfile({
         username: authorInfo.username,
-        displayName: authorInfo.displayName,
-        image: authorInfo.image
+        displayName: fullProfile?.displayName || authorInfo.displayName,
+        image: fullProfile?.image || authorInfo.image,
+        bio: fullProfile?.bio || null
       });
       
       setPublicPlaylists(userPlaylists);
