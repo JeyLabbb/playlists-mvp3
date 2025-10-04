@@ -1595,32 +1595,42 @@ async function handleStreamingRequest(request) {
                          const maxTracksPerArtist = Math.max(2, Math.floor(target_tracks / similarArtists.length));
                          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Max tracks per artist: ${maxTracksPerArtist}`);
                          
-                         // Search tracks from ALL artists individually to ensure variety
-                         const allTracksFromArtists = [];
-                         const artistCounts = new Map();
-                         
-                         for (const artist of similarArtists) {
-                           if (allTracksFromArtists.length >= target_tracks * 2) break; // Stop if we have enough
-                           
-                           try {
-                             console.log(`[STREAM:${traceId}] ARTIST_STYLE: Searching tracks for ${artist}`);
-                             const artistTracks = await searchTracksByArtists(accessToken, [artist], maxTracksPerArtist * 2);
-                             
-                             if (artistTracks && artistTracks.length > 0) {
-                               // Limit this artist's tracks to maxTracksPerArtist
-                               const limitedArtistTracks = artistTracks.slice(0, maxTracksPerArtist);
-                               allTracksFromArtists.push(...limitedArtistTracks);
-                               
-                               artistCounts.set(artist, limitedArtistTracks.length);
-                               console.log(`[STREAM:${traceId}] ARTIST_STYLE: Added ${limitedArtistTracks.length} tracks from ${artist}`);
-                             }
-                           } catch (error) {
-                             console.log(`[STREAM:${traceId}] ARTIST_STYLE: Failed to get tracks for ${artist}:`, error.message);
-                           }
-                           
-                           // Rate limiting
-                           await new Promise(resolve => setTimeout(resolve, 200));
-                         }
+                        // Search tracks from ALL artists individually to ensure variety
+                        const allTracksFromArtists = [];
+                        const artistCounts = new Map();
+                        
+                        for (const artist of similarArtists) {
+                          // Stop if we have enough tracks total
+                          if (allTracksFromArtists.length >= target_tracks) break;
+                          
+                          // Check if this artist already has enough tracks
+                          const currentArtistCount = artistCounts.get(artist) || 0;
+                          if (currentArtistCount >= maxTracksPerArtist) {
+                            console.log(`[STREAM:${traceId}] ARTIST_STYLE: Skipping ${artist} - already has ${currentArtistCount} tracks`);
+                            continue;
+                          }
+                          
+                          try {
+                            console.log(`[STREAM:${traceId}] ARTIST_STYLE: Searching tracks for ${artist}`);
+                            // Search only what we need for this artist
+                            const tracksNeeded = Math.min(maxTracksPerArtist - currentArtistCount, 3);
+                            const artistTracks = await searchTracksByArtists(accessToken, [artist], tracksNeeded);
+                            
+                            if (artistTracks && artistTracks.length > 0) {
+                              // Limit this artist's tracks to what we actually need
+                              const limitedArtistTracks = artistTracks.slice(0, tracksNeeded);
+                              allTracksFromArtists.push(...limitedArtistTracks);
+                              
+                              artistCounts.set(artist, (artistCounts.get(artist) || 0) + limitedArtistTracks.length);
+                              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Added ${limitedArtistTracks.length} tracks from ${artist}`);
+                            }
+                          } catch (error) {
+                            console.log(`[STREAM:${traceId}] ARTIST_STYLE: Failed to get tracks for ${artist}:`, error.message);
+                          }
+                          
+                          // Rate limiting
+                          await new Promise(resolve => setTimeout(resolve, 200));
+                        }
                          
                          const spotifyTracks = dedupeById(allTracksFromArtists);
                          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${spotifyTracks.length} tracks from similar artists`);
