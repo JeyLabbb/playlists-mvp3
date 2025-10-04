@@ -22,20 +22,37 @@ export default function PublicProfilePage({ params }) {
 
   const fetchUserProfile = async () => {
     try {
-      setLoading(true);
+      setLoading(true); 
       
-      // First, get all public playlists from trending endpoint
+      let userPlaylists = [];
+      
+      // First, try trending endpoint
       const trendingResponse = await fetch('/api/trending?limit=500');
       const trendingData = await trendingResponse.json();
       
-      if (!trendingData.success) {
-        throw new Error(trendingData.error || 'Failed to fetch trending data');
+      if (trendingData.success && trendingData.playlists) {
+        // Filter playlists by this username
+        userPlaylists = trendingData.playlists.filter(
+          playlist => playlist.author?.username === username
+        );
       }
       
-      // Filter playlists by this username
-      const userPlaylists = trendingData.playlists.filter(
-        playlist => playlist.author?.username === username
-      );
+      // If no playlists from trending (KV not available), try localStorage fallback
+      if (userPlaylists.length === 0) {
+        console.log('[USER-PROFILE] No data from trending, trying localStorage fallback');
+        userPlaylists = await getPlaylistsFromLocalStorage();
+        
+        if (userPlaylists.length > 0) {
+          console.log(`[USER-PROFILE] Found ${userPlaylists.length} total playlists from localStorage`);
+          
+          // Filter for this specific username
+          userPlaylists = userPlaylists.filter(
+            playlist => playlist.author?.username === username
+          );
+          
+          console.log(`[USER-PROFILE] Found ${userPlaylists.length} playlists for user ${username}`);
+        }
+      }
       
       if (userPlaylists.length === 0) {
         setError('Usuario no encontrado o sin playlists públicas');
@@ -57,6 +74,55 @@ export default function PublicProfilePage({ params }) {
       setError('Error al cargar el perfil del usuario');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // React to localStorage search function
+  const getPlaylistsFromLocalStorage = async () => {
+    try {
+      const allPlaylists = [];
+      
+      // Scan all localStorage keys that start with 'jey_user_playlists:'
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('jey_user_playlists:')) {
+          try {
+            const userPlaylists = JSON.parse(localStorage.getItem(key) || '[]');
+            
+            // Add author info and filter public playlists
+            const publicPlaylists = userPlaylists
+              .filter(playlist => playlist.public !== false) // Default to true for legacy playlists
+              .map(playlist => ({
+                id: playlist.playlistId,
+                prompt: playlist.prompt || 'Playlist creada',
+                playlistName: playlist.name,
+                playlistId: playlist.playlistId,
+                spotifyUrl: playlist.url,
+                trackCount: playlist.tracks || 0,
+                views: playlist.views || 0,
+                clicks: playlist.clicks || 0,
+                createdAt: playlist.createdAt,
+                author: {
+                  username: playlist.username || playlist.userEmail?.split('@')[0] || 'unknown',
+                  displayName: playlist.userName || playlist.userEmail?.split('@')[0] || 'Usuario',
+                  image: playlist.userImage || null
+                }
+              }));
+            
+            allPlaylists.push(...publicPlaylists);
+          } catch (parseError) {
+            console.warn(`Error parsing localStorage key ${key}:`, parseError);
+          }
+        }
+      }
+      
+      // Sort by creation date (newest first)
+      allPlaylists.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      
+      return allPlaylists;
+    } catch (error) {
+      console.error('[USER-PROFILE] Error reading from localStorage:', error);
+      return [];
     }
   };
 
