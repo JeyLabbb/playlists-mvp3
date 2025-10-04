@@ -6,7 +6,7 @@ import Navigation from '../../components/Navigation';
 
 export default function PublicProfilePage({ params }) {
   const pathname = usePathname();
-  const username = params?.username || pathname.split('/').pop();
+  const username = params.username || pathname.split('/').pop();
   
   const [profile, setProfile] = useState(null);
   const [publicPlaylists, setPublicPlaylists] = useState([]);
