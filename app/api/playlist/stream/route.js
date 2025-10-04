@@ -221,11 +221,14 @@ function determineMode(intent, prompt) {
     exclusions: intent.exclusions ? 'yes' : 'no'
   });
   
-  // Check for underground mode FIRST (highest priority) - only if explicitly underground
-  const undergroundKeywords = ['underground', 'indie', 'alternativo', 'alternativa', 'independiente'];
+  // Check for underground mode FIRST (highest priority) - enhanced detection
+  const undergroundKeywords = ['underground', 'indie', 'alternativo', 'alternativa', 'independiente', 'independientes'];
   const hasUndergroundKeyword = undergroundKeywords.some(keyword => promptLower.includes(keyword));
   const hasUndergroundContext = intent.contexts && intent.contexts.key === 'underground_es';
   const hasFilteredArtists = intent.filtered_artists && intent.filtered_artists.length > 0;
+  
+  // Enhanced underground detection: if context is underground_es, force underground mode
+  const forceUndergroundMode = hasUndergroundContext;
   
   console.log(`[MODE-DETECTION] Underground analysis:`, {
     promptLower,
@@ -233,14 +236,21 @@ function determineMode(intent, prompt) {
     hasUndergroundKeyword,
     hasUndergroundContext,
     hasFilteredArtists,
+    forceUndergroundMode,
     contextKey: intent.contexts?.key,
-    filteredArtistsCount: intent.filtered_artists?.length || 0
+    filteredArtistsCount: intent.filtered_artists?.length || 0,
+    compassArtists: intent.contexts?.compass?.length || 0
   });
   
-  // Only return UNDERGROUND if explicitly underground OR has underground context
-  if ((hasUndergroundKeyword && hasUndergroundContext) || (hasUndergroundContext && hasFilteredArtists)) {
+  // Return UNDERGROUND if:
+  // 1. Has underground keywords AND underground context, OR
+  // 2. Has underground context AND filtered artists, OR  
+  // 3. FORCE: Has underground context (most important)
+  if ((hasUndergroundKeyword && hasUndergroundContext) || 
+      (hasUndergroundContext && hasFilteredArtists) || 
+      forceUndergroundMode) {
     console.log(`[MODE-DETECTION] ✅ UNDERGROUND MODE DETECTED`);
-    console.log(`[MODE-DETECTION] Reason: hasUndergroundKeyword=${hasUndergroundKeyword}, hasUndergroundContext=${hasUndergroundContext}, hasFilteredArtists=${hasFilteredArtists}`);
+    console.log(`[MODE-DETECTION] Reason: hasUndergroundKeyword=${hasUndergroundKeyword}, hasUndergroundContext=${hasUndergroundContext}, hasFilteredArtists=${hasFilteredArtists}, forceUndergroundMode=${forceUndergroundMode}`);
     return 'UNDERGROUND';
   }
   
