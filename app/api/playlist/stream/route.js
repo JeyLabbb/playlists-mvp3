@@ -964,6 +964,78 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
     
     if (compensationNeeded > 0) {
       console.log(`[STREAM:${traceId}] COMPENSATION: Need ${compensationNeeded} more tracks (${filteredOut} filtered, ${availableSpots} needed)`);
+      
+      // Generate compensation tracks using broader search
+      try {
+        console.log(`[STREAM:${traceId}] COMPENSATION: Generating ${compensationNeeded} compensation tracks`);
+        
+        // Use different search strategies for compensation
+        const searchStrategies = [
+          { type: 'genre', terms: ['reggaeton', 'latin', 'spanish music'] },
+          { type: 'artist', artists: intent.artists_llm?.slice(0, 5) || [] },
+          { type: 'generic', terms: ['popular', 'hits', 'trending'] }
+        ];
+        
+        for (const strategy of searchStrategies) {
+          if (compensationNeeded <= 0) break;
+          
+          try {
+            let compensationTracks = [];
+            
+            if (strategy.type === 'genre') {
+              for (const term of strategy.terms) {
+                if (compensationTracks.length >= compensationNeeded * 2) break;
+                console.log(`[STREAM:${traceId}] COMPENSATION: Searching with genre term: "${term}"`);
+                const results = await radioFromRelatedTop(accessToken, [], compensationNeeded * 2, undefined, term);
+                if (results && results.length > 0) {
+                  compensationTracks.push(...results);
+                }
+                await new Promise(resolve => setTimeout(resolve, 500)); // Rate limiting
+              }
+            } else if (strategy.type === 'artist' && strategy.artists.length > 0) {
+              console.log(`[STREAM:${traceId}] COMPENSATION: Searching with artists: ${strategy.artists.join(', ')}`);
+              for (const artist of strategy.artists) {
+                if (compensationTracks.length >= compensationNeeded * 2) break;
+                try {
+                  const results = await getArtistTopRecent(accessToken, artist, 10);
+                  if (results && results.length > 0) {
+                    compensationTracks.push(...results);
+                  }
+                } catch (error) {
+                  console.log(`[STREAM:${traceId}] COMPENSATION: Artist ${artist} failed:`, error.message);
+                }
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+            }
+            
+            if (compensationTracks.length > 0) {
+              console.log(`[STREAM:${traceId}] COMPENSATION: Found ${compensationTracks.length} potential compensation tracks`);
+              
+              // Apply exclusions and deduplication
+              const filteredCompensation = compensationTracks.filter(track => notExcluded(track, intent.exclusions));
+              const dedupedCompensation = dedupeAgainstUsed(filteredCompensation, usedTracks);
+              
+              console.log(`[STREAM:${traceId}] COMPENSATION: ${compensationTracks.length} → ${filteredCompensation.length} → ${dedupedCompensation.length} after filtering/dedup`);
+              
+              // Add to deduped array
+              const toAdd = dedupedCompensation.slice(0, compensationNeeded);
+              deduped.push(...toAdd);
+              compensationNeeded -= toAdd.length;
+              
+              console.log(`[STREAM:${traceId}] COMPENSATION: Added ${toAdd.length} tracks, need ${compensationNeeded} more`);
+              
+              // Update global used tracks
+              toAdd.forEach(track => usedTracks.add(track.id));
+            }
+            
+          } catch (error) {
+            console.error(`[STREAM:${traceId}] COMPENSATION: Strategy ${strategy.type} failed:`, error);
+          }
+        }
+        
+      } catch (error) {
+        console.error(`[STREAM:${traceId}] COMPENSATION ERROR:`, error);
+      }
     }
     
     console.log(`[STREAM:${traceId}] Starting to yield ${deduped.length} deduped tracks in chunks`);
@@ -1075,7 +1147,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
     }
     
     // LAST RESORT: If we still need tracks and haven't reached the target, try generic search
-    if (totalYielded < remaining && spotifyAttempts >= 2) {
+    if (totalYielded < remaining) {
       const finalNeeded = remaining - totalYielded;
       console.log(`[STREAM:${traceId}] LAST RESORT: Still need ${finalNeeded} tracks, trying generic search`);
       
