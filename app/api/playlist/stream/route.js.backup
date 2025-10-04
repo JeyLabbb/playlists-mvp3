@@ -1156,6 +1156,372 @@ async function enrichArtistsWithSpotify(tracks, accessToken) {
 /**
  * Main SSE streaming handler - supports both GET and POST
  */
+export async function GET(request) {
+  const traceId = crypto.randomUUID();
+  const startTime = Date.now();
+  
+  // Reset global usedTracks for new session
+  globalUsedTracks.clear();
+  
+  try {
+    const { searchParams } = new URL(request.url);
+    const prompt = searchParams.get('prompt');
+    const target_tracks = parseInt(searchParams.get('target_tracks')) || 50;
+    const playlist_name = searchParams.get('playlist_name');
+    
+    if (!prompt || typeof prompt !== 'string') {
+      return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+    }
+    
+    console.log(`[STREAM:${traceId}] Starting SSE streaming (GET) for: "${prompt}"`);
+    
+    // Get session and access token
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      console.log(`[STREAM:${traceId}] No valid session found`);
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+    
+    const accessToken = session.accessToken;
+    console.log(`[STREAM:${traceId}] Session found for user: ${session.user?.email || 'unknown'}`);
+    
+    // Create SSE response
+    const encoder = new TextEncoder();
+    
+    const stream = new ReadableStream({
+      start(controller) {
+        let allTracks = [];
+        // Use global usedTracks to prevent repetition across all contexts
+        let usedTracks = globalUsedTracks;
+        let heartbeatInterval;
+        
+        // Set up heartbeat
+        heartbeatInterval = setInterval(() => {
+          try {
+            controller.enqueue(encoder.encode(`event: HEARTBEAT\ndata: {"timestamp": ${Date.now()}}\n\n`));
+          } catch (error) {
+            clearInterval(heartbeatInterval);
+          }
+        }, 8000);
+        
+        // Set up timeout
+        let isClosed = false;
+        const timeout = setTimeout(() => {
+          if (isClosed) return;
+          isClosed = true;
+          
+          console.log(`[STREAM:${traceId}] Timeout reached, sending partial results`);
+          clearInterval(heartbeatInterval);
+          
+          try {
+            if (allTracks.length > 0) {
+              controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+                tracks: allTracks,
+                totalSoFar: allTracks.length,
+                partial: true,
+                reason: 'timeout'
+              })}\n\n`));
+            } else {
+              controller.enqueue(encoder.encode(`event: ERROR\ndata: ${JSON.stringify({
+                error: 'Timeout without results',
+                totalSoFar: 0
+              })}\n\n`));
+            }
+            
+            controller.close();
+          } catch (error) {
+            console.log(`[STREAM:${traceId}] Controller already closed during timeout`);
+          }
+        }, target_tracks > 100 ? 300000 : 180000); // 5 minutes for high track counts, 3 minutes for normal
+        
+        // Main processing
+        (async () => {
+          try {
+                   // Get intent from LLM
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Analizando tu intención musical..."}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING PLAYLIST GENERATION =====`);
+                   console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
+                   console.log(`[STREAM:${traceId}] Target tracks: ${target_tracks}`);
+                   
+                   const intent = await getIntentFromLLM(prompt, target_tracks);
+                   if (!intent) {
+                     throw new Error("Failed to generate intent");
+                   }
+                   
+                   console.log(`[STREAM:${traceId}] ===== INTENT GENERATED =====`);
+                   console.log(`[STREAM:${traceId}] Intent summary:`, {
+                     mode: determineMode(intent, prompt),
+                     contexts: intent.contexts?.key || 'none',
+                     llmTracks: intent.tracks_llm?.length || 0,
+                     artists: intent.artists_llm?.length || 0,
+                     filteredArtists: intent.filtered_artists?.length || 0,
+                     priorityArtists: intent.priority_artists?.length || 0,
+                     exclusions: intent.exclusions ? 'yes' : 'no',
+                     canonized: intent.canonized ? 'yes' : 'no'
+                   });
+            
+                   // Process LLM tracks
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Añadiendo canciones: [0/${target_tracks}]", "target": ${target_tracks}}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
+            
+            for await (const chunk of yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks)) {
+              // Add new tracks to usedTracks set to prevent repetition
+              chunk.forEach(track => {
+                if (track.id) usedTracks.add(track.id);
+              });
+              allTracks = [...allTracks, ...chunk];
+              
+              try {
+                controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
+                  tracks: chunk,
+                  totalSoFar: allTracks.length,
+                  target: target_tracks,
+                  progress: Math.round((allTracks.length / target_tracks) * 100),
+                  message: `🔹 Construcción de la playlist (${allTracks.length}/${target_tracks})\n\n“Añadiendo canciones: [${allTracks.length}/${target_tracks}]”`
+                })}\n\n`));
+              } catch (error) {
+                if (error.code === 'ERR_INVALID_STATE') {
+                  console.log(`[STREAM:${traceId}] Controller closed, stopping LLM chunk processing`);
+                  break;
+                }
+                throw error;
+              }
+              
+              console.log(`[STREAM:${traceId}] LLM chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
+            }
+            
+            // For NORMAL mode: trim LLM tracks to 75% and prepare for Spotify
+            const mode = determineMode(intent, intent.prompt || '');
+            const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
+            const hasContexts = intent.contexts && intent.contexts.key && intent.contexts.key !== 'normal';
+            
+            if (mode === 'NORMAL' && !isUndergroundStrict && !hasContexts) {
+              const llmTarget = Math.max(50, Math.ceil(target_tracks * 0.75));
+              if (allTracks.length > llmTarget) {
+                console.log(`[STREAM:${traceId}] NORMAL mode: trimming LLM tracks from ${allTracks.length} to ${llmTarget}`);
+                allTracks = allTracks.slice(0, llmTarget);
+                
+                // Send trim update
+                controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
+                  tracks: [],
+                  totalSoFar: allTracks.length,
+                  target: target_tracks,
+                  progress: Math.round((allTracks.length / target_tracks) * 100),
+                  trimmed: true,
+                  message: `Trimmed to ${llmTarget} LLM tracks (75%)`
+                })}\n\n`));
+              }
+            }
+            
+                   controller.enqueue(encoder.encode(`event: LLM_DONE\ndata: {"totalSoFar": ${allTracks.length}, "target": ${target_tracks}}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== LLM PHASE COMPLETED =====`);
+                   console.log(`[STREAM:${traceId}] LLM tracks collected: ${allTracks.length}/${target_tracks}`);
+            
+                   // Process Spotify tracks if needed - keep trying until we reach target
+                   let remaining = target_tracks - allTracks.length;
+                   let spotifyAttempts = 0;
+                   const maxSpotifyAttempts = 5;
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING SPOTIFY PHASE =====`);
+                   console.log(`[STREAM:${traceId}] Remaining tracks needed: ${remaining}`);
+            
+            while (remaining > 0 && spotifyAttempts < maxSpotifyAttempts) {
+              spotifyAttempts++;
+              console.log(`[STREAM:${traceId}] Spotify attempt ${spotifyAttempts}/${maxSpotifyAttempts}, need: ${remaining} more tracks`);
+              
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Explorando catálogos y conexiones...", "remaining": ${remaining}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
+              
+              let spotifyYielded = 0;
+              for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks)) {
+                // Add new tracks to usedTracks set to prevent repetition
+                chunk.forEach(track => {
+                  if (track.id) usedTracks.add(track.id);
+                });
+                allTracks = [...allTracks, ...chunk];
+                spotifyYielded += chunk.length;
+                
+                controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                  tracks: chunk,
+                  totalSoFar: allTracks.length,
+                  target: target_tracks,
+                  progress: Math.round((allTracks.length / target_tracks) * 100),
+                  attempt: spotifyAttempts,
+                  message: `🔹 Construcción de la playlist (${allTracks.length}/${target_tracks})\n\n“Añadiendo canciones: [${allTracks.length}/${target_tracks}]”`
+                })}\n\n`));
+                
+                console.log(`[STREAM:${traceId}] Spotify chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
+                
+                // Update remaining
+                remaining = target_tracks - allTracks.length;
+                if (remaining <= 0) break;
+              }
+              
+              controller.enqueue(encoder.encode(`event: SPOTIFY_DONE\ndata: {"totalSoFar": ${allTracks.length}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
+              
+              // If we didn't get any new tracks, try with broader search terms
+              if (spotifyYielded === 0 && remaining > 0) {
+                console.log(`[STREAM:${traceId}] No new tracks from Spotify, trying broader search...`);
+                // Add context artists to intent for next attempt
+                if (!intent.artists_llm) intent.artists_llm = [];
+                if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
+                  const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
+                  console.log(`[STREAM:${traceId}] Adding context artists:`, contextArtists.slice(0, 5));
+                  intent.artists_llm.push(...contextArtists.slice(0, 10));
+                } else {
+                  console.log(`[STREAM:${traceId}] No context found, skipping generic terms`);
+                }
+              }
+              
+              // Update remaining for next iteration
+              remaining = target_tracks - allTracks.length;
+            }
+            
+            // Final check - if we still don't have enough, try one more time with very broad terms
+            if (allTracks.length < target_tracks) {
+              console.log(`[STREAM:${traceId}] Final attempt: need ${target_tracks - allTracks.length} more tracks`);
+              
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "🔹 Finalización\n\n“Últimos retoques antes de lanzar tu playlist…”", "remaining": ${target_tracks - allTracks.length}, "target": ${target_tracks}}\n\n`));
+              
+              try {
+                // Skip final attempt with generic terms - they cause problems
+                console.log(`[STREAM:${traceId}] Skipping final attempt with generic terms`);
+                const finalTracks = [];
+                const filtered = finalTracks.filter(track => notExcluded(track, intent.exclusions));
+                
+                if (filtered.length > 0) {
+                  const toAdd = filtered.slice(0, target_tracks - allTracks.length);
+                  allTracks = [...allTracks, ...toAdd];
+                  
+                  controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                    tracks: toAdd,
+                    totalSoFar: allTracks.length,
+                    target: target_tracks,
+                    progress: Math.round((allTracks.length / target_tracks) * 100),
+                    final: true,
+                    message: `🔹 Construcción de la playlist (${allTracks.length}/${target_tracks})\n\n“Añadiendo canciones: [${allTracks.length}/${target_tracks}]”`
+                  })}\n\n`));
+                  
+                  console.log(`[STREAM:${traceId}] Final attempt yielded: ${toAdd.length} tracks, total: ${allTracks.length}/${target_tracks}`);
+                }
+              } catch (error) {
+                console.error(`[STREAM:${traceId}] Final attempt failed:`, error);
+              }
+            }
+            
+            // Final deduplication to prevent any duplicates
+            console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks before dedup`);
+            allTracks = dedupeById(allTracks);
+            console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks after dedup`);
+            
+            // Ensure we have the target number of tracks
+            if (allTracks.length > target_tracks) {
+              allTracks = allTracks.slice(0, target_tracks);
+            }
+            
+            // Apply audio features (optional, non-blocking)
+            try {
+              const idsOrUris = allTracks.map((t) => t.uri || t.trackUri || t.id).filter(Boolean);
+              const featuresMap = await fetchAudioFeaturesSafe(accessToken, idsOrUris);
+              allTracks = allTracks.map(track => ({
+                ...track,
+                audio_features: featuresMap[track.id] || null
+              }));
+            } catch (error) {
+              console.warn(`[STREAM:${traceId}] Audio features failed:`, error);
+            }
+            
+            // Enrich artists with Spotify
+            allTracks = await enrichArtistsWithSpotify(allTracks, accessToken);
+            
+            // Store for debugging
+            try {
+              await storeLastRun({
+                prompt,
+                target_tracks,
+                final_tracks: allTracks.length,
+                mode: determineMode(intent, prompt),
+                duration: Date.now() - startTime,
+                success: true
+              });
+            } catch (e) {
+              console.warn(`[STREAM:${traceId}] Failed to store debug data:`, e.message);
+            }
+            
+                   // Send final result
+                   clearTimeout(timeout);
+                   clearInterval(heartbeatInterval);
+                   
+                   console.log(`[STREAM:${traceId}] ===== SENDING FINAL RESULT =====`);
+                   console.log(`[STREAM:${traceId}] Final tracks count: ${allTracks.length}`);
+                   console.log(`[STREAM:${traceId}] Final tracks sample:`, allTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
+                   
+                   try {
+                     controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+                       tracks: allTracks,
+                       totalSoFar: allTracks.length,
+                       partial: false,
+                       duration: Date.now() - startTime
+                     })}\n\n`));
+                     
+                     console.log(`[STREAM:${traceId}] Final result sent, closing connection`);
+                     controller.close();
+                   } catch (error) {
+                     if (error.code === 'ERR_INVALID_STATE') {
+                       console.log(`[STREAM:${traceId}] Controller already closed, skipping final result`);
+                     } else {
+                       throw error;
+                     }
+                   }
+            
+          } catch (error) {
+            console.error(`[STREAM:${traceId}] Processing error:`, error);
+            
+            clearTimeout(timeout);
+            clearInterval(heartbeatInterval);
+            
+            if (allTracks.length > 0) {
+              controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+                tracks: allTracks,
+                totalSoFar: allTracks.length,
+                partial: true,
+                reason: 'error',
+                error: error.message
+              })}\n\n`));
+            } else {
+              controller.enqueue(encoder.encode(`event: ERROR\ndata: ${JSON.stringify({
+                error: error.message || 'Processing failed',
+                totalSoFar: 0
+              })}\n\n`));
+            }
+            
+            controller.close();
+          }
+        })();
+      }
+    });
+    
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+    });
+    
+  } catch (error) {
+    console.error(`[STREAM:${traceId}] Fatal error:`, error);
+    return NextResponse.json({ 
+      error: error.message || 'Internal server error',
+      ok: false 
+    }, { status: 500 });
+  }
+}
 
 /**
  * Main SSE streaming handler - supports both GET and POST
