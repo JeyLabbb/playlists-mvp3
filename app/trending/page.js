@@ -116,6 +116,8 @@ export default function TrendingPage() {
 
   const trackClick = async (playlistId, spotifyUrl) => {
     try {
+      console.log('trackClick called with:', { playlistId, spotifyUrl });
+      
       // Track click in our new metrics system
       const response = await fetch('/api/metrics', {
         method: 'POST',
@@ -132,11 +134,18 @@ export default function TrendingPage() {
       }
       
       // Open Spotify link
-      window.open(spotifyUrl, '_blank');
+      if (spotifyUrl) {
+        console.log('Opening Spotify URL:', spotifyUrl);
+        window.open(spotifyUrl, '_blank');
+      } else {
+        console.error('No Spotify URL provided');
+      }
     } catch (error) {
       console.error('Error tracking click:', error);
       // Still open the link even if tracking fails
-      window.open(spotifyUrl, '_blank');
+      if (spotifyUrl) {
+        window.open(spotifyUrl, '_blank');
+      }
     }
   };
 
@@ -420,10 +429,14 @@ export default function TrendingPage() {
                             {/* Stats */}
                             <div className="flex items-center gap-1 sm:gap-4 text-xs sm:text-sm text-gray-500">
                               <span>{playlist.trackCount} canciones</span>
-                              <span className="hidden sm:inline">👀</span>
-                              <span>{formatNumber(playlist.views || 0)}</span>
-                              <span className="hidden sm:inline">🔗</span>
-                              <span>{formatNumber(playlist.clicks || 0)}</span>
+                              <span className="flex items-center gap-1">
+                                <span>👀</span>
+                                <span>{formatNumber(playlist.views || 0)}</span>
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <span>🔗</span>
+                                <span>{formatNumber(playlist.clicks || 0)}</span>
+                              </span>
                               <span className="hidden sm:inline">
                                 {new Date(playlist.createdAt).toLocaleDateString('es-ES', {
                                   year: '2-digit',

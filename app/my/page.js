@@ -261,7 +261,7 @@ export default function MyPlaylistsPage() {
       <div className="min-h-screen bg-gray-950 text-white">
         <Navigation />
         
-        <div className="pt-20 pb-12 px-6">
+        <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">
             <div className="mb-8">
               <div className="text-6xl mb-4">📚</div>
@@ -292,7 +292,7 @@ export default function MyPlaylistsPage() {
       <div className="min-h-screen bg-gray-950 text-white">
         <Navigation />
         
-        <div className="pt-20 pb-12 px-6">
+        <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
           <div className="max-w-4xl mx-auto">
             <div className="flex items-center justify-center py-20">
               <div className="text-center">
@@ -312,7 +312,7 @@ export default function MyPlaylistsPage() {
       <div className="min-h-screen bg-gray-950 text-white">
         <Navigation />
         
-        <div className="pt-20 pb-12 px-6">
+        <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">
             <div className="mb-8">
               <div className="text-6xl mb-4">⚠️</div>
@@ -338,7 +338,7 @@ export default function MyPlaylistsPage() {
       <div className="min-h-screen bg-gray-950 text-white">
         <Navigation />
         
-        <div className="pt-20 pb-12 px-6">
+        <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">
             <div className="mb-8">
               <div className="text-6xl mb-4">📚</div>
@@ -372,9 +372,9 @@ export default function MyPlaylistsPage() {
       <Navigation />
       
       {/* Header */}
-      <div className="pt-20 pb-8 px-6">
+      <div className="pt-12 sm:pt-20 pb-4 sm:pb-8 px-4 sm:px-6">
         <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-8">
+          <div className="text-center mb-4 sm:mb-8">
             <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-green-400 to-cyan-400 bg-clip-text text-transparent">
               Mis Playlists
             </h1>
