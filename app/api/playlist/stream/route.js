@@ -1591,14 +1591,54 @@ async function handleStreamingRequest(request) {
                          const similarArtists = intent.artists_llm || intent.contexts?.compass || [];
                          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using similar artists:`, similarArtists.slice(0, 5));
                          
-                         const spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, similarArtists, target_tracks));
+                         // Limit tracks per artist to ensure variety (max 3 per artist)
+                         const maxTracksPerArtist = Math.max(2, Math.floor(target_tracks / similarArtists.length));
+                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Max tracks per artist: ${maxTracksPerArtist}`);
+                         
+                         const spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, similarArtists, target_tracks * 2)); // Get more to filter
                          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${spotifyTracks.length} tracks from similar artists`);
                          
-                         // Apply exclusions to fallback tracks
-                         let filteredTracks = spotifyTracks;
+                         // Apply artist limit to ensure variety
+                         const artistCounts = new Map();
+                         const limitedTracks = [];
+                         
+                         for (const track of spotifyTracks) {
+                           if (!track || !track.artistNames || track.artistNames.length === 0) {
+                             limitedTracks.push(track);
+                             continue;
+                           }
+                           
+                           let canAdd = true;
+                           const trackArtists = track.artistNames;
+                           
+                           for (const artist of trackArtists) {
+                             const count = artistCounts.get(artist) || 0;
+                             if (count >= maxTracksPerArtist) {
+                               canAdd = false;
+                               break;
+                             }
+                           }
+                           
+                           if (canAdd) {
+                             for (const artist of trackArtists) {
+                               artistCounts.set(artist, (artistCounts.get(artist) || 0) + 1);
+                             }
+                             limitedTracks.push(track);
+                           }
+                           
+                           if (limitedTracks.length >= target_tracks) break;
+                         }
+                         
+                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Limited to ${limitedTracks.length} tracks for variety`);
+                         for (const [artist, count] of artistCounts.entries()) {
+                           console.log(`[STREAM:${traceId}] ARTIST_STYLE: ${artist}: ${count} tracks`);
+                         }
+                         
+                         // Apply exclusions to limited tracks
+                         let filteredTracks = limitedTracks;
                          if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
-                           filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
-                           console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions to fallback ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
+                           filteredTracks = limitedTracks.filter(track => notExcluded(track, intent.exclusions));
+                           console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions to fallback ${limitedTracks.length} → ${filteredTracks.length} tracks`);
                          }
                          
                          allTracks = [...allTracks, ...filteredTracks];
