@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, use } from 'react';
 import { usePathname } from 'next/navigation';
 import Navigation from '../../components/Navigation';
 
 export default function PublicProfilePage({ params }) {
   const pathname = usePathname();
-  const username = params.username || pathname.split('/').pop();
+  const resolvedParams = use(params);
+  const username = resolvedParams.username || pathname.split('/').pop();
   
   const [profile, setProfile] = useState(null);
   const [publicPlaylists, setPublicPlaylists] = useState([]);
