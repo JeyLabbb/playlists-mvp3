@@ -981,38 +981,49 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
           hasContexts: intent.contexts && MUSICAL_CONTEXTS[intent.contexts]
         });
         
+        // Create a diversified search strategy to avoid repetition
+        const allAvailableArtists = [];
+        
         if (priorityArtists.length > 0) {
-          // PRIORITY: Use priority artists first for "sus oyentes también escuchan"
-          searchArtists = [...priorityArtists.slice(0, 5), ...searchArtists];
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: ✅ Using priority artists:`, priorityArtists.slice(0, 5));
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: Strategy = Priority artists for "sus oyentes también escuchan"`);
-        } else if (llmTracks.length > 0) {
-          // Use LLM track artists
+          allAvailableArtists.push(...priorityArtists);
+        }
+        if (llmTracks.length > 0) {
           const trackArtists = llmTracks.map(t => t.artist).filter(Boolean);
-          searchArtists = [...trackArtists.slice(0, 8), ...searchArtists];
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: ✅ Using LLM track artists:`, trackArtists.slice(0, 5));
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: Strategy = Extract artists from LLM tracks`);
-        } else if (llmArtists.length > 0) {
-          // Use LLM artists
-          searchArtists = [...llmArtists.slice(0, 8), ...searchArtists];
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: ✅ Using LLM artists:`, llmArtists.slice(0, 5));
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: Strategy = Use LLM-generated artists`);
-        } else if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
-          // Use context artists
+          allAvailableArtists.push(...trackArtists);
+        }
+        if (llmArtists.length > 0) {
+          allAvailableArtists.push(...llmArtists);
+        }
+        if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
           const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
-          searchArtists = [...contextArtists.slice(0, 8), ...searchArtists];
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: ✅ Using context artists:`, contextArtists.slice(0, 5));
-          console.log(`[STREAM:${traceId}] BROADER SEARCH: Strategy = Use context-specific artists`);
+          allAvailableArtists.push(...contextArtists);
+        }
+        
+        // Remove duplicates and shuffle for variety
+        const uniqueArtists = [...new Set(allAvailableArtists)];
+        const shuffledArtists = [...uniqueArtists].sort(() => Math.random() - 0.5);
+        
+        // Use different artists for broader search (skip first few to get variety)
+        const broaderSearchArtists = shuffledArtists.slice(3, 15); // Skip first 3, take next 12
+        
+        if (broaderSearchArtists.length > 0) {
+          searchArtists = broaderSearchArtists;
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: ✅ Using diversified artists (${broaderSearchArtists.length}):`, broaderSearchArtists.slice(0, 5));
+          console.log(`[STREAM:${traceId}] BROADER SEARCH: Strategy = Diversified artist selection to avoid repetition`);
         } else {
           console.log(`[STREAM:${traceId}] BROADER SEARCH: ❌ No artists available, skipping broader search`);
           console.log(`[STREAM:${traceId}] BROADER SEARCH: Strategy = No fallback available`);
         }
         
+        console.log(`[STREAM:${traceId}] BROADER SEARCH: Searching with ${searchArtists.length} artists for ${totalNeeded} tracks`);
+        console.log(`[STREAM:${traceId}] BROADER SEARCH: Current global usedTracks size: ${usedTracks.size}`);
+        
         const broaderTracks = dedupeById(await radioFromRelatedTop(accessToken, searchArtists, totalNeeded));
         const broaderFiltered = broaderTracks.filter(track => notExcluded(track, intent.exclusions));
         const broaderDeduped = dedupeAgainstUsed(broaderFiltered, usedTracks);
         
-        console.log(`[STREAM:${traceId}] BROADER SEARCH: Found ${broaderTracks.length} tracks, ${broaderDeduped.length} after deduplication`);
+        console.log(`[STREAM:${traceId}] BROADER SEARCH: Found ${broaderTracks.length} tracks, ${broaderFiltered.length} after exclusions, ${broaderDeduped.length} after deduplication`);
+        console.log(`[STREAM:${traceId}] BROADER SEARCH: Deduplication removed ${broaderFiltered.length - broaderDeduped.length} already used tracks`);
         
         if (broaderDeduped.length > 0) {
           const toYield = broaderDeduped.slice(0, remaining - totalYielded);
@@ -1027,6 +1038,36 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
         }
       } catch (error) {
         console.error(`[STREAM:${traceId}] Broader search failed:`, error);
+      }
+    }
+    
+    // LAST RESORT: If we still need tracks and haven't reached the target, try generic search
+    if (totalYielded < remaining && spotifyAttempts >= 2) {
+      const finalNeeded = remaining - totalYielded;
+      console.log(`[STREAM:${traceId}] LAST RESORT: Still need ${finalNeeded} tracks, trying generic search`);
+      
+      try {
+        // Use completely different search terms to avoid repetition
+        const genericTerms = ['popular', 'trending', 'hits', 'new', 'recent'];
+        const genericTracks = dedupeById(await searchGenericTracks(accessToken, finalNeeded));
+        const genericFiltered = genericTracks.filter(track => notExcluded(track, intent.exclusions));
+        const genericDeduped = dedupeAgainstUsed(genericFiltered, usedTracks);
+        
+        console.log(`[STREAM:${traceId}] LAST RESORT: Found ${genericTracks.length} generic tracks, ${genericDeduped.length} after deduplication`);
+        
+        if (genericDeduped.length > 0) {
+          const toYield = genericDeduped.slice(0, finalNeeded);
+          totalYielded += toYield.length;
+          
+          if (toYield.length > 0) {
+            chunkCounter++;
+            console.log(`[STREAM:${traceId}] Last resort chunk ${chunkCounter} yielded: ${toYield.length} tracks, total: ${totalYielded}/${remaining}`);
+            console.log(`[STREAM:${traceId}] Last resort tracks:`, toYield.map(t => ({ name: t.name, artists: t.artistNames })));
+            yield toYield;
+          }
+        }
+      } catch (error) {
+        console.error(`[STREAM:${traceId}] Last resort search failed:`, error);
       }
     }
     
