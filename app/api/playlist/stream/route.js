@@ -954,8 +954,16 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
     
     // COMPENSATION LOGIC: If tracks were filtered out, we need to compensate
     const filteredOut = spotifyTracks.length - deduped.length;
-    if (filteredOut > 0) {
-      console.log(`[STREAM:${traceId}] COMPENSATION: ${filteredOut} tracks were filtered out, need to compensate`);
+    let compensationNeeded = filteredOut;
+    
+    // See if we're short on tracks
+    const availableSpots = Math.max(0, remaining - totalYielded);
+    if (availableSpots > 0 && deduped.length < availableSpots) {
+      compensationNeeded = availableSpots;
+    }
+    
+    if (compensationNeeded > 0) {
+      console.log(`[STREAM:${traceId}] COMPENSATION: Need ${compensationNeeded} more tracks (${filteredOut} filtered, ${availableSpots} needed)`);
     }
     
     console.log(`[STREAM:${traceId}] Starting to yield ${deduped.length} deduped tracks in chunks`);
