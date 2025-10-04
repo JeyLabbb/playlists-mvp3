@@ -19,7 +19,14 @@ export default function TrendingPage() {
       const data = await response.json();
       
       if (data.success) {
-        setPlaylists(data.playlists);
+        if (data.fallback) {
+          // KV not available, try to get playlists from localStorage
+          console.log('KV not available, trying localStorage fallback');
+          const localStoragePlaylists = await getPlaylistsFromLocalStorage();
+          setPlaylists(localStoragePlaylists);
+        } else {
+          setPlaylists(data.playlists);
+        }
       } else {
         console.error('Error fetching trending playlists:', data.error);
       }
@@ -27,6 +34,70 @@ export default function TrendingPage() {
       console.error('Error fetching trending playlists:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getPlaylistsFromLocalStorage = async () => {
+    try {
+      // Get all localStorage keys that start with 'jey_user_playlists:'
+      const allKeys = Object.keys(localStorage);
+      const playlistKeys = allKeys.filter(key => key.startsWith('jey_user_playlists:'));
+      
+      const allPlaylists = [];
+      
+      for (const key of playlistKeys) {
+        try {
+          const userPlaylists = JSON.parse(localStorage.getItem(key) || '[]');
+          allPlaylists.push(...userPlaylists);
+        } catch (error) {
+          console.warn('Error parsing localStorage playlist:', key, error);
+        }
+      }
+      
+      // Filter only public playlists and add author info
+      const publicPlaylists = allPlaylists
+        .filter(playlist => playlist.public === true)
+        .map(playlist => ({
+          id: playlist.playlistId,
+          prompt: playlist.prompt || 'Playlist creada',
+          playlistName: playlist.name,
+          playlistId: playlist.playlistId,
+          spotifyUrl: playlist.url,
+          trackCount: playlist.tracks || 0,
+          views: playlist.views || 0,
+          clicks: playlist.clicks || 0,
+          createdAt: playlist.createdAt,
+          updatedAt: playlist.updatedAt || playlist.createdAt,
+          author: {
+            username: playlist.username || playlist.userEmail?.split('@')[0] || 'unknown',
+            displayName: playlist.userName || playlist.userEmail?.split('@')[0] || 'Usuario',
+            image: playlist.userImage || null
+          }
+        }));
+      
+      console.log(`[TRENDING] Found ${allPlaylists.length} total playlists from localStorage, ${publicPlaylists.length} public`);
+      
+      // Sort playlists
+      let sortedPlaylists = [...publicPlaylists];
+      
+      switch (sortBy) {
+        case 'views':
+          sortedPlaylists.sort((a, b) => (b.views || 0) - (a.views || 0) || new Date(b.createdAt) - new Date(a.createdAt));
+          break;
+        case 'clicks':
+          sortedPlaylists.sort((a, b) => (b.clicks || 0) - (a.clicks || 0) || new Date(b.createdAt) - new Date(a.createdAt));
+          break;
+        case 'recent':
+        default:
+          sortedPlaylists.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+          break;
+      }
+      
+      return sortedPlaylists.slice(0, 50);
+      
+    } catch (error) {
+      console.error('Error getting playlists from localStorage:', error);
+      return [];
     }
   };
 
