@@ -341,12 +341,27 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
   });
   
   const llmTracks = intent.tracks_llm || [];
-             const chunkSize = 20; // Increased chunk size
+  
+  // Pre-deduplicate LLM tracks to avoid processing duplicates
+  const uniqueLLMTracks = [];
+  const seenTracks = new Set();
+  
+  for (const track of llmTracks) {
+    const trackKey = `${track.title?.toLowerCase()}-${track.artist?.toLowerCase()}`;
+    if (!seenTracks.has(trackKey)) {
+      seenTracks.add(trackKey);
+      uniqueLLMTracks.push(track);
+    }
+  }
+  
+  console.log(`[STREAM:${traceId}] LLM tracks deduplication: ${llmTracks.length} → ${uniqueLLMTracks.length}`);
+  
+  const chunkSize = 20; // Increased chunk size
   let totalYielded = 0;
   let chunkCounter = 0;
   
-  if (llmTracks.length === 0) {
-    console.log(`[STREAM:${traceId}] No LLM tracks to process, skipping LLM phase`);
+  if (uniqueLLMTracks.length === 0) {
+    console.log(`[STREAM:${traceId}] No unique LLM tracks to process, skipping LLM phase`);
     return;
   }
   
@@ -377,9 +392,9 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
              const maxLLMIterations = mode === 'NORMAL' ? 10 : 5;
              let iteration = 0;
              
-             for (let i = 0; i < llmTracks.length && totalYielded < llmTarget && iteration < maxLLMIterations; i += chunkSize) {
+             for (let i = 0; i < uniqueLLMTracks.length && totalYielded < llmTarget && iteration < maxLLMIterations; i += chunkSize) {
                iteration++;
-    const chunk = llmTracks.slice(i, i + chunkSize);
+    const chunk = uniqueLLMTracks.slice(i, i + chunkSize);
     chunkCounter++;
     console.log(`[STREAM:${traceId}] Processing LLM chunk ${chunkCounter}: ${chunk.length} tracks`);
     
