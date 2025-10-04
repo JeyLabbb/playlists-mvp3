@@ -340,7 +340,7 @@ export default function PublicProfilePage({ params }) {
                         </h3>
                         
                         <p className="text-gray-400 text-sm mb-3 line-clamp-2">
-                          "{anonymizePrompt(playlist.prompt)}"
+                          &ldquo;{anonymizePrompt(playlist.prompt)}&rdquo;
                         </p>
                         
                         <div className="flex items-center gap-4 text-xs text-gray-500">

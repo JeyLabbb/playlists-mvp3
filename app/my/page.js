@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSession, signIn } from 'next-auth/react';
+import Link from 'next/link';
 import Navigation from '../components/Navigation';
 
 export default function MyPlaylistsPage() {
@@ -352,13 +353,13 @@ export default function MyPlaylistsPage() {
               </p>
             </div>
             
-            <a
+            <Link
               href="/"
               className="inline-flex items-center gap-3 bg-green-500 hover:bg-green-600 text-white font-semibold px-8 py-4 rounded-xl transition-colors duration-200 shadow-lg hover:shadow-xl"
             >
               <span className="text-xl">🎵</span>
               <span>Crear Playlist</span>
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -406,7 +407,7 @@ export default function MyPlaylistsPage() {
                     </h3>
                     
                     <p className="text-gray-400 text-sm mb-2 line-clamp-2">
-                      "{playlist.prompt}"
+                      &ldquo;{playlist.prompt}&rdquo;
                     </p>
                     
                     <div className="flex items-center gap-3 text-xs text-gray-500">
@@ -501,7 +502,7 @@ export default function MyPlaylistsPage() {
                     {previewPlaylist.name}
                   </h2>
                   <p className="text-gray-300 text-base mb-2">
-                    "{previewPlaylist.prompt}"
+                    &ldquo;{previewPlaylist.prompt}&rdquo;
                   </p>
                   <div className="flex items-center gap-4 text-sm text-gray-400">
                     <span>{previewPlaylist.tracks} canciones</span>

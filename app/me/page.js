@@ -416,7 +416,7 @@ export default function ProfilePage() {
                 />
                 {/* Debug info */}
                 <div className="text-xs text-gray-500 mt-1">
-                  Debug: formData.bio = "{formData.bio}"
+                  Debug: formData.bio = &ldquo;{formData.bio}&rdquo;
                 </div>
               </div>
 

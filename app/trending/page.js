@@ -384,7 +384,7 @@ export default function TrendingPage() {
                           </h3>
                           
                           <p className="text-gray-400 text-sm mb-3 line-clamp-2">
-                            "{anonymizePrompt(playlist.prompt)}"
+                            &ldquo;{anonymizePrompt(playlist.prompt)}&rdquo;
                           </p>
                           
                           <div className="space-y-3">
