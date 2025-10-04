@@ -476,6 +476,11 @@ export default function TrendingPage() {
                     </h2>
                     <p className="text-gray-400 text-sm">
                       {previewTracks.length} canciones • Creado por @{previewPlaylist.author?.username || 'unknown'}
+                      {previewTracks.length > 15 && (
+                        <span className="block mt-1 text-xs text-gray-500">
+                          Mostrando 15 canciones aleatorias
+                        </span>
+                      )}
                     </p>
                   </div>
                   <button
@@ -501,7 +506,12 @@ export default function TrendingPage() {
                   ) : previewTracks.length > 0 ? (
                     <div className="p-6">
                       <div className="space-y-3">
-                        {previewTracks.slice(0, 10).map((track, index) => (
+                        {(() => {
+                          // Shuffle tracks and take up to 15 random ones
+                          const shuffledTracks = [...previewTracks].sort(() => Math.random() - 0.5);
+                          const randomTracks = shuffledTracks.slice(0, 15);
+                          
+                          return randomTracks.map((track, index) => (
                           <div key={`track-${previewPlaylist.playlistId}-${index}-${track.id}`} className="flex items-center gap-3 py-2 border-b border-gray-800 last:border-b-0">
                             <span className="text-gray-500 text-sm w-8">{index + 1}</span>
                             <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
@@ -514,11 +524,12 @@ export default function TrendingPage() {
                               </p>
                             </div>
                           </div>
-                        ))}
-                        {previewTracks.length > 10 && (
+                          ));
+                        })()}
+                        {previewTracks.length > 15 && (
                           <div className="text-center py-4">
                             <p className="text-gray-500 text-sm">
-                              ... y {previewTracks.length - 10} canciones más
+                              ... y {previewTracks.length - 15} canciones más
                             </p>
                           </div>
                         )}
