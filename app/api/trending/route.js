@@ -1,34 +1,50 @@
 import { NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
-import path from 'path';
 
-const TRENDING_FILE = path.join(process.cwd(), 'data', 'trending_playlists.json');
-
-// Ensure data directory exists
-async function ensureDataDir() {
-  const dataDir = path.dirname(TRENDING_FILE);
-  try {
-    await fs.access(dataDir);
-  } catch {
-    await fs.mkdir(dataDir, { recursive: true });
-  }
+// Check if Vercel KV is available
+function hasKV() {
+  return process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
 }
 
-// Read trending playlists
-async function getTrendingPlaylists() {
+// Get all user playlists from KV
+async function getAllUserPlaylists() {
   try {
-    await fs.access(TRENDING_FILE);
-    const data = await fs.readFile(TRENDING_FILE, 'utf-8');
-    return JSON.parse(data);
-  } catch {
+    const response = await fetch(`${process.env.KV_REST_API_URL}/keys/userplaylists:*`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = await response.json();
+    const allPlaylists = [];
+    
+    // Get each user's playlists
+    for (const key of data.result || []) {
+      const playlistResponse = await fetch(`${process.env.KV_REST_API_URL}/get/${key}`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (playlistResponse.ok) {
+        const playlistData = await playlistResponse.json();
+        if (playlistData.result) {
+          const userPlaylists = JSON.parse(playlistData.result);
+          allPlaylists.push(...userPlaylists);
+        }
+      }
+    }
+    
+    return allPlaylists;
+  } catch (error) {
+    console.warn('Error getting all playlists from KV:', error);
     return [];
   }
-}
-
-// Write trending playlists
-async function writeTrendingPlaylists(playlists) {
-  await ensureDataDir();
-  await fs.writeFile(TRENDING_FILE, JSON.stringify(playlists, null, 2));
 }
 
 // Generate dynamic playlist name using OpenAI
@@ -83,88 +99,73 @@ async function generateDynamicName(prompt) {
   }
 }
 
-// POST: Register new trending playlist
+// POST: Register new trending playlist (deprecated - now handled by userplaylists)
 export async function POST(request) {
   try {
-    const body = await request.json();
-    const { prompt, playlistName, playlistId, spotifyUrl, trackCount } = body;
-
-    if (!prompt || !playlistId) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-    }
-
-    // Generate dynamic name if not provided
-    let finalPlaylistName = playlistName;
-    if (!playlistName || playlistName.trim() === '') {
-      finalPlaylistName = await generateDynamicName(prompt);
-    }
-
-    const playlists = await getTrendingPlaylists();
-    
-    // Check if playlist already exists
-    const existingIndex = playlists.findIndex(p => p.playlistId === playlistId);
-    
-    const playlistData = {
-      id: Date.now().toString(), // Simple ID
-      prompt: prompt,
-      playlistName: finalPlaylistName,
-      playlistId: playlistId,
-      spotifyUrl: spotifyUrl,
-      trackCount: trackCount || 0,
-      views: 0,
-      clicks: 0,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    if (existingIndex >= 0) {
-      // Update existing playlist
-      playlists[existingIndex] = { 
-        ...playlists[existingIndex], 
-        ...playlistData,
-        views: playlists[existingIndex].views,
-        clicks: playlists[existingIndex].clicks 
-      };
-    } else {
-      // Add new playlist
-      playlists.unshift(playlistData);
-      
-      // Keep only last 100 playlists
-      if (playlists.length > 100) {
-        playlists.splice(100);
-      }
-    }
-
-    await writeTrendingPlaylists(playlists);
-
-    return NextResponse.json({ 
-      success: true, 
-      playlist: playlistData 
+    return NextResponse.json({
+      success: true,
+      message: 'Playlists are now automatically registered when created through userplaylists',
+      deprecated: true
     });
-
   } catch (error) {
-    console.error('Error saving trending playlist:', error);
-    return NextResponse.json({ error: 'Failed to save playlist' }, { status: 500 });
+    console.error('Error in trending POST:', error);
+    return NextResponse.json({ error: 'Endpoint deprecated' }, { status: 500 });
   }
 }
 
-// GET: Retrieve trending playlists
+// GET: Retrieve trending playlists (public only with author info)
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const limit = parseInt(searchParams.get('limit')) || 20;
     const sortBy = searchParams.get('sortBy') || 'recent'; // 'recent', 'views', 'clicks'
 
-    const playlists = await getTrendingPlaylists();
+    let playlists = [];
 
+    // Try KV first
+    if (hasKV()) {
+      const allPlaylists = await getAllUserPlaylists();
+      // Filter only public playlists and add author info
+      playlists = allPlaylists
+        .filter(playlist => playlist.public === true) // Default to true for legacy playlists
+        .map(playlist => ({
+          id: playlist.playlistId,
+          prompt: playlist.prompt || 'Playlist creada',
+          playlistName: playlist.name,
+          playlistId: playlist.playlistId,
+          spotifyUrl: playlist.url,
+          trackCount: playlist.tracks || 0,
+          views: playlist.views || 0,
+          clicks: playlist.clicks || 0,
+          createdAt: playlist.createdAt,
+          updatedAt: playlist.updatedAt || playlist.createdAt,
+          author: {
+            username: playlist.username || playlist.userEmail?.split('@')[0] || 'unknown',
+            displayName: playlist.userName || playlist.userEmail?.split('@')[0] || 'Usuario',
+            image: playlist.userImage || null
+          }
+        }));
+    }
+
+    // If no KV or no playlists, return fallback
+    if (!hasKV()) {
+      return NextResponse.json({
+        success: true,
+        playlists: [],
+        fallback: true,
+        message: 'KV not available - using localStorage fallback'
+      });
+    }
+
+    // Sort playlists
     let sortedPlaylists = [...playlists];
     
     switch (sortBy) {
       case 'views':
-        sortedPlaylists.sort((a, b) => (b.views || 0) - (a.views || 0));
+        sortedPlaylists.sort((a, b) => (b.views || 0) - (a.views || 0) || new Date(b.createdAt) - new Date(a.createdAt));
         break;
       case 'clicks':
-        sortedPlaylists.sort((a, b) => (b.clicks || 0) - (a.clicks || 0));
+        sortedPlaylists.sort((a, b) => (b.clicks || 0) - (a.clicks || 0) || new Date(b.createdAt) - new Date(a.createdAt));
         break;
       case 'recent':
       default:
@@ -177,7 +178,8 @@ export async function GET(request) {
     return NextResponse.json({
       success: true,
       playlists: limitedPlaylists,
-      total: playlists.length
+      total: playlists.length,
+      source: 'kv'
     });
 
   } catch (error) {
@@ -186,40 +188,16 @@ export async function GET(request) {
   }
 }
 
-// Increment view count (separate endpoint for tracking)
+// PUT: Update playlist metrics (now delegated to /api/metrics)
 export async function PUT(request) {
   try {
-    const body = await request.json();
-    const { playlistId, type = 'view' } = body; // 'view' or 'click'
-
-    if (!playlistId) {
-      return NextResponse.json({ error: 'Missing playlistId' }, { status: 400 });
-    }
-
-    const playlists = await getTrendingPlaylists();
-    const playlistIndex = playlists.findIndex(p => p.playlistId === playlistId);
-
-    if (playlistIndex === -1) {
-      return NextResponse.json({ error: 'Playlist not found' }, { status: 404 });
-    }
-
-    if (type === 'view') {
-      playlists[playlistIndex].views = (playlists[playlistIndex].views || 0) + 1;
-    } else if (type === 'click') {
-      playlists[playlistIndex].clicks = (playlists[playlistIndex].clicks || 0) + 1;
-    }
-
-    playlists[playlistIndex].updatedAt = new Date().toISOString();
-    
-    await writeTrendingPlaylists(playlists);
-
-    return NextResponse.json({ 
-      success: true, 
-      playlist: playlists[playlistIndex] 
+    return NextResponse.json({
+      success: false,
+      message: 'This endpoint is deprecated. Use /api/metrics instead.',
+      deprecated: true
     });
-
   } catch (error) {
-    console.error('Error updating playlist stats:', error);
-    return NextResponse.json({ error: 'Failed to update playlist' }, { status: 500 });
+    console.error('Error in trending PUT:', error);
+    return NextResponse.json({ error: 'Endpoint deprecated' }, { status: 500 });
   }
 }

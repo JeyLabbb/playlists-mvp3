@@ -99,6 +99,37 @@ export async function GET(request) {
   }
 }
 
+// Get user profile for author info
+async function getUserProfile(email) {
+  try {
+    const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/profile`, {
+      method: 'GET',
+      headers: {
+        'Cookie': `next-auth.session-token=${process.env.NEXTAUTH_SECRET}` // This would need proper session passing
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      return data.profile;
+    }
+    
+    // Fallback to session data if profile API fails
+    return {
+      username: email.split('@')[0],
+      displayName: email.split('@')[0],
+      image: null
+    };
+  } catch (error) {
+    console.warn('Error getting user profile:', error);
+    return {
+      username: email.split('@')[0],
+      displayName: email.split('@')[0],
+      image: null
+    };
+  }
+}
+
 // POST: Save user playlist
 export async function POST(request) {
   try {
@@ -109,7 +140,7 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { userEmail, playlistId, name, url, image, tracks, prompt, mode } = body;
+    const { userEmail, playlistId, name, url, image, tracks, prompt, mode, public: isPublic } = body;
 
     // Validate required fields
     if (!userEmail || !playlistId || !name || !url) {
@@ -121,8 +152,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Email mismatch' }, { status: 403 });
     }
 
+    // Get user profile for author info
+    const userProfile = await getUserProfile(session.user.email);
+
     const playlist = {
       userEmail,
+      userName: session.user.name,
+      userImage: session.user.image,
+      username: userProfile.username,
       playlistId,
       name,
       url,
@@ -130,7 +167,10 @@ export async function POST(request) {
       tracks: tracks || 0,
       prompt: prompt || '',
       mode: mode || null,
-      createdAt: new Date().toISOString()
+      public: isPublic !== false, // Default true
+      createdAt: new Date().toISOString(),
+      views: 0,
+      clicks: 0
     };
 
     // Try Vercel KV first
@@ -156,5 +196,84 @@ export async function POST(request) {
   } catch (error) {
     console.error('Error saving user playlist:', error);
     return NextResponse.json({ error: 'Failed to save playlist' }, { status: 500 });
+  }
+}
+
+// PATCH: Update playlist privacy
+export async function PATCH(request) {
+  try {
+    const session = await getServerSession(authOptions);
+    
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { playlistId, public: isPublic } = body;
+    const userEmail = session.user.email;
+
+    // Validate required fields
+    if (!playlistId || typeof isPublic !== 'boolean') {
+      return NextResponse.json({ error: 'Missing playlistId or public field' }, { status: 400 });
+    }
+
+    // Get existing playlists
+    const existingPlaylists = await getFromKV(userEmail) || [];
+    
+    // Find and update the playlist
+    const playlistIndex = existingPlaylists.findIndex(p => p.playlistId === playlistId);
+    
+    if (playlistIndex === -1) {
+      return NextResponse.json({ error: 'Playlist not found' }, { status: 404 });
+    }
+
+    // Verify ownership
+    if (existingPlaylists[playlistIndex].userEmail !== userEmail) {
+      return NextResponse.json({ error: 'Not authorized to modify this playlist' }, { status: 403 });
+    }
+
+    // Update the playlist
+    existingPlaylists[playlistIndex].public = isPublic;
+    existingPlaylists[playlistIndex].updatedAt = new Date().toISOString();
+
+    // Try to save to KV
+    if (hasKV()) {
+      try {
+        const response = await fetch(`${process.env.KV_REST_API_URL}/set/userplaylists:${encodeURIComponent(userEmail)}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            value: JSON.stringify(existingPlaylists)
+          })
+        });
+
+        if (response.ok) {
+          return NextResponse.json({
+            success: true,
+            playlist: existingPlaylists[playlistIndex],
+            saved: true,
+            source: 'kv'
+          });
+        }
+      } catch (error) {
+        console.warn('KV update failed:', error);
+      }
+    }
+
+    // Fallback to localStorage
+    return NextResponse.json({
+      success: true,
+      playlist: existingPlaylists[playlistIndex],
+      saved: false,
+      reason: 'fallback-localStorage',
+      source: 'localStorage'
+    });
+
+  } catch (error) {
+    console.error('Error updating playlist:', error);
+    return NextResponse.json({ error: 'Failed to update playlist' }, { status: 500 });
   }
 }

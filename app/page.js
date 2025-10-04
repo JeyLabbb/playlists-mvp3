@@ -661,6 +661,7 @@ export default function Home() {
           image: null, // We don't have image data from Spotify API response
           tracks: uris.length,
           prompt: prompt,
+          public: true, // Default public
           createdAt: new Date().toISOString()
         };
 
