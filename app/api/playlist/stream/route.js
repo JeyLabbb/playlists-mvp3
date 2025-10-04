@@ -1586,9 +1586,13 @@ async function handleStreamingRequest(request) {
                            }
                          }
                        } else {
-                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: No playlists found, using artist search fallback`);
-                         // Fallback: search for tracks by the artist
-                         const spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, [artistName], target_tracks));
+                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: No playlists found, using similar artists fallback`);
+                         // Fallback: search for tracks by similar artists (NOT the excluded artist)
+                         const similarArtists = intent.artists_llm || intent.contexts?.compass || [];
+                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using similar artists:`, similarArtists.slice(0, 5));
+                         
+                         const spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, similarArtists, target_tracks));
+                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${spotifyTracks.length} tracks from similar artists`);
                          
                          // Apply exclusions to fallback tracks
                          let filteredTracks = spotifyTracks;
