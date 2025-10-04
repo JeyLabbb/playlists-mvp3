@@ -47,15 +47,15 @@ export default function Navigation() {
     <>
       {/* Hamburger Button */}
       <button
-        onClick={() => setIsOpen ? setIsOpen(false) : setIsOpen(true)}
-        className="fixed top-6 left-6 z-50 group"
-        aria-label={isOpen ? "Cerrar menú" : "Abrir menú de navegación"}
+        onClick={() => setIsOpen(true)}
+        className={`fixed top-6 left-6 z-50 group transition-all duration-300 ${isOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+        aria-label="Abrir menú de navegación"
       >
         <div className="relative w-10 h-10 bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl shadow-2xl border border-gray-700/50 backdrop-blur-xl flex items-center justify-center transition-all duration-300 group-hover:scale-105 group-hover:shadow-green-500/20 group-hover:border-green-500/30">
           <div className="flex flex-col gap-1.5 w-5">
-            <div className={`h-0.5 bg-white transition-all duration-300 group-hover:bg-green-400 ${isOpen ? 'rotate-45 translate-y-1.5' : ''}`} />
-            <div className={`h-0.5 bg-white transition-all duration-300 group-hover:bg-green-400 ${isOpen ? 'opacity-0' : ''}`} />
-            <div className={`h-0.5 bg-white transition-all duration-300 group-hover:bg-green-400 ${isOpen ? '-rotate-45 -translate-y-1.5' : ''}`} />
+            <div className="h-0.5 bg-white transition-all duration-300 group-hover:bg-green-400" />
+            <div className="h-0.5 bg-white transition-all duration-300 group-hover:bg-green-400" />
+            <div className="h-0.5 bg-white transition-all duration-300 group-hover:bg-green-400" />
           </div>
         </div>
       </button>
@@ -73,13 +73,24 @@ export default function Navigation() {
           <div className="absolute top-0 left-0 h-full w-80 bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 border-r border-gray-700/50 shadow-2xl backdrop-blur-xl">
             {/* Header */}
             <div className="relative p-8 border-b border-gray-700/50">
-              <div className="space-y-2">
-                <h1 className="text-3xl font-bold bg-gradient-to-r from-green-400 via-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                  JeyLabbb
-                </h1>
-                <p className="text-gray-400 text-sm font-medium">
-                  AI Playlist Generator
-                </p>
+              <div className="flex items-center justify-between">
+                <div className="space-y-2">
+                  <h1 className="text-3xl font-bold bg-gradient-to-r from-green-400 via-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                    JeyLabbb
+                  </h1>
+                  <p className="text-gray-400 text-sm font-medium">
+                    AI Playlist Generator
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="w-8 h-8 rounded-full bg-gray-800/50 hover:bg-gray-700/50 flex items-center justify-center text-gray-400 hover:text-white transition-all duration-200 group"
+                  aria-label="Cerrar menú"
+                >
+                  <svg className="w-4 h-4 group-hover:rotate-90 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
               </div>
             </div>
 
