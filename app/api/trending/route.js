@@ -131,7 +131,7 @@ export async function POST(request) {
       
       // Keep only last 100 playlists
       if (playlists.length > 100) {
-        play lists.slice(0, 100);
+        playlists.splice(100);
       }
     }
 
