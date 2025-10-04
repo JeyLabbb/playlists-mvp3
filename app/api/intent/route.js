@@ -307,10 +307,11 @@ REGLA ESPECIAL PARA ESTILO DE ARTISTA:
 - Si el prompt contiene "estilo de" + nombre de artista: USA ARTIST_STYLE mode
 - Marca ese artista específico como priority_artists (NO uses artistas genéricos)
 - NO generes tracks con LLM - DELEGA COMPLETAMENTE A SPOTIFY
+- Para ARTIST_STYLE mode: tracks debe ser un array VACÍO []
 - Spotify debe buscar playlists con "radio + nombre del cantante exacto"
 - Usar playlist oficial que contiene todos los resultados relacionados
-- Ejemplo: "estilo de D.Valentino" → priority_artists: ["D.Valentino"], DELEGA a Spotify para buscar playlists
-- Ejemplo: "como Bad Bunny" → priority_artists: ["Bad Bunny"], DELEGA a Spotify para buscar playlists
+- Ejemplo: "estilo de D.Valentino" → priority_artists: ["D.Valentino"], tracks: []
+- Ejemplo: "como Bad Bunny" → priority_artists: ["Bad Bunny"], tracks: []
 
 REGLA ESPECIAL PARA ARTISTAS ESPECÍFICOS:
 - Si el prompt menciona un artista específico: incluye ese artista en priority_artists
@@ -351,11 +352,7 @@ Prompt: "reggaeton como Bad Bunny pero sin Bad Bunny"
 Respuesta: {
   "mode": "ARTIST_STYLE",
   "priority_artists": ["Bad Bunny"],
-  "tracks": [
-    {"title": "Tusa", "artist": "Karol G feat. Nicki Minaj"},
-    {"title": "Mi Gente", "artist": "J Balvin feat. Willy William"},
-    {"title": "Baila Baila Baila", "artist": "Ozuna"}
-  ],
+  "tracks": [],
   "artists": ["Karol G", "J Balvin", "Ozuna"],
   "exclusions": {
     "banned_artists": ["Bad Bunny"],
