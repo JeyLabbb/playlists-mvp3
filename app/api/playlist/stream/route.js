@@ -1526,7 +1526,34 @@ export async function GET(request) {
 /**
  * Main SSE streaming handler - supports both GET and POST
  */
+// Helper function to extract parameters from either POST body or GET query
+async function extractParams(request) {
+  if (request.method === 'POST') {
+    const body = await request.json();
+    return {
+      prompt: body.prompt,
+      target_tracks: body.target_tracks || 50,
+      playlist_name: body.playlist_name
+    };
+  } else {
+    const { searchParams } = new URL(request.url);
+    return {
+      prompt: searchParams.get('prompt'),
+      target_tracks: parseInt(searchParams.get('target_tracks')) || 50,
+      playlist_name: searchParams.get('playlist_name')
+    };
+  }
+}
+
+export async function GET(request) {
+  return handleStreamingRequest(request);
+}
+
 export async function POST(request) {
+  return handleStreamingRequest(request);
+}
+
+async function handleStreamingRequest(request) {
   const traceId = crypto.randomUUID();
   const startTime = Date.now();
   
@@ -1534,7 +1561,7 @@ export async function POST(request) {
   globalUsedTracks.clear();
   
   try {
-    const { prompt, target_tracks = 50 } = await request.json();
+    const { prompt, target_tracks = 50, playlist_name } = await extractParams(request);
     
     if (!prompt || typeof prompt !== 'string') {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
