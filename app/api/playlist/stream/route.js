@@ -420,8 +420,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
     return;
   }
   
-  // Determine mode and LLM target
-  const mode = determineMode(intent, intent.prompt || '');
+  // Determine mode and LLM target (mode already declared above)
   const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
   const hasContexts = intent.contexts && intent.contexts.key && intent.contexts.key !== 'normal';
   
