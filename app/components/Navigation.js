@@ -21,6 +21,13 @@ export default function Navigation() {
       subtitle: 'Playlists populares',
       icon: '🔥',
       active: pathname === '/trending'
+    },
+    {
+      href: '/my',
+      label: 'Mis Playlists',
+      subtitle: 'Tus creaciones',
+      icon: '📚',
+      active: pathname === '/my'
     }
   ];
 

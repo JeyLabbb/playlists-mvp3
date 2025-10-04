@@ -650,6 +650,40 @@ export default function Home() {
         console.error('Error registering playlist in trending:', trendingError);
         // Don't fail the main flow if trending registration fails
       }
+
+      // Save playlist to user's collection
+      try {
+        const userPlaylistData = {
+          userEmail: session.user.email,
+          playlistId: data.playlistId,
+          name: nameWithBrand,
+          url: data.url || `https://open.spotify.com/playlist/${data.playlistId}`,
+          image: null, // We don't have image data from Spotify API response
+          tracks: uris.length,
+          prompt: prompt,
+          mode: 'NORMAL' // Default mode, could be enhanced to detect actual mode
+        };
+
+        const userPlaylistResponse = await fetch('/api/userplaylists', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(userPlaylistData)
+        });
+
+        const userPlaylistResult = await userPlaylistResponse.json();
+        
+        // If server couldn't save (no KV), save to localStorage
+        if (!userPlaylistResult.saved && userPlaylistResult.reason === 'fallback-localStorage') {
+          const localKey = `jey_user_playlists:${session.user.email}`;
+          const existingPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+          const updatedPlaylists = [userPlaylistData, ...existingPlaylists].slice(0, 200);
+          localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
+          console.log('Saved playlist to localStorage:', userPlaylistData.name);
+        }
+      } catch (userPlaylistError) {
+        console.error('Error saving user playlist:', userPlaylistError);
+        // Don't fail the main flow if user playlist saving fails
+      }
       
       // Dispatch event for FeedbackGate
       window.dispatchEvent(new CustomEvent('playlist:created', { detail: { id: data.playlistId, url: data.playlistUrl } }));
