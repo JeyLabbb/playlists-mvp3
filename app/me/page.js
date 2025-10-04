@@ -27,6 +27,12 @@ export default function ProfilePage() {
     }
   }, [session, status]);
 
+  // Debug formData changes
+  useEffect(() => {
+    console.log('[PROFILE] formData changed:', formData);
+    console.log('[PROFILE] formData.bio:', formData.bio);
+  }, [formData]);
+
   const fetchProfile = async () => {
     try {
       setLoading(true);
@@ -349,10 +355,17 @@ export default function ProfilePage() {
                 <textarea
                   rows={3}
                   value={formData.bio}
-                  onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+                  onChange={(e) => {
+                    console.log('[PROFILE] Bio onChange:', e.target.value);
+                    setFormData({ ...formData, bio: e.target.value });
+                  }}
                   placeholder="Cuéntanos algo sobre ti..."
                   className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors resize-none"
                 />
+                {/* Debug info */}
+                <div className="text-xs text-gray-500 mt-1">
+                  Debug: formData.bio = "{formData.bio}"
+                </div>
               </div>
 
               <div>
