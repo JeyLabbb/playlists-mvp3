@@ -644,6 +644,9 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
     console.log(`[STREAM:${traceId}] Determined mode: "${mode}"`);
     console.log(`[STREAM:${traceId}] Intent mode: "${intent.mode}"`);
     console.log(`[STREAM:${traceId}] Mode comparison - Determined: ${mode}, Intent: ${intent.mode}`);
+    console.log(`[STREAM:${traceId}] Mode type check - mode === 'ARTIST_STYLE': ${mode === 'ARTIST_STYLE'}`);
+    console.log(`[STREAM:${traceId}] Mode type check - typeof mode: ${typeof mode}`);
+    console.log(`[STREAM:${traceId}] Mode type check - mode length: ${mode?.length}`);
     
     if (mode === 'VIRAL') {
       // VIRAL mode: Use consensus from popular playlists
@@ -728,6 +731,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       
     } else if (mode === 'FESTIVAL') {
       // FESTIVAL mode: Use playlist consensus
+      console.log(`[STREAM:${traceId}] ===== ENTERING FESTIVAL MODE =====`);
       console.log(`[STREAM:${traceId}] FESTIVAL MODE: Using playlist consensus`);
       
       try {
@@ -800,6 +804,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       
     } else if (mode === 'SINGLE_ARTIST') {
       // SINGLE_ARTIST mode: Search ONLY tracks from the specific artist
+      console.log(`[STREAM:${traceId}] ===== ENTERING SINGLE_ARTIST MODE =====`);
       console.log(`[STREAM:${traceId}] SINGLE_ARTIST MODE: Searching only tracks from specific artist`);
       console.log(`[STREAM:${traceId}] SINGLE_ARTIST details:`, {
         prompt: intent.prompt,
@@ -838,6 +843,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       
     } else if (mode === 'ARTIST_STYLE') {
       // ARTIST_STYLE mode: Search playlists with "radio + artist name"
+      console.log(`[STREAM:${traceId}] ===== ENTERING ARTIST_STYLE MODE =====`);
       console.log(`[STREAM:${traceId}] ARTIST_STYLE MODE: Searching playlists with radio + artist name`);
       console.log(`[STREAM:${traceId}] ARTIST_STYLE details:`, {
         priorityArtists: intent.priority_artists?.length || 0,
