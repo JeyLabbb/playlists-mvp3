@@ -8,6 +8,84 @@ export default function TrendingPage() {
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState('recent');
 
+  // Helper function to update metrics in localStorage
+  const updateMetricsInLocalStorage = async (playlistId, type) => {
+    try {
+      const localStorageKey = `jey_playlist_metrics:${playlistId}`;
+      const currentMetrics = JSON.parse(localStorage.getItem(localStorageKey) || '{"views": 0, "clicks": 0}');
+      
+      if (type === 'view') {
+        currentMetrics.views = (currentMetrics.views || 0) + 1;
+      } else if (type === 'click') {
+        currentMetrics.clicks = (currentMetrics.clicks || 0) + 1;
+      }
+      
+      localStorage.setItem(localStorageKey, JSON.stringify(currentMetrics));
+      console.log(`Updated ${type} metrics in localStorage for playlist ${playlistId}`);
+      
+      // Also update the local state to reflect the change immediately
+      setPlaylists(prevPlaylists => 
+        prevPlaylists.map(playlist => 
+          playlist.playlistId === playlistId 
+            ? { 
+                ...playlist, 
+                views: currentMetrics.views,
+                clicks: currentMetrics.clicks
+              }
+            : playlist
+        )
+      );
+    } catch (error) {
+      console.error('Error updating metrics in localStorage:', error);
+    }
+  };
+
+  const trackClick = async (playlistId, spotifyUrl) => {
+    try {
+      // Track click in our new metrics system
+      const response = await fetch('/api/metrics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlistId, type: 'click' })
+      });
+      
+      const result = await response.json();
+      
+      // If fallback to localStorage, handle client-side
+      if (result.reason === 'fallback-localStorage') {
+        console.log('Handling click tracking in localStorage');
+        await updateMetricsInLocalStorage(playlistId, 'click');
+      }
+      
+      // Open Spotify link
+      window.open(spotifyUrl, '_blank');
+    } catch (error) {
+      console.error('Error tracking click:', error);
+      // Still open the link even if tracking fails
+      window.open(spotifyUrl, '_blank');
+    }
+  };
+
+  const trackView = async (playlistId) => {
+    try {
+      const response = await fetch('/api/metrics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlistId, type: 'view' })
+      });
+      
+      const result = await response.json();
+      
+      // If fallback to localStorage, handle client-side
+      if (result.reason === 'fallback-localStorage') {
+        console.log('Handling view tracking in localStorage');
+        await updateMetricsInLocalStorage(playlistId, 'view');
+      }
+    } catch (error) {
+      console.error('Error tracking view:', error);
+    }
+  };
+
   useEffect(() => {
     fetchTrendingPlaylists();
   }, [sortBy]);
@@ -20,7 +98,7 @@ export default function TrendingPage() {
         await trackView(playlist.playlistId);
       });
     }
-  }, [playlists, trackView]);
+  }, [playlists]);
 
   const fetchTrendingPlaylists = async () => {
     try {
@@ -115,85 +193,7 @@ export default function TrendingPage() {
       console.error('Error getting playlists from localStorage:', error);
       return [];
     }
-  };
-
-  // Helper function to update metrics in localStorage
-  const updateMetricsInLocalStorage = async (playlistId, type) => {
-    try {
-      const localStorageKey = `jey_playlist_metrics:${playlistId}`;
-      const currentMetrics = JSON.parse(localStorage.getItem(localStorageKey) || '{"views": 0, "clicks": 0}');
-      
-      if (type === 'view') {
-        currentMetrics.views = (currentMetrics.views || 0) + 1;
-      } else if (type === 'click') {
-        currentMetrics.clicks = (currentMetrics.clicks || 0) + 1;
-      }
-      
-      localStorage.setItem(localStorageKey, JSON.stringify(currentMetrics));
-      console.log(`Updated ${type} metrics in localStorage for playlist ${playlistId}`);
-      
-      // Also update the local state to reflect the change immediately
-      setPlaylists(prevPlaylists => 
-        prevPlaylists.map(playlist => 
-          playlist.playlistId === playlistId 
-            ? { 
-                ...playlist, 
-                views: currentMetrics.views,
-                clicks: currentMetrics.clicks
-              }
-            : playlist
-        )
-      );
-    } catch (error) {
-      console.error('Error updating metrics in localStorage:', error);
-    }
-  };
-
-  const trackClick = async (playlistId, spotifyUrl) => {
-    try {
-      // Track click in our new metrics system
-      const response = await fetch('/api/metrics', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playlistId, type: 'click' })
-      });
-      
-      const result = await response.json();
-      
-      // If fallback to localStorage, handle client-side
-      if (result.reason === 'fallback-localStorage') {
-        console.log('Handling click tracking in localStorage');
-        await updateMetricsInLocalStorage(playlistId, 'click');
-      }
-      
-      // Open Spotify link
-      window.open(spotifyUrl, '_blank');
-    } catch (error) {
-      console.error('Error tracking click:', error);
-      // Still open the link even if tracking fails
-      window.open(spotifyUrl, '_blank');
-    }
-  };
-
-  const trackView = async (playlistId) => {
-    try {
-      const response = await fetch('/api/metrics', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playlistId, type: 'view' })
-      });
-      
-      const result = await response.json();
-      
-      // If fallback to localStorage, handle client-side
-      if (result.reason === 'fallback-localStorage') {
-        console.log('Handling view tracking in localStorage');
-        await updateMetricsInLocalStorage(playlistId, 'view');
-      }
-    } catch (error) {
-      console.error('Error tracking view:', error);
-    }
-  };
+    };
 
   // Anonymize prompt text
   const anonymizePrompt = (prompt) => {
