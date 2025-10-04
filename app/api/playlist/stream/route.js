@@ -120,21 +120,51 @@ let globalUsedTracks = new Set();
  */
 function dedupeById(tracks) {
   const seen = new Set();
-  return tracks.filter(track => {
-    if (!track.id || seen.has(track.id)) return false;
+  const originalLength = tracks.length;
+  const filtered = tracks.filter(track => {
+    if (!track.id) {
+      console.warn(`[DEDUPE-BY-ID] Track without ID:`, track.name);
+      return false;
+    }
+    if (seen.has(track.id)) {
+      console.log(`[DEDUPE-BY-ID] Duplicate track found: ${track.name} (${track.id})`);
+      return false;
+    }
     seen.add(track.id);
     return true;
   });
+  
+  const duplicateCount = originalLength - filtered.length;
+  if (duplicateCount > 0) {
+    console.log(`[DEDUPE-BY-ID] Removed ${duplicateCount} duplicate tracks (${originalLength} -> ${filtered.length})`);
+  }
+  
+  return filtered;
 }
 
 /**
  * Deduplicate tracks against a global set of used tracks
  */
 function dedupeAgainstUsed(tracks, usedTracks) {
-  return tracks.filter(track => {
-    if (!track.id) return false;
-    return !usedTracks.has(track.id);
+  const originalLength = tracks.length;
+  const filtered = tracks.filter(track => {
+    if (!track.id) {
+      console.warn(`[DEDUPE] Track without ID:`, track.name);
+      return false;
+    }
+    const isUsed = usedTracks.has(track.id);
+    if (isUsed) {
+      console.log(`[DEDUPE] Filtering out already used track: ${track.name} (${track.id})`);
+    }
+    return !isUsed;
   });
+  
+  const filteredCount = originalLength - filtered.length;
+  if (filteredCount > 0) {
+    console.log(`[DEDUPE] Filtered out ${filteredCount} already used tracks (${originalLength} -> ${filtered.length})`);
+  }
+  
+  return filtered;
 }
 
 /**
