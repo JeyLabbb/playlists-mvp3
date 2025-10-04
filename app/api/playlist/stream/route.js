@@ -364,8 +364,17 @@ function limitTracksPerArtist(tracks, maxPerArtist = 5) {
 async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks = globalUsedTracks) {
   console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
   console.log(`[STREAM:${traceId}] Target tracks: ${target_tracks}`);
+  
+  // 🚨 CRITICAL: Skip LLM phase for ARTIST_STYLE mode
+  const mode = determineMode(intent, intent.prompt || '');
+  if (mode === 'ARTIST_STYLE') {
+    console.log(`[STREAM:${traceId}] 🚨 ARTIST_STYLE mode detected - SKIPPING LLM PHASE COMPLETELY`);
+    console.log(`[STREAM:${traceId}] ARTIST_STYLE mode will delegate everything to Spotify phase`);
+    return;
+  }
+  
   console.log(`[STREAM:${traceId}] Intent data:`, {
-    mode: determineMode(intent, intent.prompt || ''),
+    mode,
     contexts: intent.contexts?.key || 'none',
     llmTracksCount: intent.tracks_llm?.length || 0,
     artistsCount: intent.artists_llm?.length || 0,

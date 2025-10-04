@@ -747,13 +747,12 @@ SIEMPRE genera nombres de canciones REALES, nunca "Track X"` },
           console.log(`[INTENT] 🚨 EXCLUSION FILTERING: ${originalCount} → ${intent.tracks_llm.length} tracks (removed ${originalCount - intent.tracks_llm.length} banned tracks)`);
         }
         
-        // 🚨 CRITICAL FIX: Force empty tracks and artists for ARTIST_STYLE mode
+        // 🚨 CRITICAL FIX: Force empty tracks for ARTIST_STYLE mode
         if (intent.mode === 'ARTIST_STYLE') {
-          console.log(`[INTENT] 🚨 ARTIST_STYLE mode detected - FORCING tracks and artists to empty arrays`);
-          console.log(`[INTENT] Before fix: ${intent.tracks_llm?.length || 0} tracks, ${intent.artists_llm?.length || 0} artists`);
+          console.log(`[INTENT] 🚨 ARTIST_STYLE mode detected - FORCING tracks to empty array`);
+          console.log(`[INTENT] Before fix: ${intent.tracks_llm?.length || 0} tracks`);
           intent.tracks_llm = [];
-          intent.artists_llm = [];
-          console.log(`[INTENT] After fix: ${intent.tracks_llm.length} tracks, ${intent.artists_llm.length} artists (should be 0)`);
+          console.log(`[INTENT] After fix: ${intent.tracks_llm.length} tracks (should be 0)`);
         }
         
         console.log(`[INTENT] Assigned tracks_llm: ${intent.tracks_llm.length} tracks`);
