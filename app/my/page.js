@@ -150,6 +150,28 @@ export default function MyPlaylistsPage() {
         }
         
         console.log(`Playlist ${newPublic ? 'publicada' : 'privada'} exitosamente`);
+      } else if (result.reason === 'fallback-localStorage') {
+        // Handle case where API returns success=false but indicates localStorage fallback
+        console.log('Handling localStorage fallback for privacy update');
+        
+        // Update local state
+        setPlaylists(prev => prev.map(playlist => 
+          playlist.playlistId === playlistId 
+            ? { ...playlist, public: newPublic }
+            : playlist
+        ));
+        
+        // Update localStorage
+        const localKey = `jey_user_playlists:${session.user.email}`;
+        const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+        const updatedPlaylists = localPlaylists.map(playlist =>
+          playlist.playlistId === playlistId 
+            ? { ...playlist, public: newPublic }
+            : playlist
+        );
+        localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
+        
+        console.log(`Playlist ${newPublic ? 'publicada' : 'privada'} exitosamente (localStorage)`);
       } else {
         console.error('Error updating privacy:', result.error);
         alert(`Error: ${result.error}`);
@@ -159,6 +181,72 @@ export default function MyPlaylistsPage() {
       alert('Error al cambiar la privacidad de la playlist');
     } finally {
       setUpdatingPrivacy(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(playlistId);
+        return newSet;
+      });
+    }
+  };
+
+  // Delete playlist function
+  const [deletingPlaylist, setDeletingPlaylist] = useState(new Set());
+  
+  const deletePlaylist = async (playlistId, playlistName) => {
+    if (!confirm(`¿Estás seguro de que quieres eliminar la playlist "${playlistName}"? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    try {
+      setUpdatingPrivacy(prev => new Set([...prev, playlistId].concat(Array.from(deletingPlaylist))));
+      setDeletingPlaylist(prev => new Set([...prev, playlistId]));
+
+      const response = await fetch('/api/userplaylists', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlistId })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // Update local state
+        setPlaylists(prev => prev.filter(playlist => playlist.playlistId !== playlistId));
+        
+        // Update localStorage
+        const localKey = `jey_user_playlists:${session.user.email}`;
+        const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+        const updatedPlaylists = localPlaylists.filter(playlist => playlist.playlistId !== playlistId);
+        localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
+        
+        console.log('Playlist eliminada exitosamente');
+      } else if (result.reason === 'fallback-localStorage') {
+        // Handle case where API returns success=false but indicates localStorage fallback
+        console.log('Handling localStorage fallback for playlist deletion');
+        
+        // Update local state
+        setPlaylists(prev => prev.filter(playlist => playlist.playlistId !== playlistId));
+        
+        // Update localStorage
+        const localKey = `jey_user_playlists:${session.user.email}`;
+        const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+        const updatedPlaylists = localPlaylists.filter(playlist => playlist.playlistId !== playlistId);
+        localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
+        
+        console.log('Playlist eliminada exitosamente (localStorage)');
+      } else {
+        console.error('Error deleting playlist:', result.error);
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error deleting playlist:', error);
+      alert('Error al eliminar la playlist');
+    } finally {
+      setUpdatingPrivacy(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(playlistId);
+        return newSet;
+      });
+      setDeletingPlaylist(prev => {
         const newSet = new Set(prev);
         newSet.delete(playlistId);
         return newSet;
@@ -383,6 +471,15 @@ export default function MyPlaylistsPage() {
                     title="Abrir en Spotify"
                   >
                     🎧
+                  </button>
+                  
+                  <button
+                    onClick={() => deletePlaylist(playlist.playlistId, playlist.name)}
+                    disabled={deletingPlaylist.has(playlist.playlistId)}
+                    className="bg-red-500 hover:bg-red-600 disabled:bg-red-700 text-white px-3 py-2 rounded-lg transition-colors duration-200 text-sm flex items-center justify-center"
+                    title="Eliminar playlist"
+                  >
+                    {deletingPlaylist.has(playlist.playlistId) ? '⏳' : '🗑️'}
                   </button>
                   
                 </div>

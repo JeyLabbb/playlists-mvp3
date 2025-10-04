@@ -214,8 +214,21 @@ export async function PATCH(request) {
       return NextResponse.json({ error: 'Missing playlistId or public field' }, { status: 400 });
     }
 
-    // Get existing playlists
-    const existingPlaylists = await getFromKV(userEmail) || [];
+    // Get existing playlists - try KV first, then fallback to localStorage
+    let existingPlaylists = [];
+    if (hasKV()) {
+      existingPlaylists = await getFromKV(userEmail) || [];
+    }
+    
+    // If no KV or no playlists found in KV, indicate localStorage fallback
+    if (!hasKV() || existingPlaylists.length === 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'Playlist not found',
+        reason: 'fallback-localStorage',
+        message: 'KV not available, update handled client-side'
+      });
+    }
     
     // Find and update the playlist
     const playlistIndex = existingPlaylists.findIndex(p => p.playlistId === playlistId);
@@ -272,5 +285,96 @@ export async function PATCH(request) {
   } catch (error) {
     console.error('Error updating playlist:', error);
     return NextResponse.json({ error: 'Failed to update playlist' }, { status: 500 });
+  }
+}
+
+// DELETE: Delete playlist
+export async function DELETE(request) {
+  try {
+    const session = await getServerSession(simpleAuthOptions);
+    
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { playlistId } = body;
+    const userEmail = session.user.email;
+
+    // Validate required fields
+    if (!playlistId) {
+      return NextResponse.json({ error: 'Missing playlistId' }, { status: 400 });
+    }
+
+    // Get existing playlists - try KV first, then fallback to localStorage
+    let existingPlaylists = [];
+    if (hasKV()) {
+      existingPlaylists = await getFromKV(userEmail) || [];
+    }
+    
+    // If no KV or no playlists found in KV, indicate localStorage fallback
+    if (!hasKV() || existingPlaylists.length === 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'Playlist not found',
+        reason: 'fallback-localStorage',
+        message: 'KV not available, delete handled client-side'
+      });
+    }
+
+    // Find the playlist to delete
+    const playlistIndex = existingPlaylists.findIndex(p => p.playlistId === playlistId);
+    
+    if (playlistIndex === -1) {
+      return NextResponse.json({ error: 'Playlist not found' }, { status: 404 });
+    }
+
+    // Verify ownership
+    if (existingPlaylists[playlistIndex].userEmail !== userEmail) {
+      return NextResponse.json({ error: 'Not authorized to delete this playlist' }, { status: 403 });
+    }
+
+    // Remove the playlist
+    const deletedPlaylist = existingPlaylists.splice(playlistIndex, 1)[0];
+
+    // Try to save to KV
+    if (hasKV()) {
+      try {
+        const response = await fetch(`${process.env.KV_REST_API_URL}/set/userplaylists:${encodeURIComponent(userEmail)}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            value: JSON.stringify(existingPlaylists)
+          })
+        });
+
+        if (response.ok) {
+          return NextResponse.json({
+            success: true,
+            deletedPlaylist: deletedPlaylist,
+            saved: true,
+            source: 'kv'
+          });
+        }
+      } catch (kvError) {
+        console.warn('Failed to save to KV after delete:', kvError);
+      }
+    }
+
+    // Fallback to localStorage
+    return NextResponse.json({
+      success: true,
+      deletedPlaylist: deletedPlaylist,
+      saved: false,
+      reason: 'fallback-localStorage',
+      source: 'localStorage'
+    });
+
+  } catch (error) {
+    console.error('Error deleting playlist:', error);
+    return NextResponse.json({ error: 'Failed to delete playlist' }, { status: 500 });
   }
 }
