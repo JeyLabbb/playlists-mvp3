@@ -303,15 +303,17 @@ DELEGACIÓN A SPOTIFY:
 - VERIFICACIÓN OBLIGATORIA: Antes de generar cada track, verifica que NINGÚN artista del track esté en banned_artists
 - ⚠️ VIOLACIÓN GRAVE: Generar tracks de artistas en banned_artists es un ERROR CRÍTICO
 
-REGLA ESPECIAL PARA ESTILO DE ARTISTA:
-- Si el prompt contiene "estilo de" + nombre de artista: USA ARTIST_STYLE mode
+🚨 REGLA CRÍTICA PARA ESTILO DE ARTISTA:
+- Si el prompt contiene "estilo de", "como", "música de" + nombre de artista: USA ARTIST_STYLE mode
 - Marca ese artista específico como priority_artists (NO uses artistas genéricos)
-- NO generes tracks con LLM - DELEGA COMPLETAMENTE A SPOTIFY
-- Para ARTIST_STYLE mode: tracks debe ser un array VACÍO []
+- ⚠️ PROHIBIDO ABSOLUTO: NO generes NINGÚN track con LLM para ARTIST_STYLE mode
+- ⚠️ OBLIGATORIO: Para ARTIST_STYLE mode: tracks debe ser SIEMPRE un array VACÍO []
+- ⚠️ CRÍTICO: Si generas tracks para ARTIST_STYLE mode, es un ERROR GRAVE
 - Spotify debe buscar playlists con "radio + nombre del cantante exacto"
 - Usar playlist oficial que contiene todos los resultados relacionados
 - Ejemplo: "estilo de D.Valentino" → priority_artists: ["D.Valentino"], tracks: []
 - Ejemplo: "como Bad Bunny" → priority_artists: ["Bad Bunny"], tracks: []
+- Ejemplo: "reggaeton como Bad Bunny" → priority_artists: ["Bad Bunny"], tracks: []
 
 REGLA ESPECIAL PARA ARTISTAS ESPECÍFICOS:
 - Si el prompt menciona un artista específico: incluye ese artista en priority_artists
@@ -359,6 +361,12 @@ Respuesta: {
     "banned_terms": []
   }
 }
+
+🚨 VALIDACIÓN CRÍTICA:
+- Si mode = "ARTIST_STYLE" → tracks DEBE ser []
+- Si generas tracks para ARTIST_STYLE mode → ERROR CRÍTICO
+- Si el prompt contiene "como" + artista → mode = "ARTIST_STYLE", tracks = []
+- Si el prompt contiene "estilo de" + artista → mode = "ARTIST_STYLE", tracks = []
 
 NUNCA hagas esto:
 {
@@ -737,6 +745,14 @@ SIEMPRE genera nombres de canciones REALES, nunca "Track X"` },
           });
           
           console.log(`[INTENT] 🚨 EXCLUSION FILTERING: ${originalCount} → ${intent.tracks_llm.length} tracks (removed ${originalCount - intent.tracks_llm.length} banned tracks)`);
+        }
+        
+        // 🚨 CRITICAL FIX: Force empty tracks for ARTIST_STYLE mode
+        if (intent.mode === 'ARTIST_STYLE') {
+          console.log(`[INTENT] 🚨 ARTIST_STYLE mode detected - FORCING tracks to empty array`);
+          console.log(`[INTENT] Before fix: ${intent.tracks_llm?.length || 0} tracks`);
+          intent.tracks_llm = [];
+          console.log(`[INTENT] After fix: ${intent.tracks_llm.length} tracks (should be 0)`);
         }
         
         console.log(`[INTENT] Assigned tracks_llm: ${intent.tracks_llm.length} tracks`);
