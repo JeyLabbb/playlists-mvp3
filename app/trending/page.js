@@ -72,6 +72,7 @@ export default function TrendingPage() {
   // Load playlist preview (tracks) and track click
   const loadPlaylistPreview = async (playlist) => {
     try {
+      console.log('Loading preview for playground:', playlist.playlistId);
       setLoadingPreview(true);
       setPreviewPlaylist(playlist);
       
@@ -91,11 +92,15 @@ export default function TrendingPage() {
       }
       
       // Load playlist tracks
-      const tracksResponse = await fetch(`/api/spotify/playlist-tracks?playlistId=${playlist.playlistId}`);
+      console.log('Fetching tracks for playground:', playlist.playlistId);
+      const tracksResponse = await fetch(`/api/spotify/playlist-tracks?id=${playlist.playlistId}`);
       const tracksData = await tracksResponse.json();
+      
+      console.log('Tracks response:', tracksData);
       
       if (tracksData.success && tracksData.tracks) {
         setPreviewTracks(tracksData.tracks);
+        console.log('Successfully loaded', tracksData.tracks.length, 'tracks');
       } else {
         console.error('Failed to load playlist tracks:', tracksData.error);
         setPreviewTracks([]);
