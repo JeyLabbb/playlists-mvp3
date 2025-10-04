@@ -219,11 +219,11 @@ IMPORTANTE: DIFERENCIA ENTRE ARTISTA ESPECÍFICO Y ESTILO DE ARTISTA:
   * Spotify debe buscar TODAS las tracks donde ese artista aparece (principal O colaborador)
   * Incluye colaboraciones donde el artista es colaborador
   * NO incluir artistas similares, solo el artista específico
-- Si el prompt incluye "estilo de", "como", "música de" (ej: "estilo de D.Valentino"):
-  * Usa NORMAL mode con priority_artists
-  * Marca el artista mencionado como priority_artists (ej: ["D.Valentino"])
-  * Spotify puede incluir colaboradores y artistas similares
-  * Genera tracks del LLM basados en ese artista prioritario
+- Si el prompt incluye "estilo de", "como", "música de" (ej: "estilo de D.Valentino", "como Bad Bunny"):
+  * Usa ARTIST_STYLE mode
+  * Marca el artista mencionado como priority_artists (ej: ["D.Valentino"], ["Bad Bunny"])
+  * Spotify busca playlists con "radio + artista exacto" y consensus
+  * NO genera tracks con LLM - DELEGA COMPLETAMENTE A SPOTIFY
 
 2. VIRAL:
    - Canciones virales, trending, populares actuales
@@ -279,8 +279,8 @@ FILTROS AVANZADOS POR OYENTES MENSUALES (APLICAR EN TODOS LOS MODOS):
 DETECCIÓN DE MODOS:
 - Analiza el prompt completo para entender la intención
 - NO dependas de palabras exactas, interpreta el contexto
-- Para "estilo de cantante": USA MODO NORMAL con ese cantante como priority_artists
-- Para artista específico (solo nombre): delega completamente a Spotify
+- Para "estilo de cantante" o "como artista": USA ARTIST_STYLE mode con priority_artists
+- Para artista específico (solo nombre): usa SINGLE_ARTIST mode
 - Para exclusiones: detecta "sin X" y marca en exclusions
 - Para oyentes mensuales: SIEMPRE detecta y aplica filtro
 
@@ -293,41 +293,80 @@ DELEGACIÓN A SPOTIFY:
 - Spotify puede filtrar por oyentes mensuales en CUALQUIER modo
 - Pasa información clara para que Spotify sepa qué buscar
 
-REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
+🚨 REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS 🚨
 - SIEMPRE genera tracks REALES, nunca "Track 1", "Track 2", etc.
-- NUNCA generes tracks de artistas que estén en exclusions.artists
-- Si el prompt dice "sin X artista", NO incluyas tracks de ese artista PERO genera tracks de otros artistas similares
+- NUNCA generes tracks de artistas que estén en exclusions.banned_artists
+- Si el prompt dice "sin X artista", marca ese artista en exclusions.banned_artists y NO generes tracks de ese artista
+- Si el prompt dice "pero sin Bad Bunny", marca "Bad Bunny" en exclusions.banned_artists
+- Las exclusiones son ABSOLUTAS: si un artista está en banned_artists, NO generes tracks de ese artista
+- PROHIBIDO TOTALMENTE: Si "Bad Bunny" está en banned_artists, NO generes "DÁKITI", "Te Boté", "La Canción" ni CUALQUIER track donde aparezca Bad Bunny
+- VERIFICACIÓN OBLIGATORIA: Antes de generar cada track, verifica que NINGÚN artista del track esté en banned_artists
+- ⚠️ VIOLACIÓN GRAVE: Generar tracks de artistas en banned_artists es un ERROR CRÍTICO
 
-REGLA ESPECIAL PARA ESTILO DE ARTISTA:
-- Si el prompt contiene "estilo de" + nombre de artista: USA ARTIST_STYLE mode
+🚨 REGLA CRÍTICA PARA ESTILO DE ARTISTA:
+- Si el prompt contiene "estilo de", "como", "música de" + nombre de artista: USA ARTIST_STYLE mode
 - Marca ese artista específico como priority_artists (NO uses artistas genéricos)
-- NO generes tracks con LLM - DELEGA COMPLETAMENTE A SPOTIFY
+- ⚠️ PROHIBIDO ABSOLUTO: NO generes NINGÚN track con LLM para ARTIST_STYLE mode
+- ⚠️ OBLIGATORIO: Para ARTIST_STYLE mode: tracks debe ser SIEMPRE un array VACÍO []
+- ⚠️ CRÍTICO: Si generas tracks para ARTIST_STYLE mode, es un ERROR GRAVE
 - Spotify debe buscar playlists con "radio + nombre del cantante exacto"
 - Usar playlist oficial que contiene todos los resultados relacionados
-- Ejemplo: "estilo de D.Valentino" → priority_artists: ["D.Valentino"], DELEGA a Spotify para buscar playlists
-- Ejemplo: "como Bad Bunny" → priority_artists: ["Bad Bunny"], DELEGA a Spotify para buscar playlists
+- Ejemplo: "estilo de D.Valentino" → priority_artists: ["D.Valentino"], tracks: []
+- Ejemplo: "como Bad Bunny" → priority_artists: ["Bad Bunny"], tracks: []
+- Ejemplo: "reggaeton como Bad Bunny" → priority_artists: ["Bad Bunny"], tracks: []
 
 REGLA ESPECIAL PARA ARTISTAS ESPECÍFICOS:
 - Si el prompt menciona un artista específico: incluye ese artista en priority_artists
 - NO uses artistas genéricos como fallback si hay un artista específico mencionado
-- Si detectas exclusiones, marca correctamente en exclusions.artists
-- Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → NO generes tracks de Bad Bunny, PERO genera tracks REALES de J Balvin, Maluma, Ozuna, etc.
-- Ejemplo: "rock sin Metallica" → NO generes tracks de Metallica, PERO genera tracks REALES de Iron Maiden, AC/DC, etc.
+- Si detectas exclusiones, marca correctamente en exclusions.banned_artists
+- Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → exclusions.banned_artists: ["Bad Bunny"], NO generes tracks de Bad Bunny, PERO genera tracks REALES de J Balvin, Maluma, Ozuna, etc.
+- Ejemplo: "rock sin Metallica" → exclusions.banned_artists: ["Metallica"], NO generes tracks de Metallica, PERO genera tracks REALES de Iron Maiden, AC/DC, etc.
 - Las exclusiones son ABSOLUTAS pero NO impiden generar tracks de otros artistas
 - SIEMPRE genera al menos 5-10 tracks REALES para que Spotify pueda crear radios
+
+EJEMPLO ESPECÍFICO DE EXCLUSIÓN:
+Prompt: "reggaeton como Bad Bunny pero sin Bad Bunny"
+CORRECTO: exclusions.banned_artists: ["Bad Bunny"], tracks: ["Tusa" por "Karol G", "Mi Gente" por "J Balvin", "Baila Baila Baila" por "Ozuna"]
+INCORRECTO: tracks: ["DÁKITI" por "Bad Bunny & Jhay Cortez"] ← PROHIBIDO porque Bad Bunny está en banned_artists
+
+🚨 VERIFICACIÓN FINAL OBLIGATORIA 🚨
+Antes de devolver la respuesta, VERIFICA que:
+1. Si hay exclusions.banned_artists, NINGÚN track en tracks contiene esos artistas
+2. Si "Bad Bunny" está en banned_artists, NO hay tracks con "Bad Bunny" en el artista
+3. Si hay violaciones, CORRIGE inmediatamente eliminando esos tracks
 
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.
 
 IMPORTANTE FINAL: Si el prompt menciona un artista específico (ej: "estilo de D.Valentino"), SIEMPRE marca ese artista como priority_artists. NUNCA uses artistas genéricos como ["pop", "rock", "electronic"] cuando hay un artista específico mencionado.
 
-EJEMPLO OBLIGATORIO:
+EJEMPLO OBLIGATORIO 1:
 Prompt: "estilo de D.Valentino"
 Respuesta: {
   "mode": "ARTIST_STYLE",
   "priority_artists": ["D.Valentino"],
   "tracks": [],
-  "artists": ["D.Valentino"]
+  "artists": ["D.Valentino"],
+  "exclusions": null
 }
+
+EJEMPLO OBLIGATORIO 2:
+Prompt: "reggaeton como Bad Bunny pero sin Bad Bunny"
+Respuesta: {
+  "mode": "ARTIST_STYLE",
+  "priority_artists": ["Bad Bunny"],
+  "tracks": [],
+  "artists": ["Karol G", "J Balvin", "Ozuna"],
+  "exclusions": {
+    "banned_artists": ["Bad Bunny"],
+    "banned_terms": []
+  }
+}
+
+🚨 VALIDACIÓN CRÍTICA:
+- Si mode = "ARTIST_STYLE" → tracks DEBE ser []
+- Si generas tracks para ARTIST_STYLE mode → ERROR CRÍTICO
+- Si el prompt contiene "como" + artista → mode = "ARTIST_STYLE", tracks = []
+- Si el prompt contiene "estilo de" + artista → mode = "ARTIST_STYLE", tracks = []
 
 NUNCA hagas esto:
 {
@@ -357,7 +396,8 @@ SIEMPRE genera nombres de canciones REALES, nunca "Track X"` },
                         artist: { type: "string" }
                       },
                       required: ["title","artist"]
-                    }
+                    },
+                    description: "Lista de tracks SIN artistas prohibidos en exclusions.banned_artists"
                   },
                   artists: {
                     type: "array",
@@ -381,8 +421,8 @@ SIEMPRE genera nombres de canciones REALES, nunca "Track X"` },
                   exclusions: {
                     type: "object",
                     properties: {
-                      artists: { type: "array", items: { type: "string" } },
-                      terms: { type: "array", items: { type: "string" } }
+                      banned_artists: { type: "array", items: { type: "string" } },
+                      banned_terms: { type: "array", items: { type: "string" } }
                     }
                   }
                 },
@@ -687,6 +727,34 @@ SIEMPRE genera nombres de canciones REALES, nunca "Track X"` },
         intent.tracks_llm = intent.tracks || [];
         intent.artists_llm = intent.artists || [];
         intent.prompt = prompt; // Assign original prompt for mode detection
+        
+        // 🚨 CRITICAL: Filter out banned artists from tracks_llm
+        if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
+          const bannedArtists = intent.exclusions.banned_artists.map(a => a.toLowerCase());
+          const originalCount = intent.tracks_llm.length;
+          
+          intent.tracks_llm = intent.tracks_llm.filter(track => {
+            const artistLower = (track.artist || '').toLowerCase();
+            const hasBannedArtist = bannedArtists.some(banned => artistLower.includes(banned));
+            
+            if (hasBannedArtist) {
+              console.log(`[INTENT] 🚨 FILTERED OUT BANNED TRACK: "${track.title}" by "${track.artist}"`);
+            }
+            
+            return !hasBannedArtist;
+          });
+          
+          console.log(`[INTENT] 🚨 EXCLUSION FILTERING: ${originalCount} → ${intent.tracks_llm.length} tracks (removed ${originalCount - intent.tracks_llm.length} banned tracks)`);
+        }
+        
+        // 🚨 CRITICAL FIX: Force empty tracks for ARTIST_STYLE mode
+        if (intent.mode === 'ARTIST_STYLE') {
+          console.log(`[INTENT] 🚨 ARTIST_STYLE mode detected - FORCING tracks to empty array`);
+          console.log(`[INTENT] Before fix: ${intent.tracks_llm?.length || 0} tracks`);
+          intent.tracks_llm = [];
+          console.log(`[INTENT] After fix: ${intent.tracks_llm.length} tracks (should be 0)`);
+        }
+        
         console.log(`[INTENT] Assigned tracks_llm: ${intent.tracks_llm.length} tracks`);
         console.log(`[INTENT] Assigned artists_llm: ${intent.artists_llm.length} artists`);
         console.log(`[INTENT] Assigned prompt: "${intent.prompt}"`);

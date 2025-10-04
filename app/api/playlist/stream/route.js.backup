@@ -300,10 +300,10 @@ function determineMode(intent, prompt) {
     return 'SINGLE_ARTIST';
   }
   
-  // Check for artist style mode (contains "como" or "like") - can include restrictions
-  if (promptLower.includes('como') || promptLower.includes('like')) {
+  // Check for artist style mode (contains "como" or "like") - but not if it's just exclusion
+  if ((promptLower.includes('como') || promptLower.includes('like')) && !promptLower.includes('sin')) {
     console.log(`[MODE-DETECTION] ✅ ARTIST_STYLE MODE DETECTED`);
-    console.log(`[MODE-DETECTION] Reason: Contains "como" or "like" (can include restrictions)`);
+    console.log(`[MODE-DETECTION] Reason: Contains "como" or "like" without "sin"`);
     return 'ARTIST_STYLE';
   }
   
@@ -313,68 +313,13 @@ function determineMode(intent, prompt) {
 }
 
 /**
- * Limits tracks per artist to avoid excessive repetition
- * @param {Array} tracks - Array of tracks
- * @param {number} maxPerArtist - Maximum tracks per artist (default: 5)
- * @returns {Array} - Filtered tracks array
- */
-function limitTracksPerArtist(tracks, maxPerArtist = 5) {
-  const artistCounts = new Map();
-  const limitedTracks = [];
-  
-  for (const track of tracks) {
-    if (!track || !track.artistNames || track.artistNames.length === 0) {
-      limitedTracks.push(track);
-      continue;
-    }
-    
-    // Check if any artist has reached the limit
-    let canAdd = true;
-    const trackArtists = track.artistNames;
-    
-    for (const artist of trackArtists) {
-      const count = artistCounts.get(artist) || 0;
-      if (count >= maxPerArtist) {
-        canAdd = false;
-        console.log(`[ARTIST-LIMIT] Skipping track "${track.name}" by "${artist}" - limit reached (${count}/${maxPerArtist})`);
-        break;
-      }
-    }
-    
-    if (canAdd) {
-      // Increment counters for all artists in this track
-      for (const artist of trackArtists) {
-        artistCounts.set(artist, (artistCounts.get(artist) || 0) + 1);
-      }
-      limitedTracks.push(track);
-    }
-  }
-  
-  console.log(`[ARTIST-LIMIT] Limited tracks: ${tracks.length} → ${limitedTracks.length}`);
-  for (const [artist, count] of artistCounts.entries()) {
-    console.log(`[ARTIST-LIMIT] ${artist}: ${count} tracks`);
-  }
-  
-  return limitedTracks;
-}
-
-/**
  * Generator for LLM tracks in chunks - MODE NORMAL: 75% LLM (get 50 by default), others: exact target
  */
 async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks = globalUsedTracks) {
   console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
   console.log(`[STREAM:${traceId}] Target tracks: ${target_tracks}`);
-  
-  // 🚨 CRITICAL: Skip LLM phase for ARTIST_STYLE mode
-  const mode = determineMode(intent, intent.prompt || '');
-  if (mode === 'ARTIST_STYLE') {
-    console.log(`[STREAM:${traceId}] 🚨 ARTIST_STYLE mode detected - SKIPPING LLM PHASE COMPLETELY`);
-    console.log(`[STREAM:${traceId}] ARTIST_STYLE mode will delegate everything to Spotify phase`);
-    return;
-  }
-  
   console.log(`[STREAM:${traceId}] Intent data:`, {
-    mode,
+    mode: determineMode(intent, intent.prompt || ''),
     contexts: intent.contexts?.key || 'none',
     llmTracksCount: intent.tracks_llm?.length || 0,
     artistsCount: intent.artists_llm?.length || 0,
@@ -396,31 +341,17 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
   });
   
   const llmTracks = intent.tracks_llm || [];
-  
-  // Pre-deduplicate LLM tracks to avoid processing duplicates
-  const uniqueLLMTracks = [];
-  const seenTracks = new Set();
-  
-  for (const track of llmTracks) {
-    const trackKey = `${track.title?.toLowerCase()}-${track.artist?.toLowerCase()}`;
-    if (!seenTracks.has(trackKey)) {
-      seenTracks.add(trackKey);
-      uniqueLLMTracks.push(track);
-    }
-  }
-  
-  console.log(`[STREAM:${traceId}] LLM tracks deduplication: ${llmTracks.length} → ${uniqueLLMTracks.length}`);
-  
-  const chunkSize = 20; // Increased chunk size
+             const chunkSize = 20; // Increased chunk size
   let totalYielded = 0;
   let chunkCounter = 0;
   
-  if (uniqueLLMTracks.length === 0) {
-    console.log(`[STREAM:${traceId}] No unique LLM tracks to process, skipping LLM phase`);
+  if (llmTracks.length === 0) {
+    console.log(`[STREAM:${traceId}] No LLM tracks to process, skipping LLM phase`);
     return;
   }
   
-  // Determine mode and LLM target (mode already declared above)
+  // Determine mode and LLM target
+  const mode = determineMode(intent, intent.prompt || '');
   const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
   const hasContexts = intent.contexts && intent.contexts.key && intent.contexts.key !== 'normal';
   
@@ -446,14 +377,14 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
              const maxLLMIterations = mode === 'NORMAL' ? 10 : 5;
              let iteration = 0;
              
-             for (let i = 0; i < uniqueLLMTracks.length && totalYielded < llmTarget && iteration < maxLLMIterations; i += chunkSize) {
+             for (let i = 0; i < llmTracks.length && totalYielded < llmTarget && iteration < maxLLMIterations; i += chunkSize) {
                iteration++;
-    const chunk = uniqueLLMTracks.slice(i, i + chunkSize);
+    const chunk = llmTracks.slice(i, i + chunkSize);
     chunkCounter++;
     console.log(`[STREAM:${traceId}] Processing LLM chunk ${chunkCounter}: ${chunk.length} tracks`);
     
     try {
-      const resolved = await resolveTracksBySearch(accessToken, chunk, { exclusions: intent.exclusions });
+      const resolved = await resolveTracksBySearch(accessToken, chunk);
       const filtered = resolved.filter(track => notExcluded(track, intent.exclusions));
       const deduped = dedupeAgainstUsed(filtered, usedTracks);
       
@@ -494,7 +425,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
                  console.log(`[STREAM:${traceId}] Processing small LLM chunk: ${chunk.length} tracks`);
                  
                  try {
-                   const resolved = await resolveTracksBySearch(accessToken, chunk, { exclusions: intent.exclusions });
+                   const resolved = await resolveTracksBySearch(accessToken, chunk);
                    const filtered = resolved.filter(track => notExcluded(track, intent.exclusions));
                    
                    if (filtered.length > 0) {
@@ -648,14 +579,6 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
     // Mode-specific Spotify generation
     let spotifyTracks = [];
     
-    console.log(`[STREAM:${traceId}] ===== MODE SPECIFIC SPOTIFY GENERATION =====`);
-    console.log(`[STREAM:${traceId}] Determined mode: "${mode}"`);
-    console.log(`[STREAM:${traceId}] Intent mode: "${intent.mode}"`);
-    console.log(`[STREAM:${traceId}] Mode comparison - Determined: ${mode}, Intent: ${intent.mode}`);
-    console.log(`[STREAM:${traceId}] Mode type check - mode === 'ARTIST_STYLE': ${mode === 'ARTIST_STYLE'}`);
-    console.log(`[STREAM:${traceId}] Mode type check - typeof mode: ${typeof mode}`);
-    console.log(`[STREAM:${traceId}] Mode type check - mode length: ${mode?.length}`);
-    
     if (mode === 'VIRAL') {
       // VIRAL mode: Use consensus from popular playlists
       console.log(`[STREAM:${traceId}] ===== ENTERING VIRAL MODE =====`);
@@ -739,7 +662,6 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       
     } else if (mode === 'FESTIVAL') {
       // FESTIVAL mode: Use playlist consensus
-      console.log(`[STREAM:${traceId}] ===== ENTERING FESTIVAL MODE =====`);
       console.log(`[STREAM:${traceId}] FESTIVAL MODE: Using playlist consensus`);
       
       try {
@@ -812,7 +734,6 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       
     } else if (mode === 'SINGLE_ARTIST') {
       // SINGLE_ARTIST mode: Search ONLY tracks from the specific artist
-      console.log(`[STREAM:${traceId}] ===== ENTERING SINGLE_ARTIST MODE =====`);
       console.log(`[STREAM:${traceId}] SINGLE_ARTIST MODE: Searching only tracks from specific artist`);
       console.log(`[STREAM:${traceId}] SINGLE_ARTIST details:`, {
         prompt: intent.prompt,
@@ -851,7 +772,6 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       
     } else if (mode === 'ARTIST_STYLE') {
       // ARTIST_STYLE mode: Search playlists with "radio + artist name"
-      console.log(`[STREAM:${traceId}] ===== ENTERING ARTIST_STYLE MODE =====`);
       console.log(`[STREAM:${traceId}] ARTIST_STYLE MODE: Searching playlists with radio + artist name`);
       console.log(`[STREAM:${traceId}] ARTIST_STYLE details:`, {
         priorityArtists: intent.priority_artists?.length || 0,
@@ -886,63 +806,14 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
             // Collect tracks from playlists by consensus (same as VIRAL/FESTIVAL)
             spotifyTracks = dedupeById(await collectFromPlaylistsByConsensus(accessToken, playlists, remaining, rng));
             console.log(`[STREAM:${traceId}] ARTIST_STYLE: Collected ${spotifyTracks.length} tracks from playlists`);
-            
-            // Apply exclusions to tracks from playlists
-            if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
-              const filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
-              spotifyTracks = filteredTracks;
-            }
           } else {
             console.log(`[STREAM:${traceId}] ARTIST_STYLE: No playlists found, using artist search fallback`);
             // Fallback: search for tracks by the artist
             spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, [artistName], remaining));
-            
-            // Apply exclusions to fallback tracks
-            if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
-              const filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions to fallback ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
-              spotifyTracks = filteredTracks;
-            }
           }
         } else {
           console.log(`[STREAM:${traceId}] ARTIST_STYLE: No priority artists, using generic search`);
           spotifyTracks = dedupeById(await searchGenericTracks(accessToken, remaining));
-        }
-        
-        // COMPENSATION: If we don't have enough tracks, generate more
-        if (spotifyTracks.length < remaining) {
-          const missingTracks = remaining - spotifyTracks.length;
-          console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Need ${missingTracks} more tracks`);
-          
-          try {
-            // Try radio from priority artist first
-            const priorityArtists = intent.priority_artists || [];
-            if (priorityArtists.length > 0) {
-              const artistName = priorityArtists[0];
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Radio from priority artist "${artistName}"`);
-              const radioTracks = await radioFromRelatedTop(accessToken, [artistName], missingTracks * 2);
-              if (radioTracks && radioTracks.length > 0) {
-                const filteredRadioTracks = radioTracks.filter(track => notExcluded(track, intent.exclusions));
-                const dedupedRadioTracks = dedupeById(dedupeAgainstUsed(filteredRadioTracks, usedTracks));
-                spotifyTracks = [...spotifyTracks, ...dedupedRadioTracks.slice(0, missingTracks)];
-                console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Added ${dedupedRadioTracks.slice(0, missingTracks).length} radio tracks`);
-              }
-            }
-            
-            // If still not enough, try generic search with exclusions
-            if (spotifyTracks.length < remaining) {
-              const stillMissing = remaining - spotifyTracks.length;
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Still need ${stillMissing} tracks, trying generic search`);
-              const genericTracks = await searchGenericTracks(accessToken, stillMissing * 2);
-              const filteredGenericTracks = genericTracks.filter(track => notExcluded(track, intent.exclusions));
-              const dedupedGenericTracks = dedupeById(dedupeAgainstUsed(filteredGenericTracks, usedTracks));
-              spotifyTracks = [...spotifyTracks, ...dedupedGenericTracks.slice(0, stillMissing)];
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Added ${dedupedGenericTracks.slice(0, stillMissing).length} generic tracks`);
-            }
-          } catch (compensationError) {
-            console.error(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION ERROR:`, compensationError);
-          }
         }
         
         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Generated ${spotifyTracks.length}/${remaining} tracks`);
@@ -953,9 +824,8 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       }
       
     } else {
-      // NORMAL mode or unknown mode: Use LLM tracks to create Spotify radios
-      console.log(`[STREAM:${traceId}] ===== UNKNOWN MODE FALLBACK (NORMAL PROCESS) =====`);
-      console.log(`[STREAM:${traceId}] WARNING: Mode "${mode}" not recognized, falling back to NORMAL mode`);
+      // NORMAL mode: Use LLM tracks to create Spotify radios
+      console.log(`[STREAM:${traceId}] ===== NORMAL MODE FILLING PROCESS =====`);
       console.log(`[STREAM:${traceId}] NORMAL MODE: Using LLM tracks for Spotify radios`);
       console.log(`[STREAM:${traceId}] NORMAL mode details:`, {
         llmTracks: intent.tracks_llm?.length || 0,
@@ -1001,7 +871,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
             } else {
               // Fallback to LLM tracks if priority artist search fails
               console.log(`[STREAM:${traceId}] NORMAL: Priority artist search failed, using LLM tracks`);
-              const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks, { exclusions: intent.exclusions });
+              const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks);
               if (resolvedLLMTracks.length > 0) {
                 const trackIds = resolvedLLMTracks.map(t => t.id).filter(Boolean);
                 spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, trackIds, remaining));
@@ -1009,7 +879,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
             }
           } else {
             // No priority artist, use LLM tracks directly
-            const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks, { exclusions: intent.exclusions });
+            const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks);
             console.log(`[STREAM:${traceId}] NORMAL: Resolved ${resolvedLLMTracks.length} LLM tracks to Spotify IDs`);
             
             if (resolvedLLMTracks.length > 0) {
@@ -1069,88 +939,8 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
     
     // COMPENSATION LOGIC: If tracks were filtered out, we need to compensate
     const filteredOut = spotifyTracks.length - deduped.length;
-    let compensationNeeded = filteredOut;
-    
-    // See if we're short on tracks
-    const availableSpots = Math.max(0, remaining - totalYielded);
-    if (availableSpots > 0 && deduped.length < availableSpots) {
-      compensationNeeded = availableSpots;
-    }
-    
-    if (compensationNeeded > 0) {
-      console.log(`[STREAM:${traceId}] COMPENSATION: Need ${compensationNeeded} more tracks (${filteredOut} filtered, ${availableSpots} needed)`);
-      
-      // Generate compensation tracks using broader search
-      try {
-        console.log(`[STREAM:${traceId}] COMPENSATION: Generating ${compensationNeeded} compensation tracks`);
-        
-        // Use different search strategies for compensation
-        const searchStrategies = [
-          { type: 'genre', terms: ['reggaeton', 'latin', 'spanish music'] },
-          { type: 'artist', artists: intent.artists_llm?.slice(0, 5) || [] },
-          { type: 'generic', terms: ['popular', 'hits', 'trending'] }
-        ];
-        
-        for (const strategy of searchStrategies) {
-          if (compensationNeeded <= 0) break;
-          
-          try {
-            let compensationTracks = [];
-            
-            if (strategy.type === 'genre') {
-              for (const term of strategy.terms) {
-                if (compensationTracks.length >= compensationNeeded * 2) break;
-                console.log(`[STREAM:${traceId}] COMPENSATION: Searching with genre term: "${term}"`);
-                const results = await radioFromRelatedTop(accessToken, [], compensationNeeded * 2, undefined, term);
-                if (results && results.length > 0) {
-                  compensationTracks.push(...results);
-                }
-                await new Promise(resolve => setTimeout(resolve, 500)); // Rate limiting
-              }
-            } else if (strategy.type === 'artist' && strategy.artists.length > 0) {
-              console.log(`[STREAM:${traceId}] COMPENSATION: Searching with artists: ${strategy.artists.join(', ')}`);
-              for (const artist of strategy.artists) {
-                if (compensationTracks.length >= compensationNeeded * 2) break;
-                try {
-                  const results = await getArtistTopRecent(accessToken, artist, 10);
-                  if (results && results.length > 0) {
-                    compensationTracks.push(...results);
-                  }
-                } catch (error) {
-                  console.log(`[STREAM:${traceId}] COMPENSATION: Artist ${artist} failed:`, error.message);
-                }
-                await new Promise(resolve => setTimeout(resolve, 500));
-              }
-            }
-            
-            if (compensationTracks.length > 0) {
-              console.log(`[STREAM:${traceId}] COMPENSATION: Found ${compensationTracks.length} potential compensation tracks`);
-              
-              // Apply exclusions and deduplication
-              const filteredCompensation = compensationTracks.filter(track => notExcluded(track, intent.exclusions));
-              const dedupedCompensation = dedupeAgainstUsed(filteredCompensation, usedTracks);
-              
-              console.log(`[STREAM:${traceId}] COMPENSATION: ${compensationTracks.length} → ${filteredCompensation.length} → ${dedupedCompensation.length} after filtering/dedup`);
-              
-              // Add to deduped array
-              const toAdd = dedupedCompensation.slice(0, compensationNeeded);
-              deduped.push(...toAdd);
-              compensationNeeded -= toAdd.length;
-              
-              console.log(`[STREAM:${traceId}] COMPENSATION: Added ${toAdd.length} tracks, need ${compensationNeeded} more`);
-              
-              // Update global used tracks
-              toAdd.forEach(track => usedTracks.add(track.id));
-            }
-            
-          } catch (error) {
-            console.error(`[STREAM:${traceId}] COMPENSATION: Strategy ${strategy.type} failed:`, error);
-          }
-        }
-        
-      } catch (error) {
-        console.error(`[STREAM:${traceId}] COMPENSATION ERROR:`, error);
-      }
+    if (filteredOut > 0) {
+      console.log(`[STREAM:${traceId}] COMPENSATION: ${filteredOut} tracks were filtered out, need to compensate`);
     }
     
     console.log(`[STREAM:${traceId}] Starting to yield ${deduped.length} deduped tracks in chunks`);
@@ -1262,7 +1052,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
     }
     
     // LAST RESORT: If we still need tracks and haven't reached the target, try generic search
-    if (totalYielded < remaining) {
+    if (totalYielded < remaining && spotifyAttempts >= 2) {
       const finalNeeded = remaining - totalYielded;
       console.log(`[STREAM:${traceId}] LAST RESORT: Still need ${finalNeeded} tracks, trying generic search`);
       
@@ -1366,6 +1156,372 @@ async function enrichArtistsWithSpotify(tracks, accessToken) {
 /**
  * Main SSE streaming handler - supports both GET and POST
  */
+export async function GET(request) {
+  const traceId = crypto.randomUUID();
+  const startTime = Date.now();
+  
+  // Reset global usedTracks for new session
+  globalUsedTracks.clear();
+  
+  try {
+    const { searchParams } = new URL(request.url);
+    const prompt = searchParams.get('prompt');
+    const target_tracks = parseInt(searchParams.get('target_tracks')) || 50;
+    const playlist_name = searchParams.get('playlist_name');
+    
+    if (!prompt || typeof prompt !== 'string') {
+      return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+    }
+    
+    console.log(`[STREAM:${traceId}] Starting SSE streaming (GET) for: "${prompt}"`);
+    
+    // Get session and access token
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      console.log(`[STREAM:${traceId}] No valid session found`);
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+    
+    const accessToken = session.accessToken;
+    console.log(`[STREAM:${traceId}] Session found for user: ${session.user?.email || 'unknown'}`);
+    
+    // Create SSE response
+    const encoder = new TextEncoder();
+    
+    const stream = new ReadableStream({
+      start(controller) {
+        let allTracks = [];
+        // Use global usedTracks to prevent repetition across all contexts
+        let usedTracks = globalUsedTracks;
+        let heartbeatInterval;
+        
+        // Set up heartbeat
+        heartbeatInterval = setInterval(() => {
+          try {
+            controller.enqueue(encoder.encode(`event: HEARTBEAT\ndata: {"timestamp": ${Date.now()}}\n\n`));
+          } catch (error) {
+            clearInterval(heartbeatInterval);
+          }
+        }, 8000);
+        
+        // Set up timeout
+        let isClosed = false;
+        const timeout = setTimeout(() => {
+          if (isClosed) return;
+          isClosed = true;
+          
+          console.log(`[STREAM:${traceId}] Timeout reached, sending partial results`);
+          clearInterval(heartbeatInterval);
+          
+          try {
+            if (allTracks.length > 0) {
+              controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+                tracks: allTracks,
+                totalSoFar: allTracks.length,
+                partial: true,
+                reason: 'timeout'
+              })}\n\n`));
+            } else {
+              controller.enqueue(encoder.encode(`event: ERROR\ndata: ${JSON.stringify({
+                error: 'Timeout without results',
+                totalSoFar: 0
+              })}\n\n`));
+            }
+            
+            controller.close();
+          } catch (error) {
+            console.log(`[STREAM:${traceId}] Controller already closed during timeout`);
+          }
+        }, target_tracks > 100 ? 300000 : 180000); // 5 minutes for high track counts, 3 minutes for normal
+        
+        // Main processing
+        (async () => {
+          try {
+                   // Get intent from LLM
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Analizando tu intención musical..."}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING PLAYLIST GENERATION =====`);
+                   console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
+                   console.log(`[STREAM:${traceId}] Target tracks: ${target_tracks}`);
+                   
+                   const intent = await getIntentFromLLM(prompt, target_tracks);
+                   if (!intent) {
+                     throw new Error("Failed to generate intent");
+                   }
+                   
+                   console.log(`[STREAM:${traceId}] ===== INTENT GENERATED =====`);
+                   console.log(`[STREAM:${traceId}] Intent summary:`, {
+                     mode: determineMode(intent, prompt),
+                     contexts: intent.contexts?.key || 'none',
+                     llmTracks: intent.tracks_llm?.length || 0,
+                     artists: intent.artists_llm?.length || 0,
+                     filteredArtists: intent.filtered_artists?.length || 0,
+                     priorityArtists: intent.priority_artists?.length || 0,
+                     exclusions: intent.exclusions ? 'yes' : 'no',
+                     canonized: intent.canonized ? 'yes' : 'no'
+                   });
+            
+                   // Process LLM tracks
+                   controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Añadiendo canciones: [0/${target_tracks}]", "target": ${target_tracks}}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
+            
+            for await (const chunk of yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks)) {
+              // Add new tracks to usedTracks set to prevent repetition
+              chunk.forEach(track => {
+                if (track.id) usedTracks.add(track.id);
+              });
+              allTracks = [...allTracks, ...chunk];
+              
+              try {
+                controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
+                  tracks: chunk,
+                  totalSoFar: allTracks.length,
+                  target: target_tracks,
+                  progress: Math.round((allTracks.length / target_tracks) * 100),
+                  message: `🔹 Construcción de la playlist (${allTracks.length}/${target_tracks})\n\n“Añadiendo canciones: [${allTracks.length}/${target_tracks}]”`
+                })}\n\n`));
+              } catch (error) {
+                if (error.code === 'ERR_INVALID_STATE') {
+                  console.log(`[STREAM:${traceId}] Controller closed, stopping LLM chunk processing`);
+                  break;
+                }
+                throw error;
+              }
+              
+              console.log(`[STREAM:${traceId}] LLM chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
+            }
+            
+            // For NORMAL mode: trim LLM tracks to 75% and prepare for Spotify
+            const mode = determineMode(intent, intent.prompt || '');
+            const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
+            const hasContexts = intent.contexts && intent.contexts.key && intent.contexts.key !== 'normal';
+            
+            if (mode === 'NORMAL' && !isUndergroundStrict && !hasContexts) {
+              const llmTarget = Math.max(50, Math.ceil(target_tracks * 0.75));
+              if (allTracks.length > llmTarget) {
+                console.log(`[STREAM:${traceId}] NORMAL mode: trimming LLM tracks from ${allTracks.length} to ${llmTarget}`);
+                allTracks = allTracks.slice(0, llmTarget);
+                
+                // Send trim update
+                controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
+                  tracks: [],
+                  totalSoFar: allTracks.length,
+                  target: target_tracks,
+                  progress: Math.round((allTracks.length / target_tracks) * 100),
+                  trimmed: true,
+                  message: `Trimmed to ${llmTarget} LLM tracks (75%)`
+                })}\n\n`));
+              }
+            }
+            
+                   controller.enqueue(encoder.encode(`event: LLM_DONE\ndata: {"totalSoFar": ${allTracks.length}, "target": ${target_tracks}}\n\n`));
+                   
+                   console.log(`[STREAM:${traceId}] ===== LLM PHASE COMPLETED =====`);
+                   console.log(`[STREAM:${traceId}] LLM tracks collected: ${allTracks.length}/${target_tracks}`);
+            
+                   // Process Spotify tracks if needed - keep trying until we reach target
+                   let remaining = target_tracks - allTracks.length;
+                   let spotifyAttempts = 0;
+                   const maxSpotifyAttempts = 5;
+                   
+                   console.log(`[STREAM:${traceId}] ===== STARTING SPOTIFY PHASE =====`);
+                   console.log(`[STREAM:${traceId}] Remaining tracks needed: ${remaining}`);
+            
+            while (remaining > 0 && spotifyAttempts < maxSpotifyAttempts) {
+              spotifyAttempts++;
+              console.log(`[STREAM:${traceId}] Spotify attempt ${spotifyAttempts}/${maxSpotifyAttempts}, need: ${remaining} more tracks`);
+              
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Explorando catálogos y conexiones...", "remaining": ${remaining}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
+              
+              let spotifyYielded = 0;
+              for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks)) {
+                // Add new tracks to usedTracks set to prevent repetition
+                chunk.forEach(track => {
+                  if (track.id) usedTracks.add(track.id);
+                });
+                allTracks = [...allTracks, ...chunk];
+                spotifyYielded += chunk.length;
+                
+                controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                  tracks: chunk,
+                  totalSoFar: allTracks.length,
+                  target: target_tracks,
+                  progress: Math.round((allTracks.length / target_tracks) * 100),
+                  attempt: spotifyAttempts,
+                  message: `🔹 Construcción de la playlist (${allTracks.length}/${target_tracks})\n\n“Añadiendo canciones: [${allTracks.length}/${target_tracks}]”`
+                })}\n\n`));
+                
+                console.log(`[STREAM:${traceId}] Spotify chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
+                
+                // Update remaining
+                remaining = target_tracks - allTracks.length;
+                if (remaining <= 0) break;
+              }
+              
+              controller.enqueue(encoder.encode(`event: SPOTIFY_DONE\ndata: {"totalSoFar": ${allTracks.length}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
+              
+              // If we didn't get any new tracks, try with broader search terms
+              if (spotifyYielded === 0 && remaining > 0) {
+                console.log(`[STREAM:${traceId}] No new tracks from Spotify, trying broader search...`);
+                // Add context artists to intent for next attempt
+                if (!intent.artists_llm) intent.artists_llm = [];
+                if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
+                  const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
+                  console.log(`[STREAM:${traceId}] Adding context artists:`, contextArtists.slice(0, 5));
+                  intent.artists_llm.push(...contextArtists.slice(0, 10));
+                } else {
+                  console.log(`[STREAM:${traceId}] No context found, skipping generic terms`);
+                }
+              }
+              
+              // Update remaining for next iteration
+              remaining = target_tracks - allTracks.length;
+            }
+            
+            // Final check - if we still don't have enough, try one more time with very broad terms
+            if (allTracks.length < target_tracks) {
+              console.log(`[STREAM:${traceId}] Final attempt: need ${target_tracks - allTracks.length} more tracks`);
+              
+              controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "🔹 Finalización\n\n“Últimos retoques antes de lanzar tu playlist…”", "remaining": ${target_tracks - allTracks.length}, "target": ${target_tracks}}\n\n`));
+              
+              try {
+                // Skip final attempt with generic terms - they cause problems
+                console.log(`[STREAM:${traceId}] Skipping final attempt with generic terms`);
+                const finalTracks = [];
+                const filtered = finalTracks.filter(track => notExcluded(track, intent.exclusions));
+                
+                if (filtered.length > 0) {
+                  const toAdd = filtered.slice(0, target_tracks - allTracks.length);
+                  allTracks = [...allTracks, ...toAdd];
+                  
+                  controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                    tracks: toAdd,
+                    totalSoFar: allTracks.length,
+                    target: target_tracks,
+                    progress: Math.round((allTracks.length / target_tracks) * 100),
+                    final: true,
+                    message: `🔹 Construcción de la playlist (${allTracks.length}/${target_tracks})\n\n“Añadiendo canciones: [${allTracks.length}/${target_tracks}]”`
+                  })}\n\n`));
+                  
+                  console.log(`[STREAM:${traceId}] Final attempt yielded: ${toAdd.length} tracks, total: ${allTracks.length}/${target_tracks}`);
+                }
+              } catch (error) {
+                console.error(`[STREAM:${traceId}] Final attempt failed:`, error);
+              }
+            }
+            
+            // Final deduplication to prevent any duplicates
+            console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks before dedup`);
+            allTracks = dedupeById(allTracks);
+            console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks after dedup`);
+            
+            // Ensure we have the target number of tracks
+            if (allTracks.length > target_tracks) {
+              allTracks = allTracks.slice(0, target_tracks);
+            }
+            
+            // Apply audio features (optional, non-blocking)
+            try {
+              const idsOrUris = allTracks.map((t) => t.uri || t.trackUri || t.id).filter(Boolean);
+              const featuresMap = await fetchAudioFeaturesSafe(accessToken, idsOrUris);
+              allTracks = allTracks.map(track => ({
+                ...track,
+                audio_features: featuresMap[track.id] || null
+              }));
+            } catch (error) {
+              console.warn(`[STREAM:${traceId}] Audio features failed:`, error);
+            }
+            
+            // Enrich artists with Spotify
+            allTracks = await enrichArtistsWithSpotify(allTracks, accessToken);
+            
+            // Store for debugging
+            try {
+              await storeLastRun({
+                prompt,
+                target_tracks,
+                final_tracks: allTracks.length,
+                mode: determineMode(intent, prompt),
+                duration: Date.now() - startTime,
+                success: true
+              });
+            } catch (e) {
+              console.warn(`[STREAM:${traceId}] Failed to store debug data:`, e.message);
+            }
+            
+                   // Send final result
+                   clearTimeout(timeout);
+                   clearInterval(heartbeatInterval);
+                   
+                   console.log(`[STREAM:${traceId}] ===== SENDING FINAL RESULT =====`);
+                   console.log(`[STREAM:${traceId}] Final tracks count: ${allTracks.length}`);
+                   console.log(`[STREAM:${traceId}] Final tracks sample:`, allTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
+                   
+                   try {
+                     controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+                       tracks: allTracks,
+                       totalSoFar: allTracks.length,
+                       partial: false,
+                       duration: Date.now() - startTime
+                     })}\n\n`));
+                     
+                     console.log(`[STREAM:${traceId}] Final result sent, closing connection`);
+                     controller.close();
+                   } catch (error) {
+                     if (error.code === 'ERR_INVALID_STATE') {
+                       console.log(`[STREAM:${traceId}] Controller already closed, skipping final result`);
+                     } else {
+                       throw error;
+                     }
+                   }
+            
+          } catch (error) {
+            console.error(`[STREAM:${traceId}] Processing error:`, error);
+            
+            clearTimeout(timeout);
+            clearInterval(heartbeatInterval);
+            
+            if (allTracks.length > 0) {
+              controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+                tracks: allTracks,
+                totalSoFar: allTracks.length,
+                partial: true,
+                reason: 'error',
+                error: error.message
+              })}\n\n`));
+            } else {
+              controller.enqueue(encoder.encode(`event: ERROR\ndata: ${JSON.stringify({
+                error: error.message || 'Processing failed',
+                totalSoFar: 0
+              })}\n\n`));
+            }
+            
+            controller.close();
+          }
+        })();
+      }
+    });
+    
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+    });
+    
+  } catch (error) {
+    console.error(`[STREAM:${traceId}] Fatal error:`, error);
+    return NextResponse.json({ 
+      error: error.message || 'Internal server error',
+      ok: false 
+    }, { status: 500 });
+  }
+}
 
 /**
  * Main SSE streaming handler - supports both GET and POST
@@ -1498,245 +1654,6 @@ async function handleStreamingRequest(request) {
                      exclusions: intent.exclusions ? 'yes' : 'no',
                      canonized: intent.canonized ? 'yes' : 'no'
                    });
-
-                   // 🚨 CRITICAL: Check if ARTIST_STYLE mode and skip everything else
-                   const detectedMode = determineMode(intent, prompt);
-                   if (detectedMode === 'ARTIST_STYLE') {
-                     console.log(`[STREAM:${traceId}] 🚨 ARTIST_STYLE MODE DETECTED - SKIPPING ALL OTHER PROCESSING`);
-                     console.log(`[STREAM:${traceId}] ARTIST_STYLE mode will handle everything directly`);
-                     
-                     // Go directly to ARTIST_STYLE processing
-                     controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Searching playlists for artist style...", "remaining": ${target_tracks}, "attempt": 1, "target": ${target_tracks}}\n\n`));
-                     
-                     // Process ARTIST_STYLE mode directly
-                     const priorityArtists = intent.priority_artists || [];
-                     console.log(`[STREAM:${traceId}] ARTIST_STYLE: Priority artists:`, priorityArtists);
-                     
-                     if (priorityArtists.length > 0) {
-                       const artistName = priorityArtists[0];
-                       console.log(`[STREAM:${traceId}] ARTIST_STYLE: Searching playlists for "${artistName}"`);
-                       
-                       // Search for playlists with "radio + artist name"
-                       const playlistQueries = [
-                         `radio ${artistName}`,
-                         `${artistName} radio`,
-                         `${artistName} mix`,
-                         `${artistName} playlist`,
-                         `${artistName} similar`,
-                         `${artistName} related`
-                       ];
-                       
-                       console.log(`[STREAM:${traceId}] ARTIST_STYLE: Playlist queries:`, playlistQueries);
-                       
-                       // Use the same logic as VIRAL/FESTIVAL modes to search playlists
-                       const playlists = await searchFestivalLikePlaylists(accessToken, playlistQueries);
-                       console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${playlists.length} playlists`);
-                       
-                       if (playlists.length > 0) {
-                         // Collect tracks from playlists by consensus (same as VIRAL/FESTIVAL)
-                         const spotifyTracks = dedupeById(await collectFromPlaylistsByConsensus(accessToken, playlists, target_tracks, rng));
-                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Collected ${spotifyTracks.length} tracks from playlists`);
-                         
-                         // Apply exclusions to tracks from playlists
-                         let filteredTracks = spotifyTracks;
-                         if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
-                           filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
-                           console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
-                         }
-                         
-                         // Send tracks in chunks
-                         const chunkSize = 20;
-                         for (let i = 0; i < filteredTracks.length; i += chunkSize) {
-                           const chunk = filteredTracks.slice(i, i + chunkSize);
-                           allTracks = [...allTracks, ...chunk];
-                           
-                           controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
-                             tracks: chunk,
-                             totalSoFar: allTracks.length,
-                             target: target_tracks,
-                             progress: Math.round((allTracks.length / target_tracks) * 100),
-                             message: `Añadiendo canciones: [${allTracks.length}/${target_tracks}]`
-                           })}\n\n`));
-                           
-                           console.log(`[STREAM:${traceId}] ARTIST_STYLE chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
-                         }
-                         
-                         // If we don't have enough tracks, compensate
-                         if (allTracks.length < target_tracks) {
-                           const missingTracks = target_tracks - allTracks.length;
-                           console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Need ${missingTracks} more tracks`);
-                           
-                           // Try radio from priority artist first
-                           const radioTracks = await radioFromRelatedTop(accessToken, [artistName], missingTracks * 2);
-                           if (radioTracks && radioTracks.length > 0) {
-                             const filteredRadioTracks = radioTracks.filter(track => notExcluded(track, intent.exclusions));
-                             const dedupedRadioTracks = dedupeById(dedupeAgainstUsed(filteredRadioTracks, usedTracks));
-                             const toAdd = dedupedRadioTracks.slice(0, missingTracks);
-                             allTracks = [...allTracks, ...toAdd];
-                             
-                             controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
-                               tracks: toAdd,
-                               totalSoFar: allTracks.length,
-                               target: target_tracks,
-                               progress: Math.round((allTracks.length / target_tracks) * 100),
-                               message: `Compensando canciones: [${allTracks.length}/${target_tracks}]`
-                             })}\n\n`));
-                             
-                             console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Added ${toAdd.length} compensation tracks`);
-                           }
-                         }
-                       } else {
-                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: No playlists found, using similar artists fallback`);
-                         // Fallback: search for tracks by similar artists (NOT the excluded artist)
-                         const similarArtists = intent.artists_llm || intent.contexts?.compass || [];
-                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using similar artists:`, similarArtists.slice(0, 5));
-                         
-                         // Limit tracks per artist to ensure variety (max 3 per artist)
-                         const maxTracksPerArtist = Math.max(2, Math.floor(target_tracks / similarArtists.length));
-                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Max tracks per artist: ${maxTracksPerArtist}`);
-                         
-                         // Search tracks from ALL artists individually to ensure variety
-                         const allTracksFromArtists = [];
-                         const artistCounts = new Map();
-                         
-                         for (const artist of similarArtists) {
-                           if (allTracksFromArtists.length >= target_tracks * 2) break; // Stop if we have enough
-                           
-                           try {
-                             console.log(`[STREAM:${traceId}] ARTIST_STYLE: Searching tracks for ${artist}`);
-                             const artistTracks = await searchTracksByArtists(accessToken, [artist], maxTracksPerArtist * 2);
-                             
-                             if (artistTracks && artistTracks.length > 0) {
-                               // Limit this artist's tracks to maxTracksPerArtist
-                               const limitedArtistTracks = artistTracks.slice(0, maxTracksPerArtist);
-                               allTracksFromArtists.push(...limitedArtistTracks);
-                               
-                               artistCounts.set(artist, limitedArtistTracks.length);
-                               console.log(`[STREAM:${traceId}] ARTIST_STYLE: Added ${limitedArtistTracks.length} tracks from ${artist}`);
-                             }
-                           } catch (error) {
-                             console.log(`[STREAM:${traceId}] ARTIST_STYLE: Failed to get tracks for ${artist}:`, error.message);
-                           }
-                           
-                           // Rate limiting
-                           await new Promise(resolve => setTimeout(resolve, 200));
-                         }
-                         
-                         const spotifyTracks = dedupeById(allTracksFromArtists);
-                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${spotifyTracks.length} tracks from similar artists`);
-                         
-                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Artist distribution:`);
-                         for (const [artist, count] of artistCounts.entries()) {
-                           console.log(`[STREAM:${traceId}] ARTIST_STYLE: ${artist}: ${count} tracks`);
-                         }
-                         
-                         // Apply exclusions to tracks
-                         let filteredTracks = spotifyTracks;
-                         if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
-                           filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
-                           console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions to fallback ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
-                         }
-                         
-                         allTracks = [...allTracks, ...filteredTracks];
-                         
-                         controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
-                           tracks: filteredTracks,
-                           totalSoFar: allTracks.length,
-                           target: target_tracks,
-                           progress: Math.round((allTracks.length / target_tracks) * 100),
-                           message: `Añadiendo canciones: [${allTracks.length}/${target_tracks}]`
-                         })}\n\n`));
-                         
-                         // COMPENSATION: If we don't have enough tracks, generate more
-                         if (allTracks.length < target_tracks) {
-                           const missingTracks = target_tracks - allTracks.length;
-                           console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Need ${missingTracks} more tracks`);
-                           
-                           try {
-                             // Try to get more tracks from remaining artists
-                             const remainingArtists = similarArtists.slice(artistCounts.size);
-                             console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Using remaining artists:`, remainingArtists.slice(0, 5));
-                             
-                             for (const artist of remainingArtists) {
-                               if (allTracks.length >= target_tracks) break;
-                               
-                               try {
-                                 console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Getting more tracks for ${artist}`);
-                                 const compensationTracks = await searchTracksByArtists(accessToken, [artist], missingTracks);
-                                 
-                                 if (compensationTracks && compensationTracks.length > 0) {
-                                   const filteredCompensationTracks = compensationTracks.filter(track => notExcluded(track, intent.exclusions));
-                                   const dedupedCompensationTracks = dedupeById(dedupeAgainstUsed(filteredCompensationTracks, usedTracks));
-                                   const toAdd = dedupedCompensationTracks.slice(0, missingTracks);
-                                   
-                                   if (toAdd.length > 0) {
-                                     allTracks = [...allTracks, ...toAdd];
-                                     
-                                     controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
-                                       tracks: toAdd,
-                                       totalSoFar: allTracks.length,
-                                       target: target_tracks,
-                                       progress: Math.round((allTracks.length / target_tracks) * 100),
-                                       message: `Compensando canciones: [${allTracks.length}/${target_tracks}]`
-                                     })}\n\n`));
-                                     
-                                     console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Added ${toAdd.length} tracks from ${artist}`);
-                                   }
-                                 }
-                               } catch (error) {
-                                 console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Failed to get tracks for ${artist}:`, error.message);
-                               }
-                               
-                               await new Promise(resolve => setTimeout(resolve, 200)); // Rate limiting
-                             }
-                             
-                             // If still not enough, try generic search
-                             if (allTracks.length < target_tracks) {
-                               const stillMissing = target_tracks - allTracks.length;
-                               console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Still need ${stillMissing} tracks, trying generic search`);
-                               
-                               const genericTracks = await searchGenericTracks(accessToken, stillMissing * 2);
-                               const filteredGenericTracks = genericTracks.filter(track => notExcluded(track, intent.exclusions));
-                               const dedupedGenericTracks = dedupeById(dedupeAgainstUsed(filteredGenericTracks, usedTracks));
-                               const toAdd = dedupedGenericTracks.slice(0, stillMissing);
-                               
-                               if (toAdd.length > 0) {
-                                 allTracks = [...allTracks, ...toAdd];
-                                 
-                                 controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
-                                   tracks: toAdd,
-                                   totalSoFar: allTracks.length,
-                                   target: target_tracks,
-                                   progress: Math.round((allTracks.length / target_tracks) * 100),
-                                   message: `Finalizando: [${allTracks.length}/${target_tracks}]`
-                                 })}\n\n`));
-                                 
-                                 console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Added ${toAdd.length} generic tracks`);
-                               }
-                             }
-                           } catch (compensationError) {
-                             console.error(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION ERROR:`, compensationError);
-                           }
-                         }
-                       }
-                     }
-                     
-                     controller.enqueue(encoder.encode(`event: SPOTIFY_DONE\ndata: {"totalSoFar": ${allTracks.length}, "target": ${target_tracks}}\n\n`));
-                     
-                     console.log(`[STREAM:${traceId}] ===== SENDING FINAL RESULT =====`);
-                     console.log(`[STREAM:${traceId}] Final tracks count: ${allTracks.length}`);
-                     console.log(`[STREAM:${traceId}] Final tracks sample:`, allTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
-                     
-                     controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
-                       tracks: allTracks,
-                       total: allTracks.length,
-                       target: target_tracks,
-                       message: `Playlist generada con ${allTracks.length} canciones`
-                     })}\n\n`));
-                     
-                     console.log(`[STREAM:${traceId}] Final result sent, closing connection`);
-                     return; // Skip all other processing
-                   }
             
                    // Process LLM tracks
                    controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Processing LLM tracks...", "target": ${target_tracks}}\n\n`));
@@ -1892,80 +1809,6 @@ async function handleStreamingRequest(request) {
             console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks before dedup`);
             allTracks = dedupeById(allTracks);
             console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks after dedup`);
-            
-            // Apply artist limit to avoid excessive repetition
-            console.log(`[STREAM:${traceId}] Applying artist limits: ${allTracks.length} tracks before limiting`);
-            allTracks = limitTracksPerArtist(allTracks, 5); // Max 5 tracks per artist
-            console.log(`[STREAM:${traceId}] Artist limits applied: ${allTracks.length} tracks after limiting`);
-            
-            // If we removed too many tracks due to artist limits, compensate
-            let missingTracks = target_tracks - allTracks.length;
-            if (missingTracks > 0) {
-              console.log(`[STREAM:${traceId}] COMPENSATION AFTER ARTIST LIMITS: Need ${missingTracks} more tracks`);
-              
-              try {
-                // Generate additional tracks with diversification
-                const compensationTracks = [];
-                const existingArtists = new Set();
-                allTracks.forEach(track => {
-                  if (track.artistNames) {
-                    track.artistNames.forEach(artist => existingArtists.add(artist));
-                  }
-                });
-                
-                console.log(`[STREAM:${traceId}] COMPENSATION: Existing artists (${existingArtists.size}):`, Array.from(existingArtists));
-                
-                // Use completely different artists for compensation (EXCLUDE BANNED ARTISTS)
-                const contextArtists = intent.contexts?.compass || intent.artists_llm || [];
-                const bannedArtists = intent.exclusions?.banned_artists || [];
-                const bannedArtistsLower = bannedArtists.map(a => a.toLowerCase());
-                
-                const availableArtists = contextArtists.filter(artist => {
-                  const isNotUsed = !existingArtists.has(artist);
-                  const isNotBanned = !bannedArtistsLower.some(banned => artist.toLowerCase().includes(banned));
-                  if (!isNotBanned) {
-                    console.log(`[STREAM:${traceId}] COMPENSATION: Skipping banned artist "${artist}"`);
-                  }
-                  return isNotUsed && isNotBanned;
-                });
-                
-                console.log(`[STREAM:${traceId}] COMPENSATION: Using ${availableArtists.length} new artists for compensation`);
-                
-                for (const artist of availableArtists.slice(0, 10)) {
-                  if (compensationTracks.length >= missingTracks * 2) break;
-                  
-                  try {
-                    console.log(`[STREAM:${traceId}] COMPENSATION: Getting tracks for ${artist}`);
-                    const artistTracks = await getArtistTopRecent(accessToken, artist, 5);
-                    if (artistTracks && artistTracks.length > 0) {
-                      const filteredArtistTracks = artistTracks.filter(track => notExcluded(track, intent.exclusions));
-                      compensationTracks.push(...filteredArtistTracks);
-                      console.log(`[STREAM:${traceId}] COMPENSATION: Got ${filteredArtistTracks.length} artist tracks for ${artist}`);
-                    }
-                  } catch (error) {
-                    console.log(`[STREAM:${traceId}] COMPENSATION: Failed to get tracks for ${artist}:`, error.message);
-                  }
-                  
-                  await new Promise(resolve => setTimeout(resolve, 500)); // Rate limiting
-                }
-                
-                if (compensationTracks.length > 0) {
-                  // Add compensation tracks
-                  const dedupedCompensation = dedupeAgainstUsed(compensationTracks, usedTracks);
-                  const toAdd = dedupedCompensation.slice(0, missingTracks);
-                  allTracks.push(...toAdd);
-                  
-                  console.log(`[STREAM:${traceId}] COMPENSATION: Added ${toAdd.length} compensation tracks`);
-                  
-                  // Re-apply artist limits to new tracks
-                  allTracks = limitTracksPerArtist(allTracks, 5);
-                  console.log(`[STREAM:${traceId}] Final artist limits applied: ${allTracks.length} tracks`);
-                }
-                
-              } catch (error) {
-                console.error(`[STREAM:${traceId}] COMPENSATION ERROR:`, error);
-              }
-            }
             
             // Ensure we have the target number of tracks
             if (allTracks.length > target_tracks) {
