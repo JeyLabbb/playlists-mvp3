@@ -78,7 +78,7 @@ export default function TrendingPage() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-8">
             <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-green-400 to-cyan-400 bg-clip-text text-transparent">
-              Trending Playlists <span className="inline-block animate-bounce hover:animate-pulse transition-all duration-300 hover:scale-110">🔥</span>
+              Trending Playlists 🔥
             </h1>
             <p className="text-gray-300 text-lg">
               Descubre las playlists más populares creadas por otros usuarios
