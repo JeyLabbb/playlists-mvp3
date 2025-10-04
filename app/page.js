@@ -599,7 +599,8 @@ export default function Home() {
         name: nameWithBrand,
         description: `AI Generated Playlist · ${prompt}`.slice(0,300),
         public: true,
-        uris
+        uris,
+        prompt: prompt // Pass prompt for title generation
       };
       
       console.log('[CLIENT] create: uris_count=', Array.isArray(tracks) ? tracks.filter(t=>t?.uri || t?.id).length : 0);

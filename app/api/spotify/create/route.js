@@ -26,10 +26,45 @@ export async function POST(req) {
     };
     
     // Sanitize inputs
-    const { name: rawName, description: rawDesc, public: rawPublic, uris: rawUris } = await req.json();
+    const { name: rawName, description: rawDesc, public: rawPublic, uris: rawUris, prompt: rawPrompt } = await req.json();
     const name = String(rawName || '').trim();
+    const prompt = String(rawPrompt || '').trim();
+    
+    let finalName = name;
+    
+    // If no name provided, generate one using LLM
+    if (!finalName && prompt) {
+      try {
+        console.log(`[TRACE:${traceId}] Generating playlist title for prompt: "${prompt}"`);
+        
+        const titleResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/intent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: `Generate a short, catchy playlist title (max 50 characters) for this music request: "${prompt}". The title should be in the same language as the prompt and capture the essence of the music style, mood, or theme. Examples: "Reggaeton Vibes", "Chill Evening", "Workout Energy", "Indie Discoveries". Return only the title, no quotes or extra text.`,
+            target_tracks: 1
+          })
+        });
+        
+        if (titleResponse.ok) {
+          const titleData = await titleResponse.json();
+          if (titleData.intent && titleData.intent.prompt) {
+            finalName = titleData.intent.prompt.trim().slice(0, 50);
+            console.log(`[TRACE:${traceId}] Generated title: "${finalName}"`);
+          }
+        }
+      } catch (error) {
+        console.error(`[TRACE:${traceId}] Title generation failed:`, error);
+      }
+    }
+    
+    // Fallback to default if still no name
+    if (!finalName) {
+      finalName = 'Mi playlist';
+    }
+    
     // Remove special characters that might cause 400 errors
-    const safeName = name.length ? name.replace(/[^\w\s\-\.]/g, '').slice(0, 100) : 'Mi playlist';
+    const safeName = finalName.replace(/[^\w\s\-\.]/g, '').slice(0, 100);
     const description = (rawDesc == null ? '' : String(rawDesc)).replace(/[^\w\s\-\.]/g, '').replace(/\n/g, ' ').trim().slice(0, 300);
     const isPublic = !!rawPublic;
     
