@@ -263,6 +263,19 @@ export default function TrendingPage() {
     }
     };
 
+  // Format large numbers with K/M abbreviations
+  const formatNumber = (num) => {
+    if (!num || num === 0) return '0';
+    
+    if (num >= 1000000) {
+      return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+    } else if (num >= 1000) {
+      return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    }
+    
+    return num.toString();
+  };
+
   // Anonymize prompt text
   const anonymizePrompt = (prompt) => {
     // Remove personal info, keep general structure
@@ -401,8 +414,8 @@ export default function TrendingPage() {
                             {/* Stats */}
                             <div className="flex items-center gap-4 text-sm text-gray-500">
                               <span>{playlist.trackCount} canciones</span>
-                              <span>👀 {playlist.views || 0}</span>
-                              <span>🔗 {playlist.clicks || 0}</span>
+                              <span>👀 {formatNumber(playlist.views || 0)}</span>
+                              <span>🔗 {formatNumber(playlist.clicks || 0)}</span>
                               <span>
                                 {new Date(playlist.createdAt).toLocaleDateString('es-ES', {
                                   year: '2-digit',
@@ -516,7 +529,7 @@ export default function TrendingPage() {
                 <div className="p-6 border-t border-gray-700">
                   <div className="flex items-center justify-between gap-4">
                     <div className="text-sm text-gray-400">
-                      {previewPlaylist.trackCount} canciones • {previewPlaylist.views || 0} vistas • {previewPlaylist.clicks || 0} clicks
+                      {previewPlaylist.trackCount} canciones • {formatNumber(previewPlaylist.views || 0)} vistas • {formatNumber(previewPlaylist.clicks || 0)} clicks
                     </div>
                     <div className="flex items-center gap-3">
                       <button
