@@ -386,31 +386,31 @@ export default function MyPlaylistsPage() {
       </div>
 
       {/* Content */}
-      <div className="px-6 pb-12">
+      <div className="px-4 sm:px-6 pb-6 sm:pb-12">
         <div className="max-w-4xl mx-auto">
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
             {playlists.map((playlist) => (
               <div
                 key={playlist.playlistId}
-                className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70 group"
+                className="bg-gray-800/50 border border-gray-700 rounded-xl p-3 sm:p-6 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70 group"
               >
-                <div className="flex items-start gap-4 mb-4">
+                <div className="flex items-start gap-2 sm:gap-4 mb-2 sm:mb-4">
                   {/* Album Art Placeholder */}
-                  <div className="flex-shrink-0 w-16 h-16 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
-                    <span className="text-white text-2xl">🎵</span>
+                  <div className="flex-shrink-0 w-10 h-10 sm:w-16 sm:h-16 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
+                    <span className="text-white text-lg sm:text-2xl">🎵</span>
                   </div>
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-bold text-white mb-1 truncate group-hover:text-green-400 transition-colors">
+                    <h3 className="text-sm sm:text-lg font-bold text-white mb-1 truncate group-hover:text-green-400 transition-colors">
                       {playlist.name}
                     </h3>
                     
-                    <p className="text-gray-400 text-sm mb-2 line-clamp-2">
+                    <p className="text-gray-400 text-xs sm:text-sm mb-1 sm:mb-2 line-clamp-2">
                       &ldquo;{playlist.prompt}&rdquo;
                     </p>
                     
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                    <div className="flex items-center gap-2 sm:gap-3 text-xs text-gray-500">
                       <span>{playlist.tracks} canciones</span>
                       <span>•</span>
                       <span>{formatDate(playlist.createdAt)}</span>
@@ -446,14 +446,15 @@ export default function MyPlaylistsPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-2">
+                <div className="flex gap-1 sm:gap-2">
                   <button
                     onClick={() => loadPlaylistDetails(playlist)}
                     disabled={loadingPreview}
-                    className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors duration-200 text-sm font-medium flex items-center justify-center gap-2"
+                    className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-700 text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-colors duration-200 text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-2"
                   >
-                    <span>👁️</span>
-                    <span>{loadingPreview ? 'Cargando...' : 'Ver detalles'}</span>
+                    <span className="text-sm sm:text-base">👁️</span>
+                    <span className="hidden sm:inline">{loadingPreview ? 'Cargando...' : 'Ver detalles'}</span>
+                    <span className="sm:hidden">Ver</span>
                   </button>
                   
                   <button
@@ -468,16 +469,16 @@ export default function MyPlaylistsPage() {
                         console.error('Error opening playlist:', error);
                       }
                     }}
-                    className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg transition-colors duration-200 text-sm flex items-center justify-center"
+                    className="bg-green-500 hover:bg-green-600 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg transition-colors duration-200 text-xs sm:text-sm flex items-center justify-center"
                     title="Abrir en Spotify"
                   >
-                    🎧
+                    <span className="text-sm sm:text-base">🎧</span>
                   </button>
                   
                   <button
                     onClick={() => deletePlaylist(playlist.playlistId, playlist.name)}
                     disabled={deletingPlaylist.has(playlist.playlistId)}
-                    className="bg-red-500 hover:bg-red-600 disabled:bg-red-700 text-white px-3 py-2 rounded-lg transition-colors duration-200 text-sm flex items-center justify-center"
+                    className="bg-red-500 hover:bg-red-600 disabled:bg-red-700 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg transition-colors duration-200 text-xs sm:text-sm flex items-center justify-center"
                     title="Eliminar playlist"
                   >
                     {deletingPlaylist.has(playlist.playlistId) ? '⏳' : '🗑️'}

@@ -136,7 +136,13 @@ export default function TrendingPage() {
       // Open Spotify link
       if (spotifyUrl) {
         console.log('Opening Spotify URL:', spotifyUrl);
-        window.open(spotifyUrl, '_blank');
+        try {
+          window.open(spotifyUrl, '_blank', 'noopener,noreferrer');
+        } catch (error) {
+          console.error('Error opening Spotify URL:', error);
+          // Fallback: try to navigate directly
+          window.location.href = spotifyUrl;
+        }
       } else {
         console.error('No Spotify URL provided');
       }
@@ -438,11 +444,11 @@ export default function TrendingPage() {
                             <div className="flex items-center gap-1 sm:gap-4 text-xs sm:text-sm text-gray-500">
                               <span>{playlist.trackCount} canciones</span>
                               <span className="flex items-center gap-1">
-                                <span>👀</span>
+                                <span className="text-xs sm:text-sm">👀</span>
                                 <span>{formatNumber(playlist.views || 0)}</span>
                               </span>
                               <span className="flex items-center gap-1">
-                                <span>🔗</span>
+                                <span className="text-xs sm:text-sm">🔗</span>
                                 <span>{formatNumber(playlist.clicks || 0)}</span>
                               </span>
                               <span className="hidden sm:inline">
