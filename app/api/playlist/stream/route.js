@@ -313,6 +313,52 @@ function determineMode(intent, prompt) {
 }
 
 /**
+ * Limits tracks per artist to avoid excessive repetition
+ * @param {Array} tracks - Array of tracks
+ * @param {number} maxPerArtist - Maximum tracks per artist (default: 5)
+ * @returns {Array} - Filtered tracks array
+ */
+function limitTracksPerArtist(tracks, maxPerArtist = 5) {
+  const artistCounts = new Map();
+  const limitedTracks = [];
+  
+  for (const track of tracks) {
+    if (!track || !track.artistNames || track.artistNames.length === 0) {
+      limitedTracks.push(track);
+      continue;
+    }
+    
+    // Check if any artist has reached the limit
+    let canAdd = true;
+    const trackArtists = track.artistNames;
+    
+    for (const artist of trackArtists) {
+      const count = artistCounts.get(artist) || 0;
+      if (count >= maxPerArtist) {
+        canAdd = false;
+        console.log(`[ARTIST-LIMIT] Skipping track "${track.name}" by "${artist}" - limit reached (${count}/${maxPerArtist})`);
+        break;
+      }
+    }
+    
+    if (canAdd) {
+      // Increment counters for all artists in this track
+      for (const artist of trackArtists) {
+        artistCounts.set(artist, (artistCounts.get(artist) || 0) + 1);
+      }
+      limitedTracks.push(track);
+    }
+  }
+  
+  console.log(`[ARTIST-LIMIT] Limited tracks: ${tracks.length} → ${limitedTracks.length}`);
+  for (const [artist, count] of artistCounts.entries()) {
+    console.log(`[ARTIST-LIMIT] ${artist}: ${count} tracks`);
+  }
+  
+  return limitedTracks;
+}
+
+/**
  * Generator for LLM tracks in chunks - MODE NORMAL: 75% LLM (get 50 by default), others: exact target
  */
 async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks = globalUsedTracks) {
@@ -1538,6 +1584,70 @@ async function handleStreamingRequest(request) {
             console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks before dedup`);
             allTracks = dedupeById(allTracks);
             console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks after dedup`);
+            
+            // Apply artist limit to avoid excessive repetition
+            console.log(`[STREAM:${traceId}] Applying artist limits: ${allTracks.length} tracks before limiting`);
+            allTracks = limitTracksPerArtist(allTracks, 5); // Max 5 tracks per artist
+            console.log(`[STREAM:${traceId}] Artist limits applied: ${allTracks.length} tracks after limiting`);
+            
+            // If we removed too many tracks due to artist limits, compensate
+            let missingTracks = target_tracks - allTracks.length;
+            if (missingTracks > 0) {
+              console.log(`[STREAM:${traceId}] COMPENSATION AFTER ARTIST LIMITS: Need ${missingTracks} more tracks`);
+              
+              try {
+                // Generate additional tracks with diversification
+                const compensationTracks = [];
+                const existingArtists = new Set();
+                allTracks.forEach(track => {
+                  if (track.artistNames) {
+                    track.artistNames.forEach(artist => existingArtists.add(artist));
+                  }
+                });
+                
+                console.log(`[STREAM:${traceId}] COMPENSATION: Existing artists (${existingArtists.size}):`, Array.from(existingArtists));
+                
+                // Use completely different artists for compensation
+                const contextArtists = intent.contexts?.compass || intent.artists_llm || [];
+                const availableArtists = contextArtists.filter(artist => !existingArtists.has(artist));
+                
+                console.log(`[STREAM:${traceId}] COMPENSATION: Using ${availableArtists.length} new artists for compensation`);
+                
+                for (const artist of availableArtists.slice(0, 10)) {
+                  if (compensationTracks.length >= missingTracks * 2) break;
+                  
+                  try {
+                    console.log(`[STREAM:${traceId}] COMPENSATION: Getting tracks for ${artist}`);
+                    const artistTracks = await getArtistTopRecent(accessToken, artist, 5);
+                    if (artistTracks && artistTracks.length > 0) {
+                      const filteredArtistTracks = artistTracks.filter(track => notExcluded(track, intent.exclusions));
+                      compensationTracks.push(...filteredArtistTracks);
+                      console.log(`[STREAM:${traceId}] COMPENSATION: Got ${filteredArtistTracks.length} artist tracks for ${artist}`);
+                    }
+                  } catch (error) {
+                    console.log(`[STREAM:${traceId}] COMPENSATION: Failed to get tracks for ${artist}:`, error.message);
+                  }
+                  
+                  await new Promise(resolve => setTimeout(resolve, 500)); // Rate limiting
+                }
+                
+                if (compensationTracks.length > 0) {
+                  // Add compensation tracks
+                  const dedupedCompensation = dedupeAgainstUsed(compensationTracks, usedTracks);
+                  const toAdd = dedupedCompensation.slice(0, missingTracks);
+                  allTracks.push(...toAdd);
+                  
+                  console.log(`[STREAM:${traceId}] COMPENSATION: Added ${toAdd.length} compensation tracks`);
+                  
+                  // Re-apply artist limits to new tracks
+                  allTracks = limitTracksPerArtist(allTracks, 5);
+                  console.log(`[STREAM:${traceId}] Final artist limits applied: ${allTracks.length} tracks`);
+                }
+                
+              } catch (error) {
+                console.error(`[STREAM:${traceId}] COMPENSATION ERROR:`, error);
+              }
+            }
             
             // Ensure we have the target number of tracks
             if (allTracks.length > target_tracks) {
