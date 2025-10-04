@@ -399,7 +399,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
     console.log(`[STREAM:${traceId}] Processing LLM chunk ${chunkCounter}: ${chunk.length} tracks`);
     
     try {
-      const resolved = await resolveTracksBySearch(accessToken, chunk);
+      const resolved = await resolveTracksBySearch(accessToken, chunk, { exclusions: intent.exclusions });
       const filtered = resolved.filter(track => notExcluded(track, intent.exclusions));
       const deduped = dedupeAgainstUsed(filtered, usedTracks);
       
@@ -440,7 +440,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
                  console.log(`[STREAM:${traceId}] Processing small LLM chunk: ${chunk.length} tracks`);
                  
                  try {
-                   const resolved = await resolveTracksBySearch(accessToken, chunk);
+                   const resolved = await resolveTracksBySearch(accessToken, chunk, { exclusions: intent.exclusions });
                    const filtered = resolved.filter(track => notExcluded(track, intent.exclusions));
                    
                    if (filtered.length > 0) {
@@ -886,7 +886,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
             } else {
               // Fallback to LLM tracks if priority artist search fails
               console.log(`[STREAM:${traceId}] NORMAL: Priority artist search failed, using LLM tracks`);
-              const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks);
+              const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks, { exclusions: intent.exclusions });
               if (resolvedLLMTracks.length > 0) {
                 const trackIds = resolvedLLMTracks.map(t => t.id).filter(Boolean);
                 spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, trackIds, remaining));
@@ -894,7 +894,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
             }
           } else {
             // No priority artist, use LLM tracks directly
-            const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks);
+            const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks, { exclusions: intent.exclusions });
             console.log(`[STREAM:${traceId}] NORMAL: Resolved ${resolvedLLMTracks.length} LLM tracks to Spotify IDs`);
             
             if (resolvedLLMTracks.length > 0) {
