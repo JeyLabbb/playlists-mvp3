@@ -1411,6 +1411,11 @@ export async function GET(request) {
               }
             }
             
+            // Final deduplication to prevent any duplicates
+            console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks before dedup`);
+            allTracks = dedupeById(allTracks);
+            console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks after dedup`);
+            
             // Ensure we have the target number of tracks
             if (allTracks.length > target_tracks) {
               allTracks = allTracks.slice(0, target_tracks);
@@ -1772,6 +1777,11 @@ export async function POST(request) {
                 console.error(`[STREAM:${traceId}] Final attempt failed:`, error);
               }
             }
+            
+            // Final deduplication to prevent any duplicates
+            console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks before dedup`);
+            allTracks = dedupeById(allTracks);
+            console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks after dedup`);
             
             // Ensure we have the target number of tracks
             if (allTracks.length > target_tracks) {

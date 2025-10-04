@@ -122,12 +122,13 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid type. Must be "view" or "click"' }, { status: 400 });
     }
 
-    // If no KV available, just return success (metrics not tracked)
+    // If no KV available, indicate client-side fallback
     if (!hasKV()) {
       return NextResponse.json({
-        success: true,
-        message: 'Metrics not tracked (KV not available)',
-        source: 'fallback'
+        success: false,
+        reason: 'fallback-localStorage',
+        message: 'KV not available, metrics tracked client-side',
+        source: 'localStorage'
       });
     }
 

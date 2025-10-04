@@ -84,9 +84,9 @@ export default function Navigation() {
           />
           
           {/* Menu Panel */}
-          <div className="absolute top-0 left-0 h-full w-80 bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 border-r border-gray-700/50 shadow-2xl backdrop-blur-xl">
+          <div className="absolute top-0 left-0 h-full w-full sm:w-80 bg-gradient-to-br from-gray-900 via-gray-900 to-gray-800 border-r border-gray-700/50 shadow-2xl backdrop-blur-xl">
             {/* Header */}
-            <div className="relative p-8 border-b border-gray-700/50">
+            <div className="relative p-6 sm:p-8 border-b border-gray-700/50">
               <div className="flex items-center justify-between">
                 <div className="space-y-2">
                   <h1 className="text-3xl font-bold bg-gradient-to-r from-green-400 via-cyan-400 to-blue-400 bg-clip-text text-transparent">
@@ -109,13 +109,13 @@ export default function Navigation() {
             </div>
 
             {/* Menu Items */}
-            <nav className="p-6 space-y-4">
+            <nav className="p-4 sm:p-6 space-y-3 sm:space-y-4">
               {menuItems.map((item, index) => (
                 <a
                   key={item.href}
                   href={item.href}
                   onClick={() => setIsOpen(false)}
-                  className={`group relative block p-6 rounded-2xl transition-all duration-300 ${
+                  className={`group relative block p-4 sm:p-6 rounded-2xl transition-all duration-300 ${
                     item.active
                       ? 'bg-gradient-to-r from-green-500/20 to-cyan-500/20 border border-green-500/30 shadow-lg shadow-green-500/10'
                       : 'hover:bg-gray-800/50 border border-transparent hover:border-gray-600/30 hover:shadow-lg'
@@ -123,7 +123,7 @@ export default function Navigation() {
                   style={{ animationDelay: `${index * 100}ms` }}
                 >
                   <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl transition-all duration-300 ${
+                    <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center text-xl sm:text-2xl transition-all duration-300 ${
                       item.active 
                         ? 'bg-gradient-to-br from-green-500/30 to-cyan-500/30 text-green-400' 
                         : 'bg-gray-800/50 text-gray-400 group-hover:bg-gray-700/50 group-hover:text-white group-hover:scale-110'
@@ -131,7 +131,7 @@ export default function Navigation() {
                       {item.icon}
                     </div>
                     <div className="flex-1">
-                      <h3 className={`font-semibold text-lg transition-colors duration-200 ${
+                      <h3 className={`font-semibold text-base sm:text-lg transition-colors duration-200 ${
                         item.active ? 'text-white' : 'text-gray-300 group-hover:text-white'
                       }`}>
                         {item.label}

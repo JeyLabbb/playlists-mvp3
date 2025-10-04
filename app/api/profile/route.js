@@ -157,8 +157,8 @@ export async function GET(request) {
       
       profile = {
         email,
-    username: generateUsername(session.user.name, email, existingUsernames),
-    displayName: session.user.name || email.split('@')[0],
+        username: generateUsername(session.user.name, email, existingUsernames),
+        displayName: session.user.name || email.split('@')[0],
         image: session.user.image || null,
         bio: null,
         updatedAt: new Date().toISOString()
@@ -167,6 +167,14 @@ export async function GET(request) {
       // Try to save to KV if available
       if (hasKV()) {
         await saveProfileToKV(email, profile);
+      } else {
+        // If no KV, indicate fallback to localStorage
+        return NextResponse.json({
+          success: true,
+          profile: profile,
+          reason: 'fallback-localStorage',
+          source: 'localStorage'
+        });
       }
     }
 

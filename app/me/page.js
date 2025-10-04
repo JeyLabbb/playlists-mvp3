@@ -19,19 +19,79 @@ export default function ProfilePage() {
   const [usernameAvailable, setUsernameAvailable] = useState(true);
   const [usernameDebounceTimer, setUsernameDebounceTimer] = useState(null);
 
+  // Simple localStorage loader
+  const loadFromLocalStorage = () => {
+    if (session?.user?.email) {
+      const localKey = `jey_user_profile:${session.user.email}`;
+      const localProfile = JSON.parse(localStorage.getItem(localKey) || 'null');
+      console.log('[PROFILE] Simple loader - localStorage data:', localProfile);
+      
+      if (localProfile) {
+        console.log('[PROFILE] Simple loader - found profile, updating formData');
+        setFormData({
+          displayName: localProfile.displayName || session.user.name || '',
+          username: localProfile.username || session.user.email.split('@')[0],
+          bio: localProfile.bio || '',
+          image: localProfile.image || session.user.image || ''
+        });
+        setProfile(localProfile);
+        console.log('[PROFILE] Simple loader - bio set to:', localProfile.bio || '');
+      } else {
+        console.log('[PROFILE] Simple loader - no profile found, creating default');
+        setFormData({
+          displayName: session.user.name || session.user.email.split('@')[0],
+          username: session.user.email.split('@')[0],
+          bio: '',
+          image: session.user.image || ''
+        });
+      }
+    }
+  };
+
   useEffect(() => {
     if (session?.user?.email) {
-      fetchProfile();
+      console.log('[PROFILE] useEffect - session available, loading from localStorage');
+      loadFromLocalStorage();
+      setLoading(false);
     } else if (status === 'unauthenticated') {
       setLoading(false);
     }
   }, [session, status]);
 
+  // Debug formData changes
+  useEffect(() => {
+    console.log('[PROFILE] formData changed:', formData);
+    console.log('[PROFILE] formData.bio:', formData.bio);
+  }, [formData]);
+
+  // Direct localStorage check on component mount
+  useEffect(() => {
+    if (session?.user?.email && !loading) {
+      console.log('[PROFILE] Direct localStorage check on mount');
+      const localKey = `jey_user_profile:${session.user.email}`;
+      const localProfile = JSON.parse(localStorage.getItem(localKey) || 'null');
+      console.log('[PROFILE] Direct check - localStorage data:', localProfile);
+      
+      if (localProfile && localProfile.bio && !formData.bio) {
+        console.log('[PROFILE] Direct check - Setting bio from localStorage:', localProfile.bio);
+        setFormData(prev => ({
+          ...prev,
+          bio: localProfile.bio || '',
+          displayName: localProfile.displayName || prev.displayName,
+          username: localProfile.username || prev.username,
+          image: localProfile.image || prev.image
+        }));
+      }
+    }
+  }, [session?.user?.email, loading, formData.bio]);
+
   const fetchProfile = async () => {
     try {
       setLoading(true);
+      console.log('[PROFILE] Fetching profile for user:', session.user.email);
       const response = await fetch('/api/profile');
       const data = await response.json();
+      console.log('[PROFILE] API response:', data);
       
       if (data.success) {
         setProfile(data.profile);
@@ -48,7 +108,29 @@ export default function ProfilePage() {
           localStorage.setItem(localKey, JSON.stringify(data.profile));
         }
       } else {
+        console.log('API returned error, trying localStorage fallback');
         setError(data.error || 'Failed to load profile');
+        
+        // Try localStorage fallback even when API returns error
+        const localKey = `jey_user_profile:${session.user.email}`;
+        console.log('[PROFILE] Trying localStorage fallback with key:', localKey);
+        const localProfile = JSON.parse(localStorage.getItem(localKey) || 'null');
+        console.log('[PROFILE] localStorage data:', localProfile);
+        
+        if (localProfile) {
+          console.log('[PROFILE] Successfully loaded profile from localStorage:', localProfile);
+          setProfile(localProfile);
+          setFormData({
+            displayName: localProfile.displayName || '',
+            username: localProfile.username || '',
+            bio: localProfile.bio || '',
+            image: localProfile.image || ''
+          });
+          console.log('[PROFILE] Set formData bio to:', localProfile.bio || '');
+          setError(null); // Clear error since we found data in localStorage
+        } else {
+          console.log('[PROFILE] No profile found in localStorage');
+        }
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -56,8 +138,12 @@ export default function ProfilePage() {
       
       // Try localStorage fallback
       const localKey = `jey_user_profile:${session.user.email}`;
+      console.log('[PROFILE] Catch block - trying localStorage fallback with key:', localKey);
       const localProfile = JSON.parse(localStorage.getItem(localKey) || 'null');
+      console.log('[PROFILE] Catch block - localStorage data:', localProfile);
+      
       if (localProfile) {
+        console.log('[PROFILE] Catch block - Successfully loaded profile from localStorage:', localProfile);
         setProfile(localProfile);
         setFormData({
           displayName: localProfile.displayName || '',
@@ -65,6 +151,9 @@ export default function ProfilePage() {
           bio: localProfile.bio || '',
           image: localProfile.image || ''
         });
+        console.log('[PROFILE] Catch block - Set formData bio to:', localProfile.bio || '');
+      } else {
+        console.log('[PROFILE] Catch block - No profile found in localStorage');
       }
     } finally {
       setLoading(false);
@@ -318,10 +407,17 @@ export default function ProfilePage() {
                 <textarea
                   rows={3}
                   value={formData.bio}
-                  onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+                  onChange={(e) => {
+                    console.log('[PROFILE] Bio onChange:', e.target.value);
+                    setFormData({ ...formData, bio: e.target.value });
+                  }}
                   placeholder="Cuéntanos algo sobre ti..."
                   className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors resize-none"
                 />
+                {/* Debug info */}
+                <div className="text-xs text-gray-500 mt-1">
+                  Debug: formData.bio = &ldquo;{formData.bio}&rdquo;
+                </div>
               </div>
 
               <div>
