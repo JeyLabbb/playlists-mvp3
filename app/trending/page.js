@@ -12,6 +12,16 @@ export default function TrendingPage() {
     fetchTrendingPlaylists();
   }, [sortBy]);
 
+  // Auto-track views when playlists are loaded
+  useEffect(() => {
+    if (playlists.length > 0) {
+      // Track view for each visible playlist (first 5 to avoid overwhelming)
+      playlists.slice(0, 5).forEach(async (playlist) => {
+        await trackView(playlist.playlistId);
+      });
+    }
+  }, [playlists, trackView]);
+
   const fetchTrendingPlaylists = async () => {
     try {
       setLoading(true);
@@ -57,23 +67,29 @@ export default function TrendingPage() {
       // Filter only public playlists and add author info
       const publicPlaylists = allPlaylists
         .filter(playlist => playlist.public === true)
-        .map(playlist => ({
-          id: playlist.playlistId,
-          prompt: playlist.prompt || 'Playlist creada',
-          playlistName: playlist.name,
-          playlistId: playlist.playlistId,
-          spotifyUrl: playlist.url,
-          trackCount: playlist.tracks || 0,
-          views: playlist.views || 0,
-          clicks: playlist.clicks || 0,
-          createdAt: playlist.createdAt,
-          updatedAt: playlist.updatedAt || playlist.createdAt,
-          author: {
-            username: playlist.username || playlist.userEmail?.split('@')[0] || 'unknown',
-            displayName: playlist.userName || playlist.userEmail?.split('@')[0] || 'Usuario',
-            image: playlist.userImage || null
-          }
-        }));
+        .map(playlist => {
+          // Load additional metrics from localStorage for this playlist
+          const metricsKey = `jey_playlist_metrics:${playlist.playlistId}`;
+          const additionalMetrics = JSON.parse(localStorage.getItem(metricsKey) || '{"views": 0, "clicks": 0}');
+          
+          return {
+            id: playlist.playlistId,
+            prompt: playlist.prompt || 'Playlist creada',
+            playlistName: playlist.name,
+            playlistId: playlist.playlistId,
+            spotifyUrl: playlist.url,
+            trackCount: playlist.tracks || 0,
+            views: (playlist.views || 0) + (additionalMetrics.views || 0),
+            clicks: (playlist.clicks || 0) + (additionalMetrics.clicks || 0),
+            createdAt: playlist.createdAt,
+            updatedAt: playlist.updatedAt || playlist.createdAt,
+            author: {
+              username: playlist.username || playlist.userEmail?.split('@')[0] || 'unknown',
+              displayName: playlist.userName || playlist.userEmail?.split('@')[0] || 'Usuario',
+              image: playlist.userImage || null
+            }
+          };
+        });
       
       console.log(`[TRENDING] Found ${allPlaylists.length} total playlists from localStorage, ${publicPlaylists.length} public`);
       
@@ -101,14 +117,54 @@ export default function TrendingPage() {
     }
   };
 
+  // Helper function to update metrics in localStorage
+  const updateMetricsInLocalStorage = async (playlistId, type) => {
+    try {
+      const localStorageKey = `jey_playlist_metrics:${playlistId}`;
+      const currentMetrics = JSON.parse(localStorage.getItem(localStorageKey) || '{"views": 0, "clicks": 0}');
+      
+      if (type === 'view') {
+        currentMetrics.views = (currentMetrics.views || 0) + 1;
+      } else if (type === 'click') {
+        currentMetrics.clicks = (currentMetrics.clicks || 0) + 1;
+      }
+      
+      localStorage.setItem(localStorageKey, JSON.stringify(currentMetrics));
+      console.log(`Updated ${type} metrics in localStorage for playlist ${playlistId}`);
+      
+      // Also update the local state to reflect the change immediately
+      setPlaylists(prevPlaylists => 
+        prevPlaylists.map(playlist => 
+          playlist.playlistId === playlistId 
+            ? { 
+                ...playlist, 
+                views: currentMetrics.views,
+                clicks: currentMetrics.clicks
+              }
+            : playlist
+        )
+      );
+    } catch (error) {
+      console.error('Error updating metrics in localStorage:', error);
+    }
+  };
+
   const trackClick = async (playlistId, spotifyUrl) => {
     try {
       // Track click in our new metrics system
-      await fetch('/api/metrics', {
+      const response = await fetch('/api/metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playlistId, type: 'click' })
       });
+      
+      const result = await response.json();
+      
+      // If fallback to localStorage, handle client-side
+      if (result.reason === 'fallback-localStorage') {
+        console.log('Handling click tracking in localStorage');
+        await updateMetricsInLocalStorage(playlistId, 'click');
+      }
       
       // Open Spotify link
       window.open(spotifyUrl, '_blank');
@@ -121,11 +177,19 @@ export default function TrendingPage() {
 
   const trackView = async (playlistId) => {
     try {
-      await fetch('/api/metrics', {
+      const response = await fetch('/api/metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playlistId, type: 'view' })
       });
+      
+      const result = await response.json();
+      
+      // If fallback to localStorage, handle client-side
+      if (result.reason === 'fallback-localStorage') {
+        console.log('Handling view tracking in localStorage');
+        await updateMetricsInLocalStorage(playlistId, 'view');
+      }
     } catch (error) {
       console.error('Error tracking view:', error);
     }
