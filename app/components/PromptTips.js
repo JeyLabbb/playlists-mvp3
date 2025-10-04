@@ -61,11 +61,6 @@ export default function PromptTips() {
       title: t('tips.moodDescriptors.title'),
       description: t('tips.moodDescriptors.description'),
       example: t('tips.moodDescriptors.example')
-    },
-    {
-      title: t('tips.festivalFormat.title'),
-      description: t('tips.festivalFormat.description'),
-      example: t('tips.festivalFormat.example')
     }
   ];
 
