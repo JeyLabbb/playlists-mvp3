@@ -19,6 +19,67 @@ import { getArtistTopRecent } from "../../../../lib/spotify/artistTop";
 import { fetchAudioFeaturesSafe } from "../../../../lib/spotify/audioFeatures";
 import { createPlaylist, addTracksToPlaylist } from "../../../../lib/spotify/playlist";
 import { collectFromPlaylistsByConsensus, searchFestivalLikePlaylists, loadPlaylistItemsBatch } from "../../../../lib/spotify/playlistSearch";
+
+// Helper function to search for artist radio playlists
+async function searchArtistRadioPlaylists(accessToken, queries) {
+  const allPlaylists = [];
+  
+  for (const query of queries) {
+    try {
+      const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=playlist&limit=20`;
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const playlists = data.playlists?.items || [];
+        
+        // Filter for official radio playlists and high-quality playlists
+        const filteredPlaylists = playlists.filter(playlist => {
+          const name = (playlist.name || '').toLowerCase();
+          const description = (playlist.description || '').toLowerCase();
+          const owner = playlist.owner?.display_name || '';
+          
+          // Look for official radio playlists or high-quality curated playlists
+          const isOfficialRadio = name.includes('radio') && (
+            owner.includes('spotify') || 
+            owner.includes('spotify:user:spotify') ||
+            playlist.followers?.total > 10000
+          );
+          
+          const isHighQuality = playlist.followers?.total > 5000 && (
+            name.includes('mix') || 
+            name.includes('playlist') ||
+            name.includes('similar') ||
+            name.includes('related')
+          );
+          
+          return (isOfficialRadio || isHighQuality) && playlist.id;
+        });
+        
+        allPlaylists.push(...filteredPlaylists);
+        console.log(`[RADIO-SEARCH] Query "${query}": found ${filteredPlaylists.length} playlists`);
+      }
+    } catch (error) {
+      console.warn(`[RADIO-SEARCH] Error searching for "${query}":`, error.message);
+    }
+  }
+  
+  // Remove duplicates by ID
+  const uniquePlaylists = [];
+  const seenIds = new Set();
+  
+  for (const playlist of allPlaylists) {
+    if (playlist.id && !seenIds.has(playlist.id)) {
+      seenIds.add(playlist.id);
+      uniquePlaylists.push(playlist);
+    }
+  }
+  
+  console.log(`[RADIO-SEARCH] Total unique playlists found: ${uniquePlaylists.length}`);
+  return uniquePlaylists;
+}
 import { toTrackId } from "../../../../lib/spotify/ids";
 import { fetchTracksMeta } from "../../../../lib/spotify/meta";
 import { normalizeArtistName, MUSICAL_CONTEXTS } from "../../../../lib/music/contexts";
@@ -878,8 +939,8 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
           
           console.log(`[STREAM:${traceId}] ARTIST_STYLE: Playlist queries:`, playlistQueries);
           
-          // Use the same logic as VIRAL/FESTIVAL modes to search playlists
-          const playlists = await searchFestivalLikePlaylists(accessToken, playlistQueries);
+          // Search for artist radio playlists specifically
+          const playlists = await searchArtistRadioPlaylists(accessToken, playlistQueries);
           console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${playlists.length} playlists`);
           
           if (playlists.length > 0) {
@@ -1676,8 +1737,8 @@ async function handleStreamingRequest(request) {
                        
                        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Playlist queries:`, playlistQueries);
                        
-                       // Use the same logic as VIRAL/FESTIVAL modes to search playlists
-                       const playlists = await searchFestivalLikePlaylists(accessToken, playlistQueries);
+                       // Search for artist radio playlists specifically
+                       const playlists = await searchArtistRadioPlaylists(accessToken, playlistQueries);
                        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${playlists.length} playlists`);
                        
                        if (playlists.length > 0) {
