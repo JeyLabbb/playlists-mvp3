@@ -434,12 +434,12 @@ export default function TrendingPage() {
                         </div>
 
                         {/* Action Buttons */}
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
                           {/* Preview Button */}
                           <button
                             onClick={() => loadPlaylistPreview(playlist)}
                             disabled={loadingPreview}
-                            className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors duration-200 whitespace-nowrap"
+                            className="flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-700 text-white px-3 sm:px-4 py-2 rounded-lg transition-colors duration-200 whitespace-nowrap text-sm sm:text-base"
                           >
                             <span className="text-xl">{loadingPreview ? '⏳' : '👁️'}</span>
                             <span>{loadingPreview ? 'Cargando...' : 'Ver Preview'}</span>
@@ -449,7 +449,7 @@ export default function TrendingPage() {
                           {playlist.spotifyUrl && (
                             <button
                               onClick={() => trackClick(playlist.playlistId, playlist.spotifyUrl)}
-                              className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 whitespace-nowrap"
+                              className="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-3 sm:px-4 py-2 rounded-lg transition-colors duration-200 whitespace-nowrap text-sm sm:text-base"
                             >
                               <span className="text-xl">🎧</span>
                               <span>Abrir en Spotify</span>
