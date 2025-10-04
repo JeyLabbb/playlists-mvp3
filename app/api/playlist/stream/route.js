@@ -1656,9 +1656,19 @@ async function handleStreamingRequest(request) {
                 
                 console.log(`[STREAM:${traceId}] COMPENSATION: Existing artists (${existingArtists.size}):`, Array.from(existingArtists));
                 
-                // Use completely different artists for compensation
+                // Use completely different artists for compensation (EXCLUDE BANNED ARTISTS)
                 const contextArtists = intent.contexts?.compass || intent.artists_llm || [];
-                const availableArtists = contextArtists.filter(artist => !existingArtists.has(artist));
+                const bannedArtists = intent.exclusions?.banned_artists || [];
+                const bannedArtistsLower = bannedArtists.map(a => a.toLowerCase());
+                
+                const availableArtists = contextArtists.filter(artist => {
+                  const isNotUsed = !existingArtists.has(artist);
+                  const isNotBanned = !bannedArtistsLower.some(banned => artist.toLowerCase().includes(banned));
+                  if (!isNotBanned) {
+                    console.log(`[STREAM:${traceId}] COMPENSATION: Skipping banned artist "${artist}"`);
+                  }
+                  return isNotUsed && isNotBanned;
+                });
                 
                 console.log(`[STREAM:${traceId}] COMPENSATION: Using ${availableArtists.length} new artists for compensation`);
                 

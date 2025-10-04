@@ -219,11 +219,11 @@ IMPORTANTE: DIFERENCIA ENTRE ARTISTA ESPECÍFICO Y ESTILO DE ARTISTA:
   * Spotify debe buscar TODAS las tracks donde ese artista aparece (principal O colaborador)
   * Incluye colaboraciones donde el artista es colaborador
   * NO incluir artistas similares, solo el artista específico
-- Si el prompt incluye "estilo de", "como", "música de" (ej: "estilo de D.Valentino"):
-  * Usa NORMAL mode con priority_artists
-  * Marca el artista mencionado como priority_artists (ej: ["D.Valentino"])
-  * Spotify puede incluir colaboradores y artistas similares
-  * Genera tracks del LLM basados en ese artista prioritario
+- Si el prompt incluye "estilo de", "como", "música de" (ej: "estilo de D.Valentino", "como Bad Bunny"):
+  * Usa ARTIST_STYLE mode
+  * Marca el artista mencionado como priority_artists (ej: ["D.Valentino"], ["Bad Bunny"])
+  * Spotify busca playlists con "radio + artista exacto" y consensus
+  * NO genera tracks con LLM - DELEGA COMPLETAMENTE A SPOTIFY
 
 2. VIRAL:
    - Canciones virales, trending, populares actuales
@@ -279,8 +279,8 @@ FILTROS AVANZADOS POR OYENTES MENSUALES (APLICAR EN TODOS LOS MODOS):
 DETECCIÓN DE MODOS:
 - Analiza el prompt completo para entender la intención
 - NO dependas de palabras exactas, interpreta el contexto
-- Para "estilo de cantante": USA MODO NORMAL con ese cantante como priority_artists
-- Para artista específico (solo nombre): delega completamente a Spotify
+- Para "estilo de cantante" o "como artista": USA ARTIST_STYLE mode con priority_artists
+- Para artista específico (solo nombre): usa SINGLE_ARTIST mode
 - Para exclusiones: detecta "sin X" y marca en exclusions
 - Para oyentes mensuales: SIEMPRE detecta y aplica filtro
 
@@ -336,13 +336,31 @@ Devuelve exclusivamente una llamada a la función emit_intent con argumentos vá
 
 IMPORTANTE FINAL: Si el prompt menciona un artista específico (ej: "estilo de D.Valentino"), SIEMPRE marca ese artista como priority_artists. NUNCA uses artistas genéricos como ["pop", "rock", "electronic"] cuando hay un artista específico mencionado.
 
-EJEMPLO OBLIGATORIO:
+EJEMPLO OBLIGATORIO 1:
 Prompt: "estilo de D.Valentino"
 Respuesta: {
   "mode": "ARTIST_STYLE",
   "priority_artists": ["D.Valentino"],
   "tracks": [],
-  "artists": ["D.Valentino"]
+  "artists": ["D.Valentino"],
+  "exclusions": null
+}
+
+EJEMPLO OBLIGATORIO 2:
+Prompt: "reggaeton como Bad Bunny pero sin Bad Bunny"
+Respuesta: {
+  "mode": "ARTIST_STYLE",
+  "priority_artists": ["Bad Bunny"],
+  "tracks": [
+    {"title": "Tusa", "artist": "Karol G feat. Nicki Minaj"},
+    {"title": "Mi Gente", "artist": "J Balvin feat. Willy William"},
+    {"title": "Baila Baila Baila", "artist": "Ozuna"}
+  ],
+  "artists": ["Karol G", "J Balvin", "Ozuna"],
+  "exclusions": {
+    "banned_artists": ["Bad Bunny"],
+    "banned_terms": []
+  }
 }
 
 NUNCA hagas esto:
