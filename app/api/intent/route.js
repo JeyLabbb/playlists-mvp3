@@ -295,8 +295,10 @@ DELEGACIÓN A SPOTIFY:
 
 REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
 - SIEMPRE genera tracks REALES, nunca "Track 1", "Track 2", etc.
-- NUNCA generes tracks de artistas que estén en exclusions.artists
-- Si el prompt dice "sin X artista", NO incluyas tracks de ese artista PERO genera tracks de otros artistas similares
+- NUNCA generes tracks de artistas que estén en exclusions.banned_artists
+- Si el prompt dice "sin X artista", marca ese artista en exclusions.banned_artists y NO generes tracks de ese artista
+- Si el prompt dice "pero sin Bad Bunny", marca "Bad Bunny" en exclusions.banned_artists
+- Las exclusiones son ABSOLUTAS: si un artista está en banned_artists, NO generes tracks de ese artista
 
 REGLA ESPECIAL PARA ESTILO DE ARTISTA:
 - Si el prompt contiene "estilo de" + nombre de artista: USA ARTIST_STYLE mode
@@ -310,9 +312,9 @@ REGLA ESPECIAL PARA ESTILO DE ARTISTA:
 REGLA ESPECIAL PARA ARTISTAS ESPECÍFICOS:
 - Si el prompt menciona un artista específico: incluye ese artista en priority_artists
 - NO uses artistas genéricos como fallback si hay un artista específico mencionado
-- Si detectas exclusiones, marca correctamente en exclusions.artists
-- Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → NO generes tracks de Bad Bunny, PERO genera tracks REALES de J Balvin, Maluma, Ozuna, etc.
-- Ejemplo: "rock sin Metallica" → NO generes tracks de Metallica, PERO genera tracks REALES de Iron Maiden, AC/DC, etc.
+- Si detectas exclusiones, marca correctamente en exclusions.banned_artists
+- Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → exclusions.banned_artists: ["Bad Bunny"], NO generes tracks de Bad Bunny, PERO genera tracks REALES de J Balvin, Maluma, Ozuna, etc.
+- Ejemplo: "rock sin Metallica" → exclusions.banned_artists: ["Metallica"], NO generes tracks de Metallica, PERO genera tracks REALES de Iron Maiden, AC/DC, etc.
 - Las exclusiones son ABSOLUTAS pero NO impiden generar tracks de otros artistas
 - SIEMPRE genera al menos 5-10 tracks REALES para que Spotify pueda crear radios
 
@@ -381,8 +383,8 @@ SIEMPRE genera nombres de canciones REALES, nunca "Track X"` },
                   exclusions: {
                     type: "object",
                     properties: {
-                      artists: { type: "array", items: { type: "string" } },
-                      terms: { type: "array", items: { type: "string" } }
+                      banned_artists: { type: "array", items: { type: "string" } },
+                      banned_terms: { type: "array", items: { type: "string" } }
                     }
                   }
                 },
