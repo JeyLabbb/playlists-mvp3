@@ -277,9 +277,11 @@ export default function PublicProfilePage({ params }) {
                   </span>
                 </div>
                 
-                <div className="text-gray-300 text-lg mb-4">
-                  Músico en JeyLabbb
-                </div>
+                {profile.bio && (
+                  <div className="text-gray-300 text-lg mb-4">
+                    {profile.bio}
+                  </div>
+                )}
                 
                 <div className="flex items-center gap-6 text-sm text-gray-400">
                   <span>{publicPlaylists.length} playlists públicas</span>
