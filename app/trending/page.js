@@ -195,6 +195,11 @@ export default function TrendingPage() {
           console.log('KV not available, trying localStorage fallback');
           const localStoragePlaylists = await getPlaylistsFromLocalStorage();
           setPlaylists(localStoragePlaylists);
+          
+          // If no playlists found in localStorage either, show a message
+          if (localStoragePlaylists.length === 0) {
+            console.log('No playlists found in localStorage either');
+          }
         } else {
           setPlaylists(data.playlists);
         }
@@ -365,9 +370,12 @@ export default function TrendingPage() {
           ) : playlists.length === 0 ? (
             <div className="text-center py-20">
               <div className="text-6xl mb-4">🎵</div>
-              <h3 className="text-2xl font-bold text-gray-400 mb-2">No hay playlists aún</h3>
-              <p className="text-gray-500">
-                Sé el primero en generar una playlist y aparecerá aquí
+              <h3 className="text-2xl font-bold text-gray-400 mb-2">No hay playlists trending</h3>
+              <p className="text-gray-500 mb-4">
+                Las playlists trending requieren almacenamiento en servidor
+              </p>
+              <p className="text-gray-600 text-sm">
+                Crea una playlist para verla aquí, o contacta al administrador para configurar el almacenamiento
               </p>
             </div>
           ) : (
