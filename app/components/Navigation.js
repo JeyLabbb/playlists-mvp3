@@ -28,6 +28,13 @@ export default function Navigation() {
       subtitle: 'Tus creaciones',
       icon: '📚',
       active: pathname === '/my'
+    },
+    {
+      href: '/me',
+      label: 'Mi Perfil',
+      subtitle: 'Personaliza tu información',
+      icon: '👤',
+      active: pathname === '/me'
     }
   ];
 

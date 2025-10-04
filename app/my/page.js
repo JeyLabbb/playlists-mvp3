@@ -12,6 +12,7 @@ export default function MyPlaylistsPage() {
   const [previewPlaylist, setPreviewPlaylist] = useState(null);
   const [previewTracks, setPreviewTracks] = useState([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [updatingPrivacy, setUpdatingPrivacy] = useState(new Set());
 
   useEffect(() => {
     if (session?.user?.email) {
@@ -109,6 +110,60 @@ export default function MyPlaylistsPage() {
     if (diffInDays < 30) return `Hace ${Math.floor(diffInDays / 7)} semanas`;
     if (diffInDays < 365) return `Hace ${Math.floor(diffInDays / 30)} meses`;
     return `Hace ${Math.floor(diffInDays / 365)} años`;
+  };
+
+  const togglePlaylistPrivacy = async (playlistId, currentPublic) => {
+    const newPublic = !currentPublic;
+    
+    try {
+      setUpdatingPrivacy(prev => new Set([...prev, playlistId]));
+      
+      const response = await fetch('/api/userplaylists', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playlistId: playlistId,
+          public: newPublic
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // Update local state
+        setPlaylists(prev => prev.map(playlist => 
+          playlist.playlistId === playlistId 
+            ? { ...playlist, public: newPublic }
+            : playlist
+        ));
+        
+        // If fallback to localStorage, update there too
+        if (result.reason === 'fallback-localStorage') {
+          const localKey = `jey_user_playlists:${session.user.email}`;
+          const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+          const updatedPlaylists = localPlaylists.map(playlist =>
+            playlist.playlistId === playlistId 
+              ? { ...playlist, public: newPublic }
+              : playlist
+          );
+          localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
+        }
+        
+        console.log(`Playlist ${newPublic ? 'publicada' : 'privada'} exitosamente`);
+      } else {
+        console.error('Error updating privacy:', result.error);
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error toggling privacy:', error);
+      alert('Error al cambiar la privacidad de la playlist');
+    } finally {
+      setUpdatingPrivacy(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(playlistId);
+        return newSet;
+      });
+    }
   };
 
   // Not authenticated
@@ -272,6 +327,33 @@ export default function MyPlaylistsPage() {
                       <span>{formatDate(playlist.createdAt)}</span>
                     </div>
                   </div>
+                </div>
+
+                {/* Privacy Toggle */}
+                <div className="flex items-center justify-between mb-4 p-3 bg-gray-700/30 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-300">Visible en Trending</span>
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      playlist.public !== false 
+                        ? 'bg-green-500/20 text-green-400' 
+                        : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {playlist.public !== false ? 'Pública' : 'Privada'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => togglePlaylistPrivacy(playlist.playlistId, playlist.public !== false)}
+                    disabled={updatingPrivacy.has(playlist.playlistId)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${
+                      playlist.public !== false ? 'bg-green-500' : 'bg-gray-600'
+                    } ${updatingPrivacy.has(playlist.playlistId) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
+                        playlist.public !== false ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
                 </div>
 
                 {/* Actions */}

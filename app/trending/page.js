@@ -32,9 +32,9 @@ export default function TrendingPage() {
 
   const trackClick = async (playlistId, spotifyUrl) => {
     try {
-      // Track click in our system
-      await fetch('/api/trending', {
-        method: 'PUT',
+      // Track click in our new metrics system
+      await fetch('/api/metrics', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playlistId, type: 'click' })
       });
@@ -50,8 +50,8 @@ export default function TrendingPage() {
 
   const trackView = async (playlistId) => {
     try {
-      await fetch('/api/trending', {
-        method: 'PUT',
+      await fetch('/api/metrics', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playlistId, type: 'view' })
       });
@@ -165,17 +165,49 @@ export default function TrendingPage() {
                             "{anonymizePrompt(playlist.prompt)}"
                           </p>
                           
-                          <div className="flex items-center gap-4 text-sm text-gray-500">
-                            <span>{playlist.trackCount} canciones</span>
-                            <span>👀 {playlist.views || 0}</span>
-                            <span>🔗 {playlist.clicks || 0}</span>
-                            <span>
-                              {new Date(playlist.createdAt).toLocaleDateString('es-ES', {
-                                year: '2-digit',
-                                month: 'short',
-                                day: 'numeric'
-                              })}
-                            </span>
+                          <div className="space-y-3">
+                            {/* Author Info */}
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
+                                {playlist.author?.image ? (
+                                  <img 
+                                    src={playlist.author.image} 
+                                    alt={playlist.author.displayName} 
+                                    className="w-8 h-8 rounded-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                                    <span className="text-white text-sm">👤</span>
+                                  </div>
+                                )}
+                                <div>
+                                  <span 
+                                    className="text-blue-400 hover:text-blue-300 font-medium text-sm cursor-pointer transition-colors"
+                                    onClick={() => window.location.href = `/u/${playlist.author?.username || 'unknown'}`}
+                                    title="Ver perfil del autor"
+                                  >
+                                    @{playlist.author?.username || 'unknown'}
+                                  </span>
+                                  <div className="text-xs text-gray-500">
+                                    {playlist.author?.displayName || 'Usuario'}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Stats */}
+                            <div className="flex items-center gap-4 text-sm text-gray-500">
+                              <span>{playlist.trackCount} canciones</span>
+                              <span>👀 {playlist.views || 0}</span>
+                              <span>🔗 {playlist.clicks || 0}</span>
+                              <span>
+                                {new Date(playlist.createdAt).toLocaleDateString('es-ES', {
+                                  year: '2-digit',
+                                  month: 'short',
+                                  day: 'numeric'
+                                })}
+                              </span>
+                            </div>
                           </div>
                         </div>
 
@@ -200,7 +232,10 @@ export default function TrendingPage() {
           {/* Footer */}
           <div className="text-center mt-12 pt-8 border-t border-gray-700">
             <p className="text-gray-500 text-sm">
-              Todas las playlists son generadas con IA y creadas automáticamente por usuarios
+              Playlists generadas con IA y creadas por usuarios de JeyLabbb
+            </p>
+            <p className="text-gray-600 text-xs mt-1">
+              Haz clic en el nombre del autor para ver sus otras creaciones
             </p>
           </div>
         </div>
