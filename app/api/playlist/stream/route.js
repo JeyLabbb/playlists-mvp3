@@ -1646,6 +1646,78 @@ async function handleStreamingRequest(request) {
                            progress: Math.round((allTracks.length / target_tracks) * 100),
                            message: `Añadiendo canciones: [${allTracks.length}/${target_tracks}]`
                          })}\n\n`));
+                         
+                         // COMPENSATION: If we don't have enough tracks, generate more
+                         if (allTracks.length < target_tracks) {
+                           const missingTracks = target_tracks - allTracks.length;
+                           console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Need ${missingTracks} more tracks`);
+                           
+                           try {
+                             // Try to get more tracks from remaining artists
+                             const remainingArtists = similarArtists.slice(artistCounts.size);
+                             console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Using remaining artists:`, remainingArtists.slice(0, 5));
+                             
+                             for (const artist of remainingArtists) {
+                               if (allTracks.length >= target_tracks) break;
+                               
+                               try {
+                                 console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Getting more tracks for ${artist}`);
+                                 const compensationTracks = await searchTracksByArtists(accessToken, [artist], missingTracks);
+                                 
+                                 if (compensationTracks && compensationTracks.length > 0) {
+                                   const filteredCompensationTracks = compensationTracks.filter(track => notExcluded(track, intent.exclusions));
+                                   const dedupedCompensationTracks = dedupeById(dedupeAgainstUsed(filteredCompensationTracks, usedTracks));
+                                   const toAdd = dedupedCompensationTracks.slice(0, missingTracks);
+                                   
+                                   if (toAdd.length > 0) {
+                                     allTracks = [...allTracks, ...toAdd];
+                                     
+                                     controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                                       tracks: toAdd,
+                                       totalSoFar: allTracks.length,
+                                       target: target_tracks,
+                                       progress: Math.round((allTracks.length / target_tracks) * 100),
+                                       message: `Compensando canciones: [${allTracks.length}/${target_tracks}]`
+                                     })}\n\n`));
+                                     
+                                     console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Added ${toAdd.length} tracks from ${artist}`);
+                                   }
+                                 }
+                               } catch (error) {
+                                 console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Failed to get tracks for ${artist}:`, error.message);
+                               }
+                               
+                               await new Promise(resolve => setTimeout(resolve, 200)); // Rate limiting
+                             }
+                             
+                             // If still not enough, try generic search
+                             if (allTracks.length < target_tracks) {
+                               const stillMissing = target_tracks - allTracks.length;
+                               console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Still need ${stillMissing} tracks, trying generic search`);
+                               
+                               const genericTracks = await searchGenericTracks(accessToken, stillMissing * 2);
+                               const filteredGenericTracks = genericTracks.filter(track => notExcluded(track, intent.exclusions));
+                               const dedupedGenericTracks = dedupeById(dedupeAgainstUsed(filteredGenericTracks, usedTracks));
+                               const toAdd = dedupedGenericTracks.slice(0, stillMissing);
+                               
+                               if (toAdd.length > 0) {
+                                 allTracks = [...allTracks, ...toAdd];
+                                 
+                                 controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                                   tracks: toAdd,
+                                   totalSoFar: allTracks.length,
+                                   target: target_tracks,
+                                   progress: Math.round((allTracks.length / target_tracks) * 100),
+                                   message: `Finalizando: [${allTracks.length}/${target_tracks}]`
+                                 })}\n\n`));
+                                 
+                                 console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Added ${toAdd.length} generic tracks`);
+                               }
+                             }
+                           } catch (compensationError) {
+                             console.error(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION ERROR:`, compensationError);
+                           }
+                         }
                        }
                      }
                      
