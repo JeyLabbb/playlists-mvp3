@@ -660,7 +660,8 @@ export default function Home() {
           url: data.url || `https://open.spotify.com/playlist/${data.playlistId}`,
           image: null, // We don't have image data from Spotify API response
           tracks: uris.length,
-          prompt: prompt
+          prompt: prompt,
+          createdAt: new Date().toISOString()
         };
 
         const userPlaylistResponse = await fetch('/api/userplaylists', {

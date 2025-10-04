@@ -84,15 +84,31 @@ export default function MyPlaylistsPage() {
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
+    if (!dateString) return 'Fecha no disponible';
+    
+    // Handle both ISO string format and other date formats
+    let date;
+    try {
+      date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        console.warn('Invalid date string:', dateString);
+        return 'Fecha no disponible';
+      }
+    } catch (error) {
+      console.warn('Error parsing date:', dateString, error);
+      return 'Fecha no disponible';
+    }
+    
     const now = new Date();
-    const diffInDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+    const diffInMs = now.getTime() - date.getTime();
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
     
     if (diffInDays === 0) return 'Hoy';
     if (diffInDays === 1) return 'Ayer';
     if (diffInDays < 7) return `Hace ${diffInDays} días`;
     if (diffInDays < 30) return `Hace ${Math.floor(diffInDays / 7)} semanas`;
-    return date.toLocaleDateString('es-ES');
+    if (diffInDays < 365) return `Hace ${Math.floor(diffInDays / 30)} meses`;
+    return `Hace ${Math.floor(diffInDays / 365)} años`;
   };
 
   // Not authenticated
