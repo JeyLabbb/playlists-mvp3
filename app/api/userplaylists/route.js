@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../../../../lib/auth/config';
+
+// Simplified auth options to avoid import circular dependency
+const simpleAuthOptions = {
+  secret: process.env.NEXTAUTH_SECRET,
+  trustHost: true
+};
 
 // Check if Vercel KV is available
 function hasKV() {
@@ -65,7 +70,7 @@ async function saveToKV(userEmail, playlist) {
 // GET: Retrieve user playlists
 export async function GET(request) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(simpleAuthOptions);
     
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -125,7 +130,7 @@ async function getUserProfile(email, session) {
 // POST: Save user playlist
 export async function POST(request) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(simpleAuthOptions);
     
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -194,7 +199,7 @@ export async function POST(request) {
 // PATCH: Update playlist privacy
 export async function PATCH(request) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(simpleAuthOptions);
     
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
