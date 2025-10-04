@@ -3,6 +3,7 @@ import Providers from "./providers";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import { Toaster } from "sonner";
 import SessionWatcher from "./components/SessionWatcher";
+import Navigation from "./components/Navigation";
 import { Analytics } from '@vercel/analytics/react';
 
 export const metadata = {
@@ -19,6 +20,7 @@ export default function RootLayout({ children }) {
       <body className="antialiased">
         <LanguageProvider>
           <Providers>
+            <Navigation />
             {children}
             <SessionWatcher />
           </Providers>

@@ -18,6 +18,7 @@ export default function Home() {
 
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useState(50);
+  const [customPlaylistName, setCustomPlaylistName] = useState("");
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -29,7 +30,7 @@ export default function Home() {
   const progTimer = useRef(null);
 
   // Playlist creation options
-  const [playlistName, setPlaylistName] = useState("");
+  const [playlistName] = useState(""); // Keep for compatibility but use customPlaylistName
   const [isCreating, setIsCreating] = useState(false);
   const [isCreated, setIsCreated] = useState(false);
   const [spotifyUrl, setSpotifyUrl] = useState(null);
@@ -227,7 +228,7 @@ export default function Home() {
   }
 
   // Generate playlist using streaming SSE
-  async function generatePlaylistWithStreaming(prompt, wanted, playlistName) {
+  async function generatePlaylistWithStreaming(prompt, wanted, customPlaylistName) {
     return new Promise((resolve, reject) => {
       let allTracks = [];
       let eventSource;
@@ -368,7 +369,7 @@ export default function Home() {
             body: JSON.stringify({ 
               prompt, 
               target_tracks: wanted,
-              playlist_name: playlistName || safeDefaultName(prompt)
+              playlist_name: customPlaylistName || safeDefaultName(prompt)
             }),
           })
           .then(res => res.json())
@@ -403,7 +404,7 @@ export default function Home() {
           body: JSON.stringify({ 
             prompt, 
             target_tracks: wanted,
-            playlist_name: playlistName || safeDefaultName(prompt)
+            playlist_name: customPlaylistName || safeDefaultName(prompt)
           }),
         })
         .then(res => res.json())
@@ -494,7 +495,7 @@ export default function Home() {
       // Use streaming SSE for both mobile and desktop - SAME LOGIC
       if (session?.user) {
         // Both mobile and desktop use streaming - EXACTLY THE SAME
-        await generatePlaylistWithStreaming(prompt, wanted, playlistName);
+        await generatePlaylistWithStreaming(prompt, wanted, customPlaylistName);
       } else {
         // Use regular fetch for demo or development
         const playlistRes = await fetch(endpoint, {
@@ -504,7 +505,7 @@ export default function Home() {
           body: JSON.stringify({ 
             prompt, 
             target_tracks: wanted,
-            playlist_name: playlistName || safeDefaultName(prompt)
+            playlist_name: customPlaylistName || safeDefaultName(prompt)
           }),
         });
         
@@ -566,7 +567,7 @@ export default function Home() {
       setIsCreated(false);
       setCreateError(null);
       
-      const baseName = playlistName.trim() || safeDefaultName(prompt);
+      const baseName = customPlaylistName.trim() || safeDefaultName(prompt);
       const nameWithBrand = baseName.endsWith(" · by JeyLabbb") ? baseName : baseName + " · by JeyLabbb";
       
       console.log(`[UI] playlistName base=${baseName} finalSent=${nameWithBrand}`);
@@ -622,7 +623,7 @@ export default function Home() {
       // FIXPACK: SOLO ahora marcamos creada y mostramos 'Open in Spotify'
       setSpotifyUrl(data?.url || `https://open.spotify.com/playlist/${data?.playlistId}`);
       setIsCreated(true);
-      setPlaylistName(''); // Keep input empty after creation
+      setCustomPlaylistName(''); // Keep input empty after creation
       
       // Abrir Spotify automáticamente
       if (data?.url) {
@@ -631,6 +632,24 @@ export default function Home() {
       
       const addedText = data.trackCount ? ` (${data.trackCount} tracks added)` : '';
       setStatusText(`Playlist creada 🎉 Abriendo Spotify...${addedText}`);
+      
+      // Register playlist in trending
+      try {
+        await fetch('/api/trending', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: prompt,
+            playlistName: customPlaylistName || null, // Let API generate dynamic name if empty
+            playlistId: data.playlistId,
+            spotifyUrl: data.url || `https://open.spotify.com/playlist/${data.playlistId}`,
+            trackCount: uris.length
+          })
+        });
+      } catch (trendingError) {
+        console.error('Error registering playlist in trending:', trendingError);
+        // Don't fail the main flow if trending registration fails
+      }
       
       // Dispatch event for FeedbackGate
       window.dispatchEvent(new CustomEvent('playlist:created', { detail: { id: data.playlistId, url: data.playlistUrl } }));
@@ -850,9 +869,9 @@ export default function Home() {
                   </label>
                   <input
                     type="text"
-                    value={playlistName}
-                    onChange={(e) => setPlaylistName(e.target.value)}
-                    placeholder={safeDefaultName(prompt)}
+                    value={customPlaylistName}
+                    onChange={(e) => setCustomPlaylistName(e.target.value)}
+                    placeholder="Dejar vacío para nombre generado por IA"
                     className="spotify-input"
                   />
                 </div>
