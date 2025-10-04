@@ -300,10 +300,10 @@ function determineMode(intent, prompt) {
     return 'SINGLE_ARTIST';
   }
   
-  // Check for artist style mode (contains "como" or "like") - but not if it's just exclusion
-  if ((promptLower.includes('como') || promptLower.includes('like')) && !promptLower.includes('sin')) {
+  // Check for artist style mode (contains "como" or "like") - can include restrictions
+  if (promptLower.includes('como') || promptLower.includes('like')) {
     console.log(`[MODE-DETECTION] ✅ ARTIST_STYLE MODE DETECTED`);
-    console.log(`[MODE-DETECTION] Reason: Contains "como" or "like" without "sin"`);
+    console.log(`[MODE-DETECTION] Reason: Contains "como" or "like" (can include restrictions)`);
     return 'ARTIST_STYLE';
   }
   
@@ -867,14 +867,63 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
             // Collect tracks from playlists by consensus (same as VIRAL/FESTIVAL)
             spotifyTracks = dedupeById(await collectFromPlaylistsByConsensus(accessToken, playlists, remaining, rng));
             console.log(`[STREAM:${traceId}] ARTIST_STYLE: Collected ${spotifyTracks.length} tracks from playlists`);
+            
+            // Apply exclusions to tracks from playlists
+            if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
+              const filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
+              spotifyTracks = filteredTracks;
+            }
           } else {
             console.log(`[STREAM:${traceId}] ARTIST_STYLE: No playlists found, using artist search fallback`);
             // Fallback: search for tracks by the artist
             spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, [artistName], remaining));
+            
+            // Apply exclusions to fallback tracks
+            if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
+              const filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions to fallback ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
+              spotifyTracks = filteredTracks;
+            }
           }
         } else {
           console.log(`[STREAM:${traceId}] ARTIST_STYLE: No priority artists, using generic search`);
           spotifyTracks = dedupeById(await searchGenericTracks(accessToken, remaining));
+        }
+        
+        // COMPENSATION: If we don't have enough tracks, generate more
+        if (spotifyTracks.length < remaining) {
+          const missingTracks = remaining - spotifyTracks.length;
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Need ${missingTracks} more tracks`);
+          
+          try {
+            // Try radio from priority artist first
+            const priorityArtists = intent.priority_artists || [];
+            if (priorityArtists.length > 0) {
+              const artistName = priorityArtists[0];
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Radio from priority artist "${artistName}"`);
+              const radioTracks = await radioFromRelatedTop(accessToken, [artistName], missingTracks * 2);
+              if (radioTracks && radioTracks.length > 0) {
+                const filteredRadioTracks = radioTracks.filter(track => notExcluded(track, intent.exclusions));
+                const dedupedRadioTracks = dedupeById(dedupeAgainstUsed(filteredRadioTracks, usedTracks));
+                spotifyTracks = [...spotifyTracks, ...dedupedRadioTracks.slice(0, missingTracks)];
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Added ${dedupedRadioTracks.slice(0, missingTracks).length} radio tracks`);
+              }
+            }
+            
+            // If still not enough, try generic search with exclusions
+            if (spotifyTracks.length < remaining) {
+              const stillMissing = remaining - spotifyTracks.length;
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Still need ${stillMissing} tracks, trying generic search`);
+              const genericTracks = await searchGenericTracks(accessToken, stillMissing * 2);
+              const filteredGenericTracks = genericTracks.filter(track => notExcluded(track, intent.exclusions));
+              const dedupedGenericTracks = dedupeById(dedupeAgainstUsed(filteredGenericTracks, usedTracks));
+              spotifyTracks = [...spotifyTracks, ...dedupedGenericTracks.slice(0, stillMissing)];
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Added ${dedupedGenericTracks.slice(0, stillMissing).length} generic tracks`);
+            }
+          } catch (compensationError) {
+            console.error(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION ERROR:`, compensationError);
+          }
         }
         
         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Generated ${spotifyTracks.length}/${remaining} tracks`);
