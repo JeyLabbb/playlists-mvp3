@@ -158,7 +158,8 @@ export async function GET(request) {
         success: true,
         playlists: [],
         fallback: true,
-        message: 'KV not available - using localStorage fallback'
+        message: 'KV not available - trending playlists require server storage',
+        error: 'Server storage not configured'
       });
     }
 

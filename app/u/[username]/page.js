@@ -168,10 +168,23 @@ export default function PublicProfilePage({ params }) {
         body: JSON.stringify({ playlistId, type: 'click' })
       });
       
-      window.open(spotifyUrl, '_blank');
+      try {
+        window.open(spotifyUrl, '_blank', 'noopener,noreferrer');
+      } catch (openError) {
+        console.error('Error opening Spotify URL:', openError);
+        // Fallback: try to navigate directly
+        window.location.href = spotifyUrl;
+      }
     } catch (error) {
       console.error('Error tracking click:', error);
-      window.open(spotifyUrl, '_blank');
+      // Still open the link even if tracking fails
+      if (spotifyUrl) {
+        try {
+          window.open(spotifyUrl, '_blank', 'noopener,noreferrer');
+        } catch (openError) {
+          window.location.href = spotifyUrl;
+        }
+      }
     }
   };
 

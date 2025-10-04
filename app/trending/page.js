@@ -116,6 +116,8 @@ export default function TrendingPage() {
 
   const trackClick = async (playlistId, spotifyUrl) => {
     try {
+      console.log('trackClick called with:', { playlistId, spotifyUrl });
+      
       // Track click in our new metrics system
       const response = await fetch('/api/metrics', {
         method: 'POST',
@@ -132,11 +134,24 @@ export default function TrendingPage() {
       }
       
       // Open Spotify link
-      window.open(spotifyUrl, '_blank');
+      if (spotifyUrl) {
+        console.log('Opening Spotify URL:', spotifyUrl);
+        try {
+          window.open(spotifyUrl, '_blank', 'noopener,noreferrer');
+        } catch (error) {
+          console.error('Error opening Spotify URL:', error);
+          // Fallback: try to navigate directly
+          window.location.href = spotifyUrl;
+        }
+      } else {
+        console.error('No Spotify URL provided');
+      }
     } catch (error) {
       console.error('Error tracking click:', error);
       // Still open the link even if tracking fails
-      window.open(spotifyUrl, '_blank');
+      if (spotifyUrl) {
+        window.open(spotifyUrl, '_blank');
+      }
     }
   };
 
@@ -186,6 +201,11 @@ export default function TrendingPage() {
           console.log('KV not available, trying localStorage fallback');
           const localStoragePlaylists = await getPlaylistsFromLocalStorage();
           setPlaylists(localStoragePlaylists);
+          
+          // If no playlists found in localStorage either, show a message
+          if (localStoragePlaylists.length === 0) {
+            console.log('No playlists found in localStorage either');
+          }
         } else {
           setPlaylists(data.playlists);
         }
@@ -356,9 +376,12 @@ export default function TrendingPage() {
           ) : playlists.length === 0 ? (
             <div className="text-center py-20">
               <div className="text-6xl mb-4">🎵</div>
-              <h3 className="text-2xl font-bold text-gray-400 mb-2">No hay playlists aún</h3>
-              <p className="text-gray-500">
-                Sé el primero en generar una playlist y aparecerá aquí
+              <h3 className="text-2xl font-bold text-gray-400 mb-2">No hay playlists trending</h3>
+              <p className="text-gray-500 mb-4">
+                Las playlists trending requieren almacenamiento en servidor
+              </p>
+              <p className="text-gray-600 text-sm">
+                Crea una playlist para verla aquí, o contacta al administrador para configurar el almacenamiento
               </p>
             </div>
           ) : (
@@ -420,10 +443,14 @@ export default function TrendingPage() {
                             {/* Stats */}
                             <div className="flex items-center gap-1 sm:gap-4 text-xs sm:text-sm text-gray-500">
                               <span>{playlist.trackCount} canciones</span>
-                              <span className="hidden sm:inline">👀</span>
-                              <span>{formatNumber(playlist.views || 0)}</span>
-                              <span className="hidden sm:inline">🔗</span>
-                              <span>{formatNumber(playlist.clicks || 0)}</span>
+                              <span className="flex items-center gap-1">
+                                <span className="text-xs sm:text-sm">👀</span>
+                                <span>{formatNumber(playlist.views || 0)}</span>
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <span className="text-xs sm:text-sm">🔗</span>
+                                <span>{formatNumber(playlist.clicks || 0)}</span>
+                              </span>
                               <span className="hidden sm:inline">
                                 {new Date(playlist.createdAt).toLocaleDateString('es-ES', {
                                   year: '2-digit',

@@ -756,7 +756,7 @@ export default function Home() {
     <div className="min-h-screen bg-black-base">
       {/* Header */}
       <header className="border-b border-gray-dark mobile-header">
-        <div className="max-w-6xl mx-auto px-6 py-6">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
           <div className="flex justify-between items-center mobile-flex-col md:flex-row">
             <div className="text-center md:text-left">
               <div className="text-sm font-bold text-white mb-1">
@@ -798,8 +798,8 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-4xl mx-auto px-6 py-12">
-        <div className="space-y-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-12">
+        <div className="space-y-4 sm:space-y-8">
           
           {/* Prompt Card */}
           <div className="spotify-card">
