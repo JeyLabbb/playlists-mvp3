@@ -101,6 +101,7 @@ export default function TrendingPage() {
       if (tracksData.success && tracksData.tracks) {
         setPreviewTracks(tracksData.tracks);
         console.log('Successfully loaded', tracksData.tracks.length, 'tracks');
+        console.log('Sample track structure:', tracksData.tracks[0]);
       } else {
         console.error('Failed to load playlist tracks:', tracksData.error);
         setPreviewTracks([]);
@@ -509,7 +510,7 @@ export default function TrendingPage() {
                             <div className="flex-1 min-w-0">
                               <p className="text-white font-medium truncate">{track.name}</p>
                               <p className="text-gray-400 text-sm truncate">
-                                {track.artists?.map(artist => artist.name).join(', ') || track.artistNames?.join(', ') || 'Artista desconocido'}
+                                {track.artists?.join(', ') || track.artistNames?.join(', ') || 'Artista desconocido'}
                               </p>
                             </div>
                           </div>
