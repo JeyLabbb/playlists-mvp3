@@ -30,8 +30,10 @@ export default function ProfilePage() {
   const fetchProfile = async () => {
     try {
       setLoading(true);
+      console.log('[PROFILE] Fetching profile for user:', session.user.email);
       const response = await fetch('/api/profile');
       const data = await response.json();
+      console.log('[PROFILE] API response:', data);
       
       if (data.success) {
         setProfile(data.profile);
@@ -53,9 +55,12 @@ export default function ProfilePage() {
         
         // Try localStorage fallback even when API returns error
         const localKey = `jey_user_profile:${session.user.email}`;
+        console.log('[PROFILE] Trying localStorage fallback with key:', localKey);
         const localProfile = JSON.parse(localStorage.getItem(localKey) || 'null');
+        console.log('[PROFILE] localStorage data:', localProfile);
+        
         if (localProfile) {
-          console.log('Loaded profile from localStorage:', localProfile);
+          console.log('[PROFILE] Successfully loaded profile from localStorage:', localProfile);
           setProfile(localProfile);
           setFormData({
             displayName: localProfile.displayName || '',
@@ -63,7 +68,10 @@ export default function ProfilePage() {
             bio: localProfile.bio || '',
             image: localProfile.image || ''
           });
+          console.log('[PROFILE] Set formData bio to:', localProfile.bio || '');
           setError(null); // Clear error since we found data in localStorage
+        } else {
+          console.log('[PROFILE] No profile found in localStorage');
         }
       }
     } catch (error) {
@@ -72,8 +80,12 @@ export default function ProfilePage() {
       
       // Try localStorage fallback
       const localKey = `jey_user_profile:${session.user.email}`;
+      console.log('[PROFILE] Catch block - trying localStorage fallback with key:', localKey);
       const localProfile = JSON.parse(localStorage.getItem(localKey) || 'null');
+      console.log('[PROFILE] Catch block - localStorage data:', localProfile);
+      
       if (localProfile) {
+        console.log('[PROFILE] Catch block - Successfully loaded profile from localStorage:', localProfile);
         setProfile(localProfile);
         setFormData({
           displayName: localProfile.displayName || '',
@@ -81,6 +93,9 @@ export default function ProfilePage() {
           bio: localProfile.bio || '',
           image: localProfile.image || ''
         });
+        console.log('[PROFILE] Catch block - Set formData bio to:', localProfile.bio || '');
+      } else {
+        console.log('[PROFILE] Catch block - No profile found in localStorage');
       }
     } finally {
       setLoading(false);
