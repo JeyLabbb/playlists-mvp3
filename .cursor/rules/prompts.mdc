@@ -1,0 +1,39 @@
+---
+description: >
+  Siempre que se te envíen ejemplos o logs de error, úsalos solo como referencia
+  para entender el tipo de fallo. Las correcciones deben ser genéricas y robustas,
+  aplicables a cualquier prompt o variación (no solo al ejemplo concreto).
+  Evita soluciones acopladas a nombres/artistas/consultas específicas.
+
+  Al finalizar cada cambio, devuelve un bloque breve titulado "Resumen de cambios (genéricos)"
+  explicando: 1) qué comportamiento sistémico se ha corregido, 2) cómo se generaliza
+  más allá del ejemplo, y 3) qué tests o prompts variados has considerado mentalmente.
+
+  ## FIXES IMPLEMENTADOS - ARTIST_STYLE MODE
+
+  ### PROBLEMA: Exclusiones demasiado agresivas
+  - **Síntoma**: Sistema generaba 0 tracks para "estilo de X pero sin X"
+  - **Causa**: Buscaba tracks DEL artista excluido y luego los filtraba
+  - **Solución**: Cambiar fallback para buscar tracks de artistas SIMILARES (no del excluido)
+
+  ### PROBLEMA: Repetición excesiva de artistas
+  - **Síntoma**: Solo 2 artistas (Karol G, J Balvin) para 50 tracks
+  - **Causa**: searchTracksByArtists solo procesaba primeros artistas
+  - **Solución**: Búsqueda individual por cada artista con límite de variedad
+
+  ### PROBLEMA: Número incompleto de tracks
+  - **Síntoma**: 35/50 tracks generados
+  - **Causa**: Falta compensación para completar target_tracks
+  - **Solución**: Sistema de compensación en 2 fases (artistas restantes + búsqueda genérica)
+
+  ### FLUJO CORRECTO ARTIST_STYLE:
+  1. **Primary**: Buscar playlists "radio + artista"
+  2. **Fallback**: Si no hay playlists, buscar tracks de artistas similares individualmente
+  3. **Límite**: Máximo 2-3 tracks por artista para variedad
+  4. **Exclusiones**: Filtrar tracks del artista excluido
+  5. **Compensación**: Si faltan tracks, usar artistas restantes + búsqueda genérica
+  6. **Resultado**: Exactamente N tracks con variedad y exclusiones aplicadas
+
+globs:
+  alwaysApply: true
+---
