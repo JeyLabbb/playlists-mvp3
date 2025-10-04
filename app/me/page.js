@@ -48,7 +48,23 @@ export default function ProfilePage() {
           localStorage.setItem(localKey, JSON.stringify(data.profile));
         }
       } else {
+        console.log('API returned error, trying localStorage fallback');
         setError(data.error || 'Failed to load profile');
+        
+        // Try localStorage fallback even when API returns error
+        const localKey = `jey_user_profile:${session.user.email}`;
+        const localProfile = JSON.parse(localStorage.getItem(localKey) || 'null');
+        if (localProfile) {
+          console.log('Loaded profile from localStorage:', localProfile);
+          setProfile(localProfile);
+          setFormData({
+            displayName: localProfile.displayName || '',
+            username: localProfile.username || '',
+            bio: localProfile.bio || '',
+            image: localProfile.image || ''
+          });
+          setError(null); // Clear error since we found data in localStorage
+        }
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
