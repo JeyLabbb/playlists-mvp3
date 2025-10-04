@@ -893,18 +893,166 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
               console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
               spotifyTracks = filteredTracks;
             }
-          } else {
-            console.log(`[STREAM:${traceId}] ARTIST_STYLE: No playlists found, using artist search fallback`);
-            // Fallback: search for tracks by the artist
-            spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, [artistName], remaining));
-            
-            // Apply exclusions to fallback tracks
-            if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
-              const filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions to fallback ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
-              spotifyTracks = filteredTracks;
+            } else {
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: No playlists found, using radio fallback for "${artistName}"`);
+              // Fallback: use radio from the priority artist directly
+              try {
+                const radioTracks = await radioFromRelatedTop(accessToken, [artistName], remaining * 2);
+                if (radioTracks && radioTracks.length > 0) {
+                  spotifyTracks = dedupeById(radioTracks);
+                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Radio fallback found ${spotifyTracks.length} tracks from "${artistName}"`);
+                  
+                  // Apply exclusions to radio tracks
+                  if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
+                    const filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+                    console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions to radio fallback ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
+                    spotifyTracks = filteredTracks;
+                  }
+                } else {
+                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Radio fallback failed, using similar artists fallback`);
+                  // Last resort: search for tracks by similar artists (NOT the excluded artist)
+                  const similarArtists = intent.artists_llm || intent.contexts?.compass || [];
+                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using similar artists:`, similarArtists.slice(0, 5));
+                  
+                  // Limit tracks per artist to ensure variety (max 3 per artist)
+                  const maxTracksPerArtist = Math.max(2, Math.floor(target_tracks / similarArtists.length));
+                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Max tracks per artist: ${maxTracksPerArtist}`);
+                  
+                  // Search tracks from ALL artists individually to ensure variety
+                  const allTracksFromArtists = [];
+                  const artistCounts = new Map();
+                  
+                  for (const artist of similarArtists) {
+                    // Stop if we have enough tracks total
+                    if (allTracksFromArtists.length >= target_tracks) break;
+                    
+                    // Check if this artist already has enough tracks
+                    const currentArtistCount = artistCounts.get(artist) || 0;
+                    if (currentArtistCount >= maxTracksPerArtist) {
+                      console.log(`[STREAM:${traceId}] ARTIST_STYLE: Skipping ${artist} - already has ${currentArtistCount} tracks`);
+                      continue;
+                    }
+                    
+                    try {
+                      console.log(`[STREAM:${traceId}] ARTIST_STYLE: Searching tracks for ${artist}`);
+                      // Search only what we need for this artist
+                      const tracksNeeded = Math.min(maxTracksPerArtist - currentArtistCount, 3);
+                      const artistTracks = await searchTracksByArtists(accessToken, [artist], tracksNeeded);
+                      
+                      if (artistTracks && artistTracks.length > 0) {
+                        // Limit this artist's tracks to what we actually need
+                        const limitedArtistTracks = artistTracks.slice(0, tracksNeeded);
+                        allTracksFromArtists.push(...limitedArtistTracks);
+                        
+                        artistCounts.set(artist, (artistCounts.get(artist) || 0) + limitedArtistTracks.length);
+                        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Added ${limitedArtistTracks.length} tracks from ${artist}`);
+                      }
+                    } catch (error) {
+                      console.log(`[STREAM:${traceId}] ARTIST_STYLE: Failed to get tracks for ${artist}:`, error.message);
+                    }
+                    
+                    // Rate limiting
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                  }
+                  
+                  const spotifyTracks = dedupeById(allTracksFromArtists);
+                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${spotifyTracks.length} tracks from similar artists`);
+                  
+                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Artist distribution:`);
+                  for (const [artist, count] of artistCounts.entries()) {
+                    console.log(`[STREAM:${traceId}] ARTIST_STYLE: ${artist}: ${count} tracks`);
+                  }
+                  
+                  // Apply exclusions to tracks
+                  let filteredTracks = spotifyTracks;
+                  if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
+                    filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+                    console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions to fallback ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
+                  }
+                  
+                  allTracks = [...allTracks, ...filteredTracks];
+                  
+                  controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                    tracks: filteredTracks,
+                    totalSoFar: allTracks.length,
+                    target: target_tracks,
+                    progress: Math.round((allTracks.length / target_tracks) * 100),
+                    message: `Añadiendo canciones: [${allTracks.length}/${target_tracks}]`
+                  })}\n\n`));
+                }
+              } catch (radioError) {
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Radio fallback error:`, radioError.message);
+                // Last resort: search for tracks by similar artists (NOT the excluded artist)
+                const similarArtists = intent.artists_llm || intent.contexts?.compass || [];
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using similar artists:`, similarArtists.slice(0, 5));
+                
+                // Limit tracks per artist to ensure variety (max 3 per artist)
+                const maxTracksPerArtist = Math.max(2, Math.floor(target_tracks / similarArtists.length));
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Max tracks per artist: ${maxTracksPerArtist}`);
+                
+                // Search tracks from ALL artists individually to ensure variety
+                const allTracksFromArtists = [];
+                const artistCounts = new Map();
+                
+                for (const artist of similarArtists) {
+                  // Stop if we have enough tracks total
+                  if (allTracksFromArtists.length >= target_tracks) break;
+                  
+                  // Check if this artist already has enough tracks
+                  const currentArtistCount = artistCounts.get(artist) || 0;
+                  if (currentArtistCount >= maxTracksPerArtist) {
+                    console.log(`[STREAM:${traceId}] ARTIST_STYLE: Skipping ${artist} - already has ${currentArtistCount} tracks`);
+                    continue;
+                  }
+                  
+                  try {
+                    console.log(`[STREAM:${traceId}] ARTIST_STYLE: Searching tracks for ${artist}`);
+                    // Search only what we need for this artist
+                    const tracksNeeded = Math.min(maxTracksPerArtist - currentArtistCount, 3);
+                    const artistTracks = await searchTracksByArtists(accessToken, [artist], tracksNeeded);
+                    
+                    if (artistTracks && artistTracks.length > 0) {
+                      // Limit this artist's tracks to what we actually need
+                      const limitedArtistTracks = artistTracks.slice(0, tracksNeeded);
+                      allTracksFromArtists.push(...limitedArtistTracks);
+                      
+                      artistCounts.set(artist, (artistCounts.get(artist) || 0) + limitedArtistTracks.length);
+                      console.log(`[STREAM:${traceId}] ARTIST_STYLE: Added ${limitedArtistTracks.length} tracks from ${artist}`);
+                    }
+                  } catch (error) {
+                    console.log(`[STREAM:${traceId}] ARTIST_STYLE: Failed to get tracks for ${artist}:`, error.message);
+                  }
+                  
+                  // Rate limiting
+                  await new Promise(resolve => setTimeout(resolve, 200));
+                }
+                
+                const spotifyTracks = dedupeById(allTracksFromArtists);
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${spotifyTracks.length} tracks from similar artists`);
+                
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Artist distribution:`);
+                for (const [artist, count] of artistCounts.entries()) {
+                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: ${artist}: ${count} tracks`);
+                }
+                
+                // Apply exclusions to tracks
+                let filteredTracks = spotifyTracks;
+                if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
+                  filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions to error fallback ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
+                }
+                
+                allTracks = [...allTracks, ...filteredTracks];
+                
+                controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                  tracks: filteredTracks,
+                  totalSoFar: allTracks.length,
+                  target: target_tracks,
+                  progress: Math.round((allTracks.length / target_tracks) * 100),
+                  message: `Añadiendo canciones: [${allTracks.length}/${target_tracks}]`
+                })}\n\n`));
+              }
             }
-          }
         } else {
           console.log(`[STREAM:${traceId}] ARTIST_STYLE: No priority artists, using generic search`);
           spotifyTracks = dedupeById(await searchGenericTracks(accessToken, remaining));
