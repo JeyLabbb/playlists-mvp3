@@ -1498,6 +1498,133 @@ async function handleStreamingRequest(request) {
                      exclusions: intent.exclusions ? 'yes' : 'no',
                      canonized: intent.canonized ? 'yes' : 'no'
                    });
+
+                   // 🚨 CRITICAL: Check if ARTIST_STYLE mode and skip everything else
+                   const detectedMode = determineMode(intent, prompt);
+                   if (detectedMode === 'ARTIST_STYLE') {
+                     console.log(`[STREAM:${traceId}] 🚨 ARTIST_STYLE MODE DETECTED - SKIPPING ALL OTHER PROCESSING`);
+                     console.log(`[STREAM:${traceId}] ARTIST_STYLE mode will handle everything directly`);
+                     
+                     // Go directly to ARTIST_STYLE processing
+                     controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Searching playlists for artist style...", "remaining": ${target_tracks}, "attempt": 1, "target": ${target_tracks}}\n\n`));
+                     
+                     // Process ARTIST_STYLE mode directly
+                     const priorityArtists = intent.priority_artists || [];
+                     console.log(`[STREAM:${traceId}] ARTIST_STYLE: Priority artists:`, priorityArtists);
+                     
+                     if (priorityArtists.length > 0) {
+                       const artistName = priorityArtists[0];
+                       console.log(`[STREAM:${traceId}] ARTIST_STYLE: Searching playlists for "${artistName}"`);
+                       
+                       // Search for playlists with "radio + artist name"
+                       const playlistQueries = [
+                         `radio ${artistName}`,
+                         `${artistName} radio`,
+                         `${artistName} mix`,
+                         `${artistName} playlist`,
+                         `${artistName} similar`,
+                         `${artistName} related`
+                       ];
+                       
+                       console.log(`[STREAM:${traceId}] ARTIST_STYLE: Playlist queries:`, playlistQueries);
+                       
+                       // Use the same logic as VIRAL/FESTIVAL modes to search playlists
+                       const playlists = await searchFestivalLikePlaylists(accessToken, playlistQueries);
+                       console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${playlists.length} playlists`);
+                       
+                       if (playlists.length > 0) {
+                         // Collect tracks from playlists by consensus (same as VIRAL/FESTIVAL)
+                         const spotifyTracks = dedupeById(await collectFromPlaylistsByConsensus(accessToken, playlists, target_tracks, rng));
+                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Collected ${spotifyTracks.length} tracks from playlists`);
+                         
+                         // Apply exclusions to tracks from playlists
+                         let filteredTracks = spotifyTracks;
+                         if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
+                           filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+                           console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
+                         }
+                         
+                         // Send tracks in chunks
+                         const chunkSize = 20;
+                         for (let i = 0; i < filteredTracks.length; i += chunkSize) {
+                           const chunk = filteredTracks.slice(i, i + chunkSize);
+                           allTracks = [...allTracks, ...chunk];
+                           
+                           controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                             tracks: chunk,
+                             totalSoFar: allTracks.length,
+                             target: target_tracks,
+                             progress: Math.round((allTracks.length / target_tracks) * 100),
+                             message: `Añadiendo canciones: [${allTracks.length}/${target_tracks}]`
+                           })}\n\n`));
+                           
+                           console.log(`[STREAM:${traceId}] ARTIST_STYLE chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
+                         }
+                         
+                         // If we don't have enough tracks, compensate
+                         if (allTracks.length < target_tracks) {
+                           const missingTracks = target_tracks - allTracks.length;
+                           console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Need ${missingTracks} more tracks`);
+                           
+                           // Try radio from priority artist first
+                           const radioTracks = await radioFromRelatedTop(accessToken, [artistName], missingTracks * 2);
+                           if (radioTracks && radioTracks.length > 0) {
+                             const filteredRadioTracks = radioTracks.filter(track => notExcluded(track, intent.exclusions));
+                             const dedupedRadioTracks = dedupeById(dedupeAgainstUsed(filteredRadioTracks, usedTracks));
+                             const toAdd = dedupedRadioTracks.slice(0, missingTracks);
+                             allTracks = [...allTracks, ...toAdd];
+                             
+                             controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                               tracks: toAdd,
+                               totalSoFar: allTracks.length,
+                               target: target_tracks,
+                               progress: Math.round((allTracks.length / target_tracks) * 100),
+                               message: `Compensando canciones: [${allTracks.length}/${target_tracks}]`
+                             })}\n\n`));
+                             
+                             console.log(`[STREAM:${traceId}] ARTIST_STYLE COMPENSATION: Added ${toAdd.length} compensation tracks`);
+                           }
+                         }
+                       } else {
+                         console.log(`[STREAM:${traceId}] ARTIST_STYLE: No playlists found, using artist search fallback`);
+                         // Fallback: search for tracks by the artist
+                         const spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, [artistName], target_tracks));
+                         
+                         // Apply exclusions to fallback tracks
+                         let filteredTracks = spotifyTracks;
+                         if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
+                           filteredTracks = spotifyTracks.filter(track => notExcluded(track, intent.exclusions));
+                           console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions to fallback ${spotifyTracks.length} → ${filteredTracks.length} tracks`);
+                         }
+                         
+                         allTracks = [...allTracks, ...filteredTracks];
+                         
+                         controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
+                           tracks: filteredTracks,
+                           totalSoFar: allTracks.length,
+                           target: target_tracks,
+                           progress: Math.round((allTracks.length / target_tracks) * 100),
+                           message: `Añadiendo canciones: [${allTracks.length}/${target_tracks}]`
+                         })}\n\n`));
+                       }
+                     }
+                     
+                     controller.enqueue(encoder.encode(`event: SPOTIFY_DONE\ndata: {"totalSoFar": ${allTracks.length}, "target": ${target_tracks}}\n\n`));
+                     
+                     console.log(`[STREAM:${traceId}] ===== SENDING FINAL RESULT =====`);
+                     console.log(`[STREAM:${traceId}] Final tracks count: ${allTracks.length}`);
+                     console.log(`[STREAM:${traceId}] Final tracks sample:`, allTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
+                     
+                     controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+                       tracks: allTracks,
+                       total: allTracks.length,
+                       target: target_tracks,
+                       message: `Playlist generada con ${allTracks.length} canciones`
+                     })}\n\n`));
+                     
+                     console.log(`[STREAM:${traceId}] Final result sent, closing connection`);
+                     return; // Skip all other processing
+                   }
             
                    // Process LLM tracks
                    controller.enqueue(encoder.encode(`event: LLM_START\ndata: {"message": "Processing LLM tracks...", "target": ${target_tracks}}\n\n`));
