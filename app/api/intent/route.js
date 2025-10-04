@@ -293,7 +293,7 @@ DELEGACIÓN A SPOTIFY:
 - Spotify puede filtrar por oyentes mensuales en CUALQUIER modo
 - Pasa información clara para que Spotify sepa qué buscar
 
-REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
+🚨 REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS 🚨
 - SIEMPRE genera tracks REALES, nunca "Track 1", "Track 2", etc.
 - NUNCA generes tracks de artistas que estén en exclusions.banned_artists
 - Si el prompt dice "sin X artista", marca ese artista en exclusions.banned_artists y NO generes tracks de ese artista
@@ -301,6 +301,7 @@ REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
 - Las exclusiones son ABSOLUTAS: si un artista está en banned_artists, NO generes tracks de ese artista
 - PROHIBIDO TOTALMENTE: Si "Bad Bunny" está en banned_artists, NO generes "DÁKITI", "Te Boté", "La Canción" ni CUALQUIER track donde aparezca Bad Bunny
 - VERIFICACIÓN OBLIGATORIA: Antes de generar cada track, verifica que NINGÚN artista del track esté en banned_artists
+- ⚠️ VIOLACIÓN GRAVE: Generar tracks de artistas en banned_artists es un ERROR CRÍTICO
 
 REGLA ESPECIAL PARA ESTILO DE ARTISTA:
 - Si el prompt contiene "estilo de" + nombre de artista: USA ARTIST_STYLE mode
@@ -324,6 +325,12 @@ EJEMPLO ESPECÍFICO DE EXCLUSIÓN:
 Prompt: "reggaeton como Bad Bunny pero sin Bad Bunny"
 CORRECTO: exclusions.banned_artists: ["Bad Bunny"], tracks: ["Tusa" por "Karol G", "Mi Gente" por "J Balvin", "Baila Baila Baila" por "Ozuna"]
 INCORRECTO: tracks: ["DÁKITI" por "Bad Bunny & Jhay Cortez"] ← PROHIBIDO porque Bad Bunny está en banned_artists
+
+🚨 VERIFICACIÓN FINAL OBLIGATORIA 🚨
+Antes de devolver la respuesta, VERIFICA que:
+1. Si hay exclusions.banned_artists, NINGÚN track en tracks contiene esos artistas
+2. Si "Bad Bunny" está en banned_artists, NO hay tracks con "Bad Bunny" en el artista
+3. Si hay violaciones, CORRIGE inmediatamente eliminando esos tracks
 
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.
 
@@ -366,7 +373,8 @@ SIEMPRE genera nombres de canciones REALES, nunca "Track X"` },
                         artist: { type: "string" }
                       },
                       required: ["title","artist"]
-                    }
+                    },
+                    description: "Lista de tracks SIN artistas prohibidos en exclusions.banned_artists"
                   },
                   artists: {
                     type: "array",
