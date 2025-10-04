@@ -47,14 +47,6 @@ export default function MyPlaylistsPage() {
     }
   };
 
-  const copyToClipboard = async (url) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      // You could add a toast notification here
-    } catch (error) {
-      console.error('Failed to copy:', error);
-    }
-  };
 
   const loadPlaylistDetails = async (playlist) => {
     try {
@@ -295,13 +287,6 @@ export default function MyPlaylistsPage() {
                     🎧
                   </button>
                   
-                  <button
-                    onClick={() => copyToClipboard(playlist.url)}
-                    className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg transition-colors duration-200 text-sm"
-                    title="Copiar enlace"
-                  >
-                    📋
-                  </button>
                 </div>
               </div>
             ))}
@@ -351,7 +336,7 @@ export default function MyPlaylistsPage() {
               ) : previewTracks.length > 0 ? (
                 <div className="space-y-3">
                   {previewTracks.map((track, index) => (
-                    <div key={track.id || index} className="flex items-center gap-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+                    <div key={`track-${previewPlaylist.playlistId}-${index}-${track.id}`} className="flex items-center gap-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
                       <span className="text-gray-400 text-sm w-6">{index + 1}</span>
                       <div className="flex-1 min-w-0">
                         <div className="text-white font-medium truncate">{track.name}</div>
