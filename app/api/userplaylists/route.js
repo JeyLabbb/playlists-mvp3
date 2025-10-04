@@ -38,13 +38,19 @@ async function getFromKV(userEmail) {
 // Save user playlist to Vercel KV
 async function saveToKV(userEmail, playlist) {
   try {
+    console.log('[USERPLAYLISTS] saveToKV: Starting save process for user:', userEmail);
     // Get existing playlists
     const existing = await getFromKV(userEmail) || [];
+    console.log('[USERPLAYLISTS] saveToKV: Found existing playlists:', existing.length);
     
     // Add new playlist to beginning
     const updated = [playlist, ...existing].slice(0, 200); // Keep max 200 playlists
+    console.log('[USERPLAYLISTS] saveToKV: Updated playlist count:', updated.length);
     
-    const response = await fetch(`${process.env.KV_REST_API_URL}/set/userplaylists:${encodeURIComponent(userEmail)}`, {
+    const kvUrl = `${process.env.KV_REST_API_URL}/set/userplaylists:${encodeURIComponent(userEmail)}`;
+    console.log('[USERPLAYLISTS] saveToKV: KV URL:', kvUrl);
+    
+    const response = await fetch(kvUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
@@ -130,13 +136,26 @@ async function getUserProfile(email, session) {
 // POST: Save user playlist
 export async function POST(request) {
   try {
+    console.log('[USERPLAYLISTS] ===== STARTING POST REQUEST =====');
     const session = await getServerSession(simpleAuthOptions);
     
     if (!session?.user?.email) {
+      console.log('[USERPLAYLISTS] ERROR: No session or email');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    console.log('[USERPLAYLISTS] Session found for user:', session.user.email);
     const body = await request.json();
+    console.log('[USERPLAYLISTS] Request body:', {
+      userEmail: body.userEmail,
+      playlistId: body.playlistId,
+      name: body.name,
+      hasUrl: !!body.url,
+      tracks: body.tracks,
+      mode: body.mode,
+      public: body.public
+    });
+    
     const { userEmail, playlistId, name, url, image, tracks, prompt, mode, public: isPublic } = body;
 
     // Validate required fields
@@ -171,15 +190,23 @@ export async function POST(request) {
     };
 
     // Try Vercel KV first
+    console.log('[USERPLAYLISTS] Checking KV availability...');
     if (hasKV()) {
+      console.log('[USERPLAYLISTS] KV available, attempting to save playlist...');
       const saved = await saveToKV(userEmail, playlist);
+      console.log('[USERPLAYLISTS] KV save result:', saved);
       if (saved) {
+        console.log('[USERPLAYLISTS] ✅ Playlist saved to KV successfully');
         return NextResponse.json({
           success: true,
           saved: true,
           source: 'kv'
         });
+      } else {
+        console.log('[USERPLAYLISTS] ❌ Failed to save to KV');
       }
+    } else {
+      console.log('[USERPLAYLISTS] ❌ KV not available');
     }
 
     // Fallback to localStorage (client-side)
