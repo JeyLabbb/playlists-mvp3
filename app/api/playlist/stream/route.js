@@ -640,6 +640,11 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
     // Mode-specific Spotify generation
     let spotifyTracks = [];
     
+    console.log(`[STREAM:${traceId}] ===== MODE SPECIFIC SPOTIFY GENERATION =====`);
+    console.log(`[STREAM:${traceId}] Determined mode: "${mode}"`);
+    console.log(`[STREAM:${traceId}] Intent mode: "${intent.mode}"`);
+    console.log(`[STREAM:${traceId}] Mode comparison - Determined: ${mode}, Intent: ${intent.mode}`);
+    
     if (mode === 'VIRAL') {
       // VIRAL mode: Use consensus from popular playlists
       console.log(`[STREAM:${traceId}] ===== ENTERING VIRAL MODE =====`);
@@ -934,8 +939,9 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       }
       
     } else {
-      // NORMAL mode: Use LLM tracks to create Spotify radios
-      console.log(`[STREAM:${traceId}] ===== NORMAL MODE FILLING PROCESS =====`);
+      // NORMAL mode or unknown mode: Use LLM tracks to create Spotify radios
+      console.log(`[STREAM:${traceId}] ===== UNKNOWN MODE FALLBACK (NORMAL PROCESS) =====`);
+      console.log(`[STREAM:${traceId}] WARNING: Mode "${mode}" not recognized, falling back to NORMAL mode`);
       console.log(`[STREAM:${traceId}] NORMAL MODE: Using LLM tracks for Spotify radios`);
       console.log(`[STREAM:${traceId}] NORMAL mode details:`, {
         llmTracks: intent.tracks_llm?.length || 0,
