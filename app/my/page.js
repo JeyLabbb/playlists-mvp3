@@ -224,14 +224,6 @@ export default function MyPlaylistsPage() {
                       <span>{playlist.tracks} canciones</span>
                       <span>•</span>
                       <span>{formatDate(playlist.createdAt)}</span>
-                      {playlist.mode && (
-                        <>
-                          <span>•</span>
-                          <span className="bg-gray-700 px-2 py-1 rounded text-gray-300">
-                            {playlist.mode}
-                          </span>
-                        </>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -239,7 +231,17 @@ export default function MyPlaylistsPage() {
                 {/* Actions */}
                 <div className="flex gap-2">
                   <button
-                    onClick={() => window.open(playlist.url, '_blank')}
+                    onClick={() => {
+                      try {
+                        if (playlist.url) {
+                          window.open(playlist.url, '_blank');
+                        } else {
+                          console.error('No URL available for playlist:', playlist);
+                        }
+                      } catch (error) {
+                        console.error('Error opening playlist:', error);
+                      }
+                    }}
                     className="flex-1 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors duration-200 text-sm font-medium flex items-center justify-center gap-2"
                   >
                     <span>🎧</span>

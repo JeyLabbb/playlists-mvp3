@@ -129,7 +129,7 @@ export async function POST(request) {
       image: image || null,
       tracks: tracks || 0,
       prompt: prompt || '',
-      mode: mode || 'NORMAL',
+      mode: mode || null,
       createdAt: new Date().toISOString()
     };
 
