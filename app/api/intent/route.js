@@ -299,6 +299,8 @@ REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS:
 - Si el prompt dice "sin X artista", marca ese artista en exclusions.banned_artists y NO generes tracks de ese artista
 - Si el prompt dice "pero sin Bad Bunny", marca "Bad Bunny" en exclusions.banned_artists
 - Las exclusiones son ABSOLUTAS: si un artista está en banned_artists, NO generes tracks de ese artista
+- PROHIBIDO TOTALMENTE: Si "Bad Bunny" está en banned_artists, NO generes "DÁKITI", "Te Boté", "La Canción" ni CUALQUIER track donde aparezca Bad Bunny
+- VERIFICACIÓN OBLIGATORIA: Antes de generar cada track, verifica que NINGÚN artista del track esté en banned_artists
 
 REGLA ESPECIAL PARA ESTILO DE ARTISTA:
 - Si el prompt contiene "estilo de" + nombre de artista: USA ARTIST_STYLE mode
@@ -317,6 +319,11 @@ REGLA ESPECIAL PARA ARTISTAS ESPECÍFICOS:
 - Ejemplo: "rock sin Metallica" → exclusions.banned_artists: ["Metallica"], NO generes tracks de Metallica, PERO genera tracks REALES de Iron Maiden, AC/DC, etc.
 - Las exclusiones son ABSOLUTAS pero NO impiden generar tracks de otros artistas
 - SIEMPRE genera al menos 5-10 tracks REALES para que Spotify pueda crear radios
+
+EJEMPLO ESPECÍFICO DE EXCLUSIÓN:
+Prompt: "reggaeton como Bad Bunny pero sin Bad Bunny"
+CORRECTO: exclusions.banned_artists: ["Bad Bunny"], tracks: ["Tusa" por "Karol G", "Mi Gente" por "J Balvin", "Baila Baila Baila" por "Ozuna"]
+INCORRECTO: tracks: ["DÁKITI" por "Bad Bunny & Jhay Cortez"] ← PROHIBIDO porque Bad Bunny está en banned_artists
 
 Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.
 
