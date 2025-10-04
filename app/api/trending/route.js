@@ -125,6 +125,8 @@ export async function GET(request) {
     // Try KV first
     if (hasKV()) {
       const allPlaylists = await getAllUserPlaylists();
+      console.log(`[TRENDING] Found ${allPlaylists.length} total playlists from KV`);
+      
       // Filter only public playlists and add author info
       playlists = allPlaylists
         .filter(playlist => playlist.public === true) // Default to true for legacy playlists
@@ -145,10 +147,13 @@ export async function GET(request) {
             image: playlist.userImage || null
           }
         }));
+      
+      console.log(`[TRENDING] Found ${playlists.length} public playlists after filtering`);
     }
 
-    // If no KV or no playlists, return fallback
+    // If no KV, return fallback message but still return empty array
     if (!hasKV()) {
+      console.log('[TRENDING] KV not available, returning empty array');
       return NextResponse.json({
         success: true,
         playlists: [],

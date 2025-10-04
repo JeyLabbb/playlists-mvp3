@@ -9,6 +9,13 @@ export default function Navigation() {
 
   const menuItems = [
     {
+      href: '/me',
+      label: 'Mi Perfil',
+      subtitle: 'Personaliza tu información',
+      icon: '👤',
+      active: pathname === '/me'
+    },
+    {
       href: '/',
       label: 'Generador IA',
       subtitle: 'Crea playlists perfectas',
@@ -28,13 +35,6 @@ export default function Navigation() {
       subtitle: 'Tus creaciones',
       icon: '📚',
       active: pathname === '/my'
-    },
-    {
-      href: '/me',
-      label: 'Mi Perfil',
-      subtitle: 'Personaliza tu información',
-      icon: '👤',
-      active: pathname === '/me'
     }
   ];
 

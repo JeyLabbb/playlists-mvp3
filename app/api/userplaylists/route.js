@@ -100,28 +100,20 @@ export async function GET(request) {
 }
 
 // Get user profile for author info
-async function getUserProfile(email) {
+async function getUserProfile(email, session) {
   try {
-    const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/profile`, {
-      method: 'GET',
-      headers: {
-        'Cookie': `next-auth.session-token=${process.env.NEXTAUTH_SECRET}` // This would need proper session passing
-      }
-    });
+    // Generate username from session data
+    const baseUsername = session.user.name 
+      ? session.user.name.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15)
+      : email.split('@')[0];
     
-    if (response.ok) {
-      const data = await response.json();
-      return data.profile;
-    }
-    
-    // Fallback to session data if profile API fails
     return {
-      username: email.split('@')[0],
-      displayName: email.split('@')[0],
-      image: null
+      username: baseUsername,
+      displayName: session.user.name || email.split('@')[0],
+      image: session.user.image || null
     };
   } catch (error) {
-    console.warn('Error getting user profile:', error);
+    console.warn('Error generating user profile:', error);
     return {
       username: email.split('@')[0],
       displayName: email.split('@')[0],
@@ -153,7 +145,7 @@ export async function POST(request) {
     }
 
     // Get user profile for author info
-    const userProfile = await getUserProfile(session.user.email);
+    const userProfile = await getUserProfile(session.user.email, session);
 
     const playlist = {
       userEmail,
