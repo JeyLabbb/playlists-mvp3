@@ -18,7 +18,7 @@ import { radioFromRelatedTop } from "../../../../lib/spotify/radio";
 import { getArtistTopRecent } from "../../../../lib/spotify/artistTop";
 import { fetchAudioFeaturesSafe } from "../../../../lib/spotify/audioFeatures";
 import { createPlaylist, addTracksToPlaylist } from "../../../../lib/spotify/playlist";
-import { collectFromPlaylistsByConsensus, searchFestivalLikePlaylists, loadPlaylistItemsBatch } from "../../../../lib/spotify/playlistSearch";
+import { collectFromPlaylistsByConsensus, searchFestivalLikePlaylists, loadPlaylistItemsBatch, searchPlaylists } from "../../../../lib/spotify/playlistSearch";
 
 // Helper function to search for artist radio playlists
 async function searchArtistRadioPlaylists(accessToken, queries) {
@@ -426,11 +426,10 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
   console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
   console.log(`[STREAM:${traceId}] Target tracks: ${target_tracks}`);
   
-  // 🚨 CRITICAL: Skip LLM phase for ARTIST_STYLE mode
+  // 🚨 CRITICAL: Skip LLM phase for delegated modes
   const mode = determineMode(intent, intent.prompt || '');
-  if (mode === 'ARTIST_STYLE') {
-    console.log(`[STREAM:${traceId}] 🚨 ARTIST_STYLE mode detected - SKIPPING LLM PHASE COMPLETELY`);
-    console.log(`[STREAM:${traceId}] ARTIST_STYLE mode will delegate everything to Spotify phase`);
+  if (mode === 'ARTIST_STYLE' || mode === 'SINGLE_ARTIST' || mode === 'VIRAL' || mode === 'FESTIVAL') {
+    console.log(`[STREAM:${traceId}] 🚨 Delegated mode detected (${mode}) - SKIPPING LLM PHASE COMPLETELY`);
     return;
   }
   
@@ -487,9 +486,9 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
   
   let llmTarget;
   if (mode === 'NORMAL' && !isUndergroundStrict && !hasContexts) {
-    // MODE NORMAL: Get 75% LLM (but get 50 by default to be safe)
-    llmTarget = Math.max(50, Math.ceil(target_tracks * 0.75));
-    console.log(`[STREAM:${traceId}] NORMAL mode: LLM target = ${llmTarget} (75% of ${target_tracks})`);
+    // MODE NORMAL: Get 70% LLM (but get 50 by default to be safe)
+    llmTarget = Math.max(50, Math.ceil(target_tracks * 0.70));
+    console.log(`[STREAM:${traceId}] NORMAL mode: LLM target = ${llmTarget} (70% of ${target_tracks})`);
     console.log(`[STREAM:${traceId}] NORMAL mode conditions: isUndergroundStrict=${isUndergroundStrict}, hasContexts=${hasContexts}`);
   } else if (mode === 'VIRAL') {
     // VIRAL mode: LLM prepares terms and delegates everything to Spotify
@@ -611,16 +610,22 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
     
     if (isUndergroundStrict && intent.contexts && intent.contexts.key === 'underground_es') {
       // Use underground search
-      const allowedArtists = intent.filtered_artists && intent.filtered_artists.length > 0 
-        ? intent.filtered_artists 
-        : intent.contexts.compass;
+      // Enforce exact whitelist matching (diacritics/case-insensitive)
+      const norm = (s) => (s || '').normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase().trim();
+      const whitelist = Array.isArray(intent.contexts.compass) ? intent.contexts.compass : [];
+      const whitelistSet = new Set(whitelist.map(norm));
+      const proposed = (intent.filtered_artists && intent.filtered_artists.length > 0 ? intent.filtered_artists : whitelist) || [];
+      let allowedArtists = proposed.filter(a => whitelistSet.has(norm(a)));
+      // Random subset of whitelist for each execution
+      const subsetSize = Math.min(allowedArtists.length, Math.max(8, Math.ceil((remaining || 20) / 3)));
+      allowedArtists = allowedArtists.sort(() => Math.random() - 0.5).slice(0, subsetSize);
       
       const prompt = (intent?.prompt || '').toString();
       const isInclusive = /\b(con|que contenga|que tenga alguna|con alguna|con canciones|con temas|con música|con tracks)\b/i.test(prompt);
       const isRestrictive = !isInclusive && /\b(solo|tan solo|solamente|nada más que|solo de|con solo|únicamente|exclusivamente)\b/i.test(prompt);
       
-      const priorityArtists = isInclusive ? (intent.priority_artists || []) : [];
-      const maxPerArtist = isRestrictive ? Math.ceil(remaining / allowedArtists.length) : 3;
+      const priorityArtists = isInclusive ? (intent.priority_artists || []).filter(a => whitelistSet.has(norm(a))) : [];
+      const maxPerArtist = 3; // Cap fijo 3 por artista en UNDERGROUND_STRICT
       
       console.log(`[STREAM:${traceId}] UNDERGROUND STRICT MODE DETECTED`);
       console.log(`[STREAM:${traceId}] Underground details:`, {
@@ -765,20 +770,46 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
           const rng = rngSeeded(h32(seedStr));
           console.log(`[STREAM:${traceId}] VIRAL: RNG seeded with "${seedStr}"`);
           
-          // Search for viral/festival playlists first
-          const viralPlaylists = await searchFestivalLikePlaylists({
-            accessToken,
-            baseQuery: canonized.baseQuery,
-            year: canonized.year
-          });
+          // Build queries: prefer intent.search_queries, else name+year variants
+          const queries = Array.isArray(intent.search_queries) && intent.search_queries.length
+            ? intent.search_queries
+            : [
+                `${canonized.baseQuery} ${canonized.year || ''}`.trim(),
+                `${canonized.year || ''} ${canonized.baseQuery}`.trim(),
+                `${canonized.baseQuery} ${canonized.year || ''} lineup`.trim(),
+                `${canonized.baseQuery} lineup ${canonized.year || ''}`.trim()
+              ].filter(Boolean);
+
+          // Search and merge playlists from queries, remove dups
+          let viralPlaylists = [];
+          const seenPl = new Set();
+          for (const q of queries) {
+            const found = await searchPlaylists(accessToken, q, 20);
+            for (const p of found) {
+              if (p?.id && !seenPl.has(p.id)) {
+                seenPl.add(p.id);
+                viralPlaylists.push(p);
+              }
+            }
+          }
+          // Fallback to generic function if still empty
+          if (viralPlaylists.length === 0) {
+            viralPlaylists = await searchFestivalLikePlaylists({ accessToken, baseQuery: canonized.baseQuery, year: canonized.year });
+          }
           
           console.log(`[STREAM:${traceId}] VIRAL: Found ${viralPlaylists.length} playlists`);
           
             if (viralPlaylists.length > 0) {
+              // Shuffle playlists deterministically with rng before consensus
+              const plArr = [...viralPlaylists];
+              for (let i = plArr.length - 1; i > 0; i--) {
+                const j = Math.floor(rng() * (i + 1));
+                const tmp = plArr[i]; plArr[i] = plArr[j]; plArr[j] = tmp;
+              }
               // Use consensus from viral playlists with randomness
               spotifyTracks = dedupeById(await collectFromPlaylistsByConsensus({
                 accessToken,
-                playlists: viralPlaylists,
+                playlists: plArr,
                 target: remaining,
                 artistCap: 3,
                 rng: rng // Pass the seeded RNG for randomness
@@ -837,20 +868,46 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
           const rng = rngSeeded(h32(seedStr));
           console.log(`[STREAM:${traceId}] FESTIVAL: RNG seeded with "${seedStr}"`);
           
-          // Search for festival playlists first
-          const festivalPlaylists = await searchFestivalLikePlaylists({
-            accessToken,
-            baseQuery: canonized.baseQuery,
-            year: canonized.year
-          });
+          // Build queries: prefer intent.search_queries, else name+year variants
+          const queries = Array.isArray(intent.search_queries) && intent.search_queries.length
+            ? intent.search_queries
+            : [
+                `${canonized.baseQuery} ${canonized.year || ''}`.trim(),
+                `${canonized.year || ''} ${canonized.baseQuery}`.trim(),
+                `${canonized.baseQuery} ${canonized.year || ''} lineup`.trim(),
+                `${canonized.baseQuery} lineup ${canonized.year || ''}`.trim()
+              ].filter(Boolean);
+
+          // Search and merge playlists from queries, remove dups
+          let festivalPlaylists = [];
+          const seenPl = new Set();
+          for (const q of queries) {
+            const found = await searchPlaylists(accessToken, q, 20);
+            for (const p of found) {
+              if (p?.id && !seenPl.has(p.id)) {
+                seenPl.add(p.id);
+                festivalPlaylists.push(p);
+              }
+            }
+          }
+          // Fallback to generic function if still empty
+          if (festivalPlaylists.length === 0) {
+            festivalPlaylists = await searchFestivalLikePlaylists({ accessToken, baseQuery: canonized.baseQuery, year: canonized.year });
+          }
           
           console.log(`[STREAM:${traceId}] FESTIVAL: Found ${festivalPlaylists.length} playlists`);
           
           if (festivalPlaylists.length > 0) {
+            // Shuffle playlists deterministically with rng before consensus
+            const plArr = [...festivalPlaylists];
+            for (let i = plArr.length - 1; i > 0; i--) {
+              const j = Math.floor(rng() * (i + 1));
+              const tmp = plArr[i]; plArr[i] = plArr[j]; plArr[j] = tmp;
+            }
             // Use consensus from festival playlists with randomness
             spotifyTracks = await collectFromPlaylistsByConsensus({
               accessToken,
-              playlists: festivalPlaylists,
+              playlists: plArr,
               target: remaining,
               artistCap: 3,
               rng: rng // Pass the seeded RNG for randomness
@@ -881,7 +938,9 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       });
       
       try {
-        const artistName = intent.prompt?.trim();
+        const artistName = (Array.isArray(intent.restricted_artists) && intent.restricted_artists[0])
+          ? String(intent.restricted_artists[0]).trim()
+          : String(intent.prompt || '').trim();
         if (!artistName) {
           console.warn(`[STREAM:${traceId}] SINGLE_ARTIST: No artist name found in prompt`);
           spotifyTracks = dedupeById(await searchGenericTracks(accessToken, remaining));
@@ -898,6 +957,12 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
               artist.toLowerCase().includes(artistName.toLowerCase())
             );
           });
+          // Apply exclusions if any (shouldn't remove the target artist unless banned explicitly)
+          if (intent.exclusions) {
+            const before = spotifyTracks.length;
+            spotifyTracks = spotifyTracks.filter(t => notExcluded(t, intent.exclusions));
+            console.log(`[STREAM:${traceId}] SINGLE_ARTIST: Exclusions applied ${before} → ${spotifyTracks.length}`);
+          }
           
           console.log(`[STREAM:${traceId}] SINGLE_ARTIST: Found ${spotifyTracks.length} tracks where "${artistName}" appears (main artist or collaborator)`);
         }
@@ -918,6 +983,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
         priorityArtists: intent.priority_artists?.length || 0,
         remaining: remaining
       });
+      console.log(`[STREAM:${traceId}] 🚨 DEBUG: ARTIST_STYLE MODE EXECUTED SUCCESSFULLY`);
       
       try {
         const priorityArtists = intent.priority_artists || [];
@@ -1173,6 +1239,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
         priority_artists: intent.priority_artists?.length || 0,
         contexts: intent.contexts?.key || 'none'
       });
+      console.log(`[STREAM:${traceId}] 🚨 DEBUG: NORMAL MODE EXECUTED (mode="${mode}", intent.mode="${intent.mode}")`);
       
       console.log(`[STREAM:${traceId}] NORMAL FILLING STRATEGY:`, {
         step1: 'Priority artists -> LLM tracks -> LLM artists -> Context artists',
@@ -1321,7 +1388,9 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
               for (const artist of strategy.artists) {
                 if (compensationTracks.length >= compensationNeeded * 2) break;
                 try {
-                  const results = await getArtistTopRecent(accessToken, artist, 10);
+                  // Search for tracks by artist name instead of using getArtistTopRecent
+                  // since we have names, not IDs
+                  const results = await searchTracksByArtists(accessToken, [artist], 10);
                   if (results && results.length > 0) {
                     compensationTracks.push(...results);
                   }
@@ -1740,13 +1809,13 @@ async function handleStreamingRequest(request) {
               console.log(`[STREAM:${traceId}] LLM chunk sent: ${chunk.length} tracks, total: ${allTracks.length}/${target_tracks}`);
             }
             
-            // For NORMAL mode: trim LLM tracks to 75% and prepare for Spotify
+            // For NORMAL mode: trim LLM tracks to 70% and prepare for Spotify
             const mode = determineMode(intent, intent.prompt || '');
             const isUndergroundStrict = /underground/i.test(intent.prompt || '') || (intent.filtered_artists && intent.filtered_artists.length > 0);
             const hasContexts = intent.contexts && intent.contexts.key && intent.contexts.key !== 'normal';
             
             if (mode === 'NORMAL' && !isUndergroundStrict && !hasContexts) {
-              const llmTarget = Math.max(50, Math.ceil(target_tracks * 0.75));
+              const llmTarget = Math.max(50, Math.ceil(target_tracks * 0.70));
               if (allTracks.length > llmTarget) {
                 console.log(`[STREAM:${traceId}] NORMAL mode: trimming LLM tracks from ${allTracks.length} to ${llmTarget}`);
                 allTracks = allTracks.slice(0, llmTarget);
@@ -1758,7 +1827,7 @@ async function handleStreamingRequest(request) {
                   target: target_tracks,
                   progress: Math.round((allTracks.length / target_tracks) * 100),
                   trimmed: true,
-                  message: `Trimmed to ${llmTarget} LLM tracks (75%)`
+                  message: `Trimmed to ${llmTarget} LLM tracks (70%)`
                 })}\n\n`));
               }
             }
@@ -1865,13 +1934,18 @@ async function handleStreamingRequest(request) {
             console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks after dedup`);
             
             // Apply artist limit to avoid excessive repetition
-            console.log(`[STREAM:${traceId}] Applying artist limits: ${allTracks.length} tracks before limiting`);
-            allTracks = limitTracksPerArtist(allTracks, 5); // Max 5 tracks per artist
+            // Dynamic cap: default 3; if there are priority artists or strong preference in prompt, raise to 8
+            const preferenceHint = /solo\b|favorit|me\s+gusta|prefier|preferenc|solo\s+de|solo\s+del/i.test(intent.prompt || '');
+            const dynamicCap = (intent.priority_artists && intent.priority_artists.length) || preferenceHint ? 8 : 3;
+            console.log(`[STREAM:${traceId}] Applying artist limits: ${allTracks.length} tracks before limiting (cap=${dynamicCap})`);
+            allTracks = limitTracksPerArtist(allTracks, dynamicCap);
             console.log(`[STREAM:${traceId}] Artist limits applied: ${allTracks.length} tracks after limiting`);
             
             // If we removed too many tracks due to artist limits, compensate
             let missingTracks = target_tracks - allTracks.length;
-            if (missingTracks > 0) {
+            // Tolerance window: if within N±5, accept without more compensation
+            const withinTolerance = allTracks.length >= Math.max(1, target_tracks - 5) && allTracks.length <= (target_tracks + 5);
+            if (!withinTolerance && missingTracks > 0) {
               console.log(`[STREAM:${traceId}] COMPENSATION AFTER ARTIST LIMITS: Need ${missingTracks} more tracks`);
               
               try {
@@ -1907,7 +1981,9 @@ async function handleStreamingRequest(request) {
                   
                   try {
                     console.log(`[STREAM:${traceId}] COMPENSATION: Getting tracks for ${artist}`);
-                    const artistTracks = await getArtistTopRecent(accessToken, artist, 5);
+                    // Search for tracks by artist name instead of using getArtistTopRecent
+                    // since we have names, not IDs
+                    const artistTracks = await searchTracksByArtists(accessToken, [artist], 5);
                     if (artistTracks && artistTracks.length > 0) {
                       const filteredArtistTracks = artistTracks.filter(track => notExcluded(track, intent.exclusions));
                       compensationTracks.push(...filteredArtistTracks);
@@ -1929,7 +2005,7 @@ async function handleStreamingRequest(request) {
                   console.log(`[STREAM:${traceId}] COMPENSATION: Added ${toAdd.length} compensation tracks`);
                   
                   // Re-apply artist limits to new tracks
-                  allTracks = limitTracksPerArtist(allTracks, 5);
+                  allTracks = limitTracksPerArtist(allTracks, dynamicCap);
                   console.log(`[STREAM:${traceId}] Final artist limits applied: ${allTracks.length} tracks`);
                 }
                 

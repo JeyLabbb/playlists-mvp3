@@ -201,180 +201,44 @@ export async function POST(request) {
         completion = await openai.chat.completions.create({
           model: MODEL,
           messages: [
-            { role: "system", content: `Eres un experto en interpretar prompts musicales. Analiza el prompt y determina el modo correcto basándote en el contexto completo.
+            { role: "system", content: `Eres la IA que interpreta prompts musicales y decide el modo de generación. Devuelves SOLO una llamada a emit_intent con JSON válido (nada de texto libre). Reglas:
 
-MODOS DISPONIBLES Y CUÁNDO USARLOS:
+MODOS
+- NORMAL: Tú (LLM) generas ~70% de los temas (reales), y Spotify rellenará ~30% con radios de tus temas (prioriza recientes). Usa contextos brújula solo como sesgo, no como lista cerrada. Respeta exclusiones y cap por artista (3 por defecto; si el prompt muestra preferencia por un artista/género, sube cap a 5–10).
+- VIRAL: Delegas TODO a Spotify. Caso “tiktok/viral/charts/… + año/mes”: construye queries que SIEMPRE combinen nombre+añ o/edición (no separar). NO generes tracks.
+- FESTIVAL: Delegas TODO a Spotify. SIEMPRE combina {nombreFestival}+{año/edición} en las queries; variantes que mantengan unidos nombre+año. NO generes tracks.
+- ARTIST_STYLE (“como X”, “estilo de X”): Delegas TODO a Spotify con “radio + artista exacto”. NO generes tracks (tracks=[]).
+- SINGLE_ARTIST (prompt es SOLO un artista): Delegas TODO a Spotify para traer catálogo y colaboraciones de ese artista. NO generes tracks (tracks=[]).
+- UNDERGROUND_STRICT (si prompt incluye “underground” en España): Usa ÚNICAMENTE los artistas del whitelist 'underground_es' (match exacto tolerante a tildes/case). Máx 3 temas por artista. Subconjunto aleatorio de artistas del whitelist. Si un artista no aparece, se omite (no sustituyas por similares). Delegas la búsqueda a Spotify con la lista filtrada.
 
-1. NORMAL: 
-   - Playlist general, mezcla de artistas
-   - USA ESTE para "estilo de cantante" o "como X artista"
-   - Marca ese cantante como priority_artists
-   - LLM busca cantantes similares en el mismo nicho
-   - Spotify rellena con radios de canciones
-   - SI HAY CONDICIÓN DE OYENTES MENSUALES: LLM elige candidatos + Spotify filtra por condición
+REGLAS TRANSVERSALES
+- Exclusiones: “sin X” → añade X a exclusions.banned_artists; jamás devuelvas ese artista.
+- Nunca devuelvas “Track 1/2…”. Siempre temas reales.
+- Cap por artista por defecto 3; si el prompt prefiere un artista/género, cap 5–10.
+- Devuelve arrays coherentes: si proporcionas 'tracks', cada item tiene {title, artist}. Si el modo delega (VIRAL/FESTIVAL/ARTIST_STYLE/SINGLE_ARTIST/UNDERGROUND_STRICT), entonces 'tracks' puede ser [] y debes pasar los campos guía (priority_artists, filtered_artists, queries).
+- Campos guía para Spotify:
+  - VIRAL/FESTIVAL: 'search_queries' con variantes que SIEMPRE unan nombre+añ o/edición (p.ej. “riverland 2025”, “2025 riverland” pero nunca “riverland” solo).
+  - ARTIST_STYLE: 'priority_artists: ["Nombre Exacto"]'.
+  - SINGLE_ARTIST: 'restricted_artists: ["Nombre Exacto"]'.
+  - UNDERGROUND_STRICT: 'filtered_artists: ["Artista1 exacto", ...]' (subconjunto aleatorio del whitelist).
 
-IMPORTANTE: DIFERENCIA ENTRE ARTISTA ESPECÍFICO Y ESTILO DE ARTISTA:
-- Si el prompt es SOLO el nombre del artista (ej: "D.Valentino"): 
-  * Marca como SINGLE_ARTIST mode
-  * Spotify debe buscar TODAS las tracks donde ese artista aparece (principal O colaborador)
-  * Incluye colaboraciones donde el artista es colaborador
-  * NO incluir artistas similares, solo el artista específico
-- Si el prompt incluye "estilo de", "como", "música de" (ej: "estilo de D.Valentino", "como Bad Bunny"):
-  * Usa ARTIST_STYLE mode
-  * Marca el artista mencionado como priority_artists (ej: ["D.Valentino"], ["Bad Bunny"])
-  * Spotify busca playlists con "radio + artista exacto" y consensus
-  * NO genera tracks con LLM - DELEGA COMPLETAMENTE A SPOTIFY
+VALIDACIONES FINALES OBLIGATORIAS
+- Si ARTIST_STYLE o SINGLE_ARTIST → 'tracks' debe ser '[]'.
+- Ningún artista en 'exclusions.banned_artists' puede aparecer en 'tracks'.
+- Si UNDERGROUND_STRICT → todos los artistas en 'tracks' deben pertenecer al whitelist.
 
-2. VIRAL:
-   - Canciones virales, trending, populares actuales
-   - Palabras clave: tiktok, viral, virales, top, charts, tendencia, 2024, 2025
-   - DELEGA COMPLETAMENTE A SPOTIFY
-   - NO generes tracks con LLM
-   - Pasa términos de búsqueda para que Spotify busque en playlists populares
-   - Spotify maneja toda la generación
-   - SI HAY CONDICIÓN DE OYENTES MENSUALES: Spotify filtra por condición
-
-3. FESTIVAL:
-   - Música de festivales, electrónica, fiesta
-   - Palabras clave: festival, coachella, ultra, tomorrowland, edc
-   - DELEGA COMPLETAMENTE A SPOTIFY
-   - NO generes tracks con LLM
-   - Pasa información canonizada (evento, año, stopwords) para que Spotify busque por consenso
-   - Spotify maneja toda la generación
-   - SI HAY CONDICIÓN DE OYENTES MENSUALES: Spotify filtra por condición
-
-4. SINGLE_ARTIST:
-   - Cuando el prompt es SOLO el nombre de un artista (ej: "D.Valentino")
-   - Spotify debe buscar TODAS las tracks donde ese artista aparece (artista principal O colaborador)
-   - Incluye colaboraciones donde el artista es colaborador
-   - NO incluir artistas similares, solo el artista específico
-   - DELEGA COMPLETAMENTE A SPOTIFY
-
-5. ARTIST_STYLE:
-   - Solo para casos muy específicos de comparación directa
-   - NO usar para "estilo de cantante" (usar NORMAL)
-
-MODOS ESPECIALES PARA CONTEXTOS:
-
-UNDERGROUND_STRICT (cuando hay contextos underground_es):
-- INTERPRETA el prompt completo para entender la intención
-- RESTRICTIVE: "solo X artista" → filtered_artists con solo ese artista específico
-- INCLUSIVE: "con X artista" → priority_artists con ese artista + todos los demás
-- NORMAL: Filtrar por estilo según el prompt, quitar artistas que no encajen
-- DELEGA TODO A SPOTIFY: Pasa la lista filtrada para que Spotify busque directamente
-- SI HAY CONDICIÓN DE OYENTES MENSUALES: Spotify filtra por condición
-
-CONTEXTOS NORMALES:
-- RESTRICTIVE: "solo X artista" → restricted_artists con ese artista
-- INCLUSIVE: "con X artista" → priority_artists con ese artista
-- NORMAL: Usar todos los artistas del contexto
-
-FILTROS AVANZADOS POR OYENTES MENSUALES (APLICAR EN TODOS LOS MODOS):
-- SIEMPRE detecta si el prompt menciona oyentes mensuales (menos/más de X)
-- Palabras clave: "menos de X oyentes", "más de X oyentes", "pequeños artistas", "grandes artistas", "indie", "mainstream"
-- EN TODOS LOS MODOS: Si hay condición de oyentes mensuales, marca en filtered_artists o pasa la condición
-- Spotify puede filtrar por oyentes mensuales en cualquier modo
-- NO importa si no se respeta el 70% LLM / 30% Spotify si hay condición de oyentes
-
-DETECCIÓN DE MODOS:
-- Analiza el prompt completo para entender la intención
-- NO dependas de palabras exactas, interpreta el contexto
-- Para "estilo de cantante" o "como artista": USA ARTIST_STYLE mode con priority_artists
-- Para artista específico (solo nombre): usa SINGLE_ARTIST mode
-- Para exclusiones: detecta "sin X" y marca en exclusions
-- Para oyentes mensuales: SIEMPRE detecta y aplica filtro
-
-DELEGACIÓN A SPOTIFY:
-- VIRAL y FESTIVAL: DELEGA TODO, NO generes tracks
-- ARTIST_STYLE: DELEGA TODO, Spotify busca playlists con "radio + nombre del cantante exacto"
-- SINGLE_ARTIST: DELEGA TODO, Spotify busca SOLO tracks del artista específico
-- UNDERGROUND_STRICT: INTERPRETA prompt, filtra lista, DELEGA TODO a Spotify
-- NORMAL con condición oyentes: LLM elige candidatos + Spotify filtra por condición
-- Spotify puede filtrar por oyentes mensuales en CUALQUIER modo
-- Pasa información clara para que Spotify sepa qué buscar
-
-🚨 REGLAS CRÍTICAS PARA GENERACIÓN DE TRACKS 🚨
-- SIEMPRE genera tracks REALES, nunca "Track 1", "Track 2", etc.
-- NUNCA generes tracks de artistas que estén en exclusions.banned_artists
-- Si el prompt dice "sin X artista", marca ese artista en exclusions.banned_artists y NO generes tracks de ese artista
-- Si el prompt dice "pero sin Bad Bunny", marca "Bad Bunny" en exclusions.banned_artists
-- Las exclusiones son ABSOLUTAS: si un artista está en banned_artists, NO generes tracks de ese artista
-- PROHIBIDO TOTALMENTE: Si "Bad Bunny" está en banned_artists, NO generes "DÁKITI", "Te Boté", "La Canción" ni CUALQUIER track donde aparezca Bad Bunny
-- VERIFICACIÓN OBLIGATORIA: Antes de generar cada track, verifica que NINGÚN artista del track esté en banned_artists
-- ⚠️ VIOLACIÓN GRAVE: Generar tracks de artistas en banned_artists es un ERROR CRÍTICO
-
-🚨 REGLA CRÍTICA PARA ESTILO DE ARTISTA:
-- Si el prompt contiene "estilo de", "como", "música de" + nombre de artista: USA ARTIST_STYLE mode
-- Marca ese artista específico como priority_artists (NO uses artistas genéricos)
-- ⚠️ PROHIBIDO ABSOLUTO: NO generes NINGÚN track con LLM para ARTIST_STYLE mode
-- ⚠️ OBLIGATORIO: Para ARTIST_STYLE mode: tracks debe ser SIEMPRE un array VACÍO []
-- ⚠️ CRÍTICO: Si generas tracks para ARTIST_STYLE mode, es un ERROR GRAVE
-- Spotify debe buscar playlists con "radio + nombre del cantante exacto"
-- Usar playlist oficial que contiene todos los resultados relacionados
-- Ejemplo: "estilo de D.Valentino" → priority_artists: ["D.Valentino"], tracks: []
-- Ejemplo: "como Bad Bunny" → priority_artists: ["Bad Bunny"], tracks: []
-- Ejemplo: "reggaeton como Bad Bunny" → priority_artists: ["Bad Bunny"], tracks: []
-
-REGLA ESPECIAL PARA ARTISTAS ESPECÍFICOS:
-- Si el prompt menciona un artista específico: incluye ese artista en priority_artists
-- NO uses artistas genéricos como fallback si hay un artista específico mencionado
-- Si detectas exclusiones, marca correctamente en exclusions.banned_artists
-- Ejemplo: "reggaeton como Bad Bunny pero sin Bad Bunny" → exclusions.banned_artists: ["Bad Bunny"], NO generes tracks de Bad Bunny, PERO genera tracks REALES de J Balvin, Maluma, Ozuna, etc.
-- Ejemplo: "rock sin Metallica" → exclusions.banned_artists: ["Metallica"], NO generes tracks de Metallica, PERO genera tracks REALES de Iron Maiden, AC/DC, etc.
-- Las exclusiones son ABSOLUTAS pero NO impiden generar tracks de otros artistas
-- SIEMPRE genera al menos 5-10 tracks REALES para que Spotify pueda crear radios
-
-EJEMPLO ESPECÍFICO DE EXCLUSIÓN:
-Prompt: "reggaeton como Bad Bunny pero sin Bad Bunny"
-CORRECTO: exclusions.banned_artists: ["Bad Bunny"], tracks: ["Tusa" por "Karol G", "Mi Gente" por "J Balvin", "Baila Baila Baila" por "Ozuna"]
-INCORRECTO: tracks: ["DÁKITI" por "Bad Bunny & Jhay Cortez"] ← PROHIBIDO porque Bad Bunny está en banned_artists
-
-🚨 VERIFICACIÓN FINAL OBLIGATORIA 🚨
-Antes de devolver la respuesta, VERIFICA que:
-1. Si hay exclusions.banned_artists, NINGÚN track en tracks contiene esos artistas
-2. Si "Bad Bunny" está en banned_artists, NO hay tracks con "Bad Bunny" en el artista
-3. Si hay violaciones, CORRIGE inmediatamente eliminando esos tracks
-
-Devuelve exclusivamente una llamada a la función emit_intent con argumentos válidos. No incluyas markdown, texto ni explicaciones.
-
-IMPORTANTE FINAL: Si el prompt menciona un artista específico (ej: "estilo de D.Valentino"), SIEMPRE marca ese artista como priority_artists. NUNCA uses artistas genéricos como ["pop", "rock", "electronic"] cuando hay un artista específico mencionado.
-
-EJEMPLO OBLIGATORIO 1:
-Prompt: "estilo de D.Valentino"
-Respuesta: {
-  "mode": "ARTIST_STYLE",
-  "priority_artists": ["D.Valentino"],
-  "tracks": [],
-  "artists": ["D.Valentino"],
-  "exclusions": null
-}
-
-EJEMPLO OBLIGATORIO 2:
-Prompt: "reggaeton como Bad Bunny pero sin Bad Bunny"
-Respuesta: {
-  "mode": "ARTIST_STYLE",
-  "priority_artists": ["Bad Bunny"],
-  "tracks": [],
-  "artists": ["Karol G", "J Balvin", "Ozuna"],
-  "exclusions": {
-    "banned_artists": ["Bad Bunny"],
-    "banned_terms": []
-  }
-}
-
-🚨 VALIDACIÓN CRÍTICA:
-- Si mode = "ARTIST_STYLE" → tracks DEBE ser []
-- Si generas tracks para ARTIST_STYLE mode → ERROR CRÍTICO
-- Si el prompt contiene "como" + artista → mode = "ARTIST_STYLE", tracks = []
-- Si el prompt contiene "estilo de" + artista → mode = "ARTIST_STYLE", tracks = []
-
-NUNCA hagas esto:
-{
-  "tracks": ["Track 1", "Track 2", "Track 3"],
-  "artists": ["pop", "rock", "electronic", "hip hop", "indie"]
-}
-
-SIEMPRE genera nombres de canciones REALES, nunca "Track X"` },
+Devuelve SOLO:
+emit_intent({
+  "mode": "...",
+  "llmShare": 0.7 | 0 | 1,
+  "tracks": [...],
+  "artists": [...],
+  "priority_artists": [...],
+  "filtered_artists": [...],
+  "restricted_artists": [...],
+  "search_queries": [...],
+  "exclusions": { "banned_artists": [...], "banned_terms": [...] }
+})` },
             { role: "user", content: userMessage }
           ],
           tools: [{
@@ -402,6 +266,11 @@ SIEMPRE genera nombres de canciones REALES, nunca "Track X"` },
                   artists: {
                     type: "array",
                     items: { type: "string" }
+                  },
+                  search_queries: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Queries guía para VIRAL/FESTIVAL manteniendo nombre+año unidos"
                   },
                   filtered_artists: {
                     type: "array",
