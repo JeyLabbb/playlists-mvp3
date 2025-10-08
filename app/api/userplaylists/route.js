@@ -50,25 +50,33 @@ async function saveToKV(userEmail, playlist) {
     const kvUrl = `${process.env.KV_REST_API_URL}/set/userplaylists:${encodeURIComponent(userEmail)}`;
     console.log('[USERPLAYLISTS] saveToKV: KV URL:', kvUrl);
     
+    const requestBody = {
+      value: JSON.stringify(updated)
+    };
+    console.log('[USERPLAYLISTS] saveToKV: Request body length:', JSON.stringify(requestBody).length);
+    
     const response = await fetch(kvUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        value: JSON.stringify(updated)
-      })
+      body: JSON.stringify(requestBody)
     });
 
+    console.log('[USERPLAYLISTS] saveToKV: Response status:', response.status);
+    const responseText = await response.text();
+    console.log('[USERPLAYLISTS] saveToKV: Response body:', responseText);
+
     if (!response.ok) {
-      console.warn('KV SET failed:', response.status);
+      console.warn('[USERPLAYLISTS] KV SET failed:', response.status, responseText);
       return false;
     }
 
+    console.log('[USERPLAYLISTS] saveToKV: ✅ SUCCESS');
     return true;
   } catch (error) {
-    console.warn('KV SET error:', error);
+    console.warn('[USERPLAYLISTS] KV SET error:', error);
     return false;
   }
 }
@@ -191,22 +199,26 @@ export async function POST(request) {
 
     // Try Vercel KV first
     console.log('[USERPLAYLISTS] Checking KV availability...');
+    console.log('[USERPLAYLISTS] KV_REST_API_URL:', process.env.KV_REST_API_URL ? 'SET' : 'NOT SET');
+    console.log('[USERPLAYLISTS] KV_REST_API_TOKEN:', process.env.KV_REST_API_TOKEN ? 'SET' : 'NOT SET');
+    
     if (hasKV()) {
-      console.log('[USERPLAYLISTS] KV available, attempting to save playlist...');
+      console.log('[USERPLAYLISTS] ✅ KV available, attempting to save playlist...');
+      console.log('[USERPLAYLISTS] Playlist to save:', JSON.stringify(playlist, null, 2));
       const saved = await saveToKV(userEmail, playlist);
       console.log('[USERPLAYLISTS] KV save result:', saved);
       if (saved) {
-        console.log('[USERPLAYLISTS] ✅ Playlist saved to KV successfully');
+        console.log('[USERPLAYLISTS] ✅✅✅ Playlist saved to KV successfully');
         return NextResponse.json({
           success: true,
           saved: true,
           source: 'kv'
         });
       } else {
-        console.log('[USERPLAYLISTS] ❌ Failed to save to KV');
+        console.log('[USERPLAYLISTS] ❌ Failed to save to KV, falling back to localStorage');
       }
     } else {
-      console.log('[USERPLAYLISTS] ❌ KV not available');
+      console.log('[USERPLAYLISTS] ❌ KV not available (missing env vars)');
     }
 
     // Fallback to localStorage (client-side)

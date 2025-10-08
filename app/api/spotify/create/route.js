@@ -163,6 +163,7 @@ export async function POST(req) {
       ok: true,
       playlistId: playlistId,
       playlistUrl: playlistUrl,
+      url: playlistUrl, // Also include 'url' for compatibility
       name: safeName,
       trackCount: added
     }, { status: 200 });

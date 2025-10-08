@@ -556,6 +556,10 @@ export default function Home() {
 
   // Create playlist in Spotify
   async function handleCreate() {
+    console.log('[CLIENT] ===== handleCreate CALLED =====');
+    console.log('[CLIENT] Tracks count:', tracks?.length || 0);
+    console.log('[CLIENT] Session:', session?.user?.email || 'NO SESSION');
+    
     if (!tracks.length) return;
     if (!session?.user) {
       await signIn("spotify", { callbackUrl: `${window.location.origin}/?from=oauth` });
@@ -613,6 +617,7 @@ export default function Home() {
       
       const data = await res.json();
       console.log('[CLIENT] create: res.ok=', res.ok, 'payload_ok=', !!data?.ok);
+      console.log('[CLIENT] create: data received:', data);
       
       // PROMPT 9: Handle standardized NO_SESSION error
       if (res.status === 401 || data?.code === 'NO_SESSION') {
@@ -622,31 +627,39 @@ export default function Home() {
       if (!res.ok || !data?.ok) throw new Error(data?.error || data?.message || 'Failed to create playlist');
       
       // FIXPACK: SOLO ahora marcamos creada y mostramos 'Open in Spotify'
-      setSpotifyUrl(data?.url || `https://open.spotify.com/playlist/${data?.playlistId}`);
+      const playlistUrl = data?.playlistUrl || data?.url || `https://open.spotify.com/playlist/${data?.playlistId}`;
+      setSpotifyUrl(playlistUrl);
       setIsCreated(true);
       setCustomPlaylistName(''); // Keep input empty after creation
       
       // Abrir Spotify automáticamente
-      if (data?.url) {
-        window.open(data.url, "_blank");
+      if (playlistUrl) {
+        window.open(playlistUrl, "_blank");
       }
       
       const addedText = data.trackCount ? ` (${data.trackCount} tracks added)` : '';
       setStatusText(`Playlist creada 🎉 Abriendo Spotify...${addedText}`);
       
+      console.log('[CLIENT] ===== ABOUT TO SAVE PLAYLIST =====');
+      console.log('[CLIENT] playlistId:', data.playlistId);
+      console.log('[CLIENT] playlistUrl:', playlistUrl);
+      console.log('[CLIENT] session.user.email:', session?.user?.email);
+      
       // Register playlist in trending
       try {
-        await fetch('/api/trending', {
+        console.log('[CLIENT] Registering playlist in trending...');
+        const trendingResponse = await fetch('/api/trending', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: prompt,
-            playlistName: customPlaylistName || null, // Let API generate dynamic name if empty
+            playlistName: customPlaylistName || data?.name || 'Mi playlist', 
             playlistId: data.playlistId,
-            spotifyUrl: data.url || `https://open.spotify.com/playlist/${data.playlistId}`,
+            spotifyUrl: playlistUrl,
             trackCount: uris.length
           })
         });
+        console.log('[CLIENT] Trending registration:', trendingResponse.ok ? 'success' : 'failed');
       } catch (trendingError) {
         console.error('Error registering playlist in trending:', trendingError);
         // Don't fail the main flow if trending registration fails
@@ -654,17 +667,21 @@ export default function Home() {
 
       // Save playlist to user's collection
       try {
+        console.log('[CLIENT] Saving playlist to user collection...');
         const userPlaylistData = {
           userEmail: session.user.email,
           playlistId: data.playlistId,
-          name: nameWithBrand,
-          url: data.url || `https://open.spotify.com/playlist/${data.playlistId}`,
+          name: data?.name || nameWithBrand,
+          url: playlistUrl,
           image: null, // We don't have image data from Spotify API response
           tracks: uris.length,
           prompt: prompt,
+          mode: null, // Mode will be determined by backend
           public: true, // Default public
           createdAt: new Date().toISOString()
         };
+
+        console.log('[CLIENT] Playlist data to save:', JSON.stringify(userPlaylistData, null, 2));
 
         const userPlaylistResponse = await fetch('/api/userplaylists', {
           method: 'POST',
@@ -673,6 +690,7 @@ export default function Home() {
         });
 
         const userPlaylistResult = await userPlaylistResponse.json();
+        console.log('[CLIENT] User playlist save result:', userPlaylistResult);
         
         // If server couldn't save (no KV), save to localStorage
         if (!userPlaylistResult.saved && userPlaylistResult.reason === 'fallback-localStorage') {
@@ -680,7 +698,11 @@ export default function Home() {
           const existingPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
           const updatedPlaylists = [userPlaylistData, ...existingPlaylists].slice(0, 200);
           localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
-          console.log('Saved playlist to localStorage:', userPlaylistData.name);
+          console.log('✅ Saved playlist to localStorage:', userPlaylistData.name);
+        } else if (userPlaylistResult.success) {
+          console.log('✅ Saved playlist to KV:', userPlaylistData.name);
+        } else {
+          console.error('❌ Failed to save playlist:', userPlaylistResult);
         }
       } catch (userPlaylistError) {
         console.error('Error saving user playlist:', userPlaylistError);

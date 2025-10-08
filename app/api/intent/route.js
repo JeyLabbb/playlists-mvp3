@@ -310,7 +310,7 @@ emit_intent({
         console.log(`[INTENT] Completion has choices: ${!!completion.choices}`);
         console.log(`[INTENT] Choices length: ${completion.choices?.length || 0}`);
         
-        const result = completion.choices[0]?.message;
+        let result = completion.choices[0]?.message;
         console.log(`[INTENT] Result from OpenAI:`, {
           hasMessage: !!result,
           hasToolCalls: !!(result?.tool_calls),
@@ -329,10 +329,40 @@ emit_intent({
         });
         
         if (!result || !result.tool_calls || result.tool_calls.length === 0) {
-          console.log(`[INTENT] ERROR: No tool calls in OpenAI response`);
+          console.log(`[INTENT] No tool calls found, trying fallback parser...`);
           console.log(`[INTENT] Result:`, result);
-          console.log(`[INTENT] Tool calls:`, result?.tool_calls);
-          throw new Error("No tool calls in OpenAI response");
+          console.log(`[INTENT] Message content:`, result?.content);
+          
+          // FALLBACK: Try to parse emit_intent({...}) from message content
+          if (result?.content && typeof result.content === 'string') {
+            const match = result.content.match(/emit_intent\s*\((\{[\s\S]*?\})\)/);
+            if (match && match[1]) {
+              console.log(`[INTENT] Fallback: Found emit_intent in content, parsing...`);
+              try {
+                const parsedIntent = JSON.parse(match[1]);
+                console.log(`[INTENT] Fallback: Successfully parsed intent from content`);
+                // Create a fake tool call structure
+                result = {
+                  ...result,
+                  tool_calls: [{
+                    function: {
+                      name: 'emit_intent',
+                      arguments: match[1]
+                    }
+                  }]
+                };
+              } catch (parseError) {
+                console.log(`[INTENT] Fallback: Failed to parse JSON from content:`, parseError.message);
+                throw new Error("No tool calls in OpenAI response and fallback parsing failed");
+              }
+            } else {
+              console.log(`[INTENT] Fallback: No emit_intent pattern found in content`);
+              throw new Error("No tool calls in OpenAI response");
+            }
+          } else {
+            console.log(`[INTENT] Fallback: No content to parse`);
+            throw new Error("No tool calls in OpenAI response");
+          }
         }
 
         console.log(`[INTENT] ===== TOOL CALL VALIDATION =====`);

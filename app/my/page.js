@@ -26,24 +26,32 @@ export default function MyPlaylistsPage() {
   const fetchUserPlaylists = async () => {
     try {
       setLoading(true);
+      console.log('[MY-PLAYLISTS] Fetching playlists for:', session?.user?.email);
       const response = await fetch('/api/userplaylists');
       const data = await response.json();
+      console.log('[MY-PLAYLISTS] API response:', data);
       
       if (data.success) {
         if (data.fallback) {
           // Load from localStorage
+          console.log('[MY-PLAYLISTS] Using localStorage fallback');
           const localKey = `jey_user_playlists:${session.user.email}`;
           const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
-          setPlaylists(localPlaylists);
+          console.log('[MY-PLAYLISTS] Loaded from localStorage:', localPlaylists.length, 'playlists');
+          setPlaylists(Array.isArray(localPlaylists) ? localPlaylists : []);
         } else {
-          setPlaylists(data.playlists || []);
+          console.log('[MY-PLAYLISTS] Using KV data:', data.playlists?.length || 0, 'playlists');
+          setPlaylists(Array.isArray(data.playlists) ? data.playlists : []);
         }
       } else {
+        console.error('[MY-PLAYLISTS] API returned error:', data.error);
         setError(data.error || 'Failed to load playlists');
+        setPlaylists([]);
       }
     } catch (error) {
       console.error('Error fetching playlists:', error);
       setError('Failed to load playlists');
+      setPlaylists([]);
     } finally {
       setLoading(false);
     }
@@ -132,7 +140,7 @@ export default function MyPlaylistsPage() {
       
       if (result.success) {
         // Update local state
-        setPlaylists(prev => prev.map(playlist => 
+        setPlaylists(prev => (Array.isArray(prev) ? prev : []).map(playlist => 
           playlist.playlistId === playlistId 
             ? { ...playlist, public: newPublic }
             : playlist
@@ -156,7 +164,7 @@ export default function MyPlaylistsPage() {
         console.log('Handling localStorage fallback for privacy update');
         
         // Update local state
-        setPlaylists(prev => prev.map(playlist => 
+        setPlaylists(prev => (Array.isArray(prev) ? prev : []).map(playlist => 
           playlist.playlistId === playlistId 
             ? { ...playlist, public: newPublic }
             : playlist
@@ -211,7 +219,7 @@ export default function MyPlaylistsPage() {
       
       if (result.success) {
         // Update local state
-        setPlaylists(prev => prev.filter(playlist => playlist.playlistId !== playlistId));
+        setPlaylists(prev => (Array.isArray(prev) ? prev : []).filter(playlist => playlist.playlistId !== playlistId));
         
         // Update localStorage
         const localKey = `jey_user_playlists:${session.user.email}`;
@@ -225,7 +233,7 @@ export default function MyPlaylistsPage() {
         console.log('Handling localStorage fallback for playlist deletion');
         
         // Update local state
-        setPlaylists(prev => prev.filter(playlist => playlist.playlistId !== playlistId));
+        setPlaylists(prev => (Array.isArray(prev) ? prev : []).filter(playlist => playlist.playlistId !== playlistId));
         
         // Update localStorage
         const localKey = `jey_user_playlists:${session.user.email}`;
@@ -333,7 +341,7 @@ export default function MyPlaylistsPage() {
   }
 
   // Empty state
-  if (playlists.length === 0) {
+  if (!Array.isArray(playlists) || playlists.length === 0) {
     return (
       <div className="min-h-screen bg-gray-950 text-white">
         <Navigation />
@@ -389,7 +397,7 @@ export default function MyPlaylistsPage() {
       <div className="px-4 sm:px-6 pb-6 sm:pb-12">
         <div className="max-w-4xl mx-auto">
           <div className="grid gap-3 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {playlists.map((playlist) => (
+            {(Array.isArray(playlists) ? playlists : []).map((playlist) => (
               <div
                 key={playlist.playlistId}
                 className="bg-gray-800/50 border border-gray-700 rounded-xl p-3 sm:p-6 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70 group"
