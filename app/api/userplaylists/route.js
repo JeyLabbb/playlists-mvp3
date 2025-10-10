@@ -15,6 +15,7 @@ function hasKV() {
 // Get user playlists from Vercel KV
 async function getFromKV(userEmail) {
   try {
+    console.log('[USERPLAYLISTS] getFromKV: Fetching for user:', userEmail);
     const response = await fetch(`${process.env.KV_REST_API_URL}/get/userplaylists:${encodeURIComponent(userEmail)}`, {
       headers: {
         'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
@@ -23,14 +24,28 @@ async function getFromKV(userEmail) {
     });
 
     if (!response.ok) {
-      console.warn('KV GET failed:', response.status);
+      console.warn('[USERPLAYLISTS] getFromKV: KV GET failed:', response.status);
       return null;
     }
 
     const data = await response.json();
-    return data.result ? JSON.parse(data.result) : [];
+    console.log('[USERPLAYLISTS] getFromKV: Raw KV data:', data);
+    
+    // Handle double-encoded JSON from KV
+    let parsed = data.result ? JSON.parse(data.result) : null;
+    console.log('[USERPLAYLISTS] getFromKV: First parse:', parsed);
+    
+    // If result has a 'value' property, it's double-encoded
+    if (parsed && typeof parsed === 'object' && parsed.value) {
+      console.log('[USERPLAYLISTS] getFromKV: Detected double encoding, parsing value');
+      parsed = JSON.parse(parsed.value);
+    }
+    
+    const playlists = Array.isArray(parsed) ? parsed : [];
+    console.log('[USERPLAYLISTS] getFromKV: Returning', playlists.length, 'playlists');
+    return playlists;
   } catch (error) {
-    console.warn('KV GET error:', error);
+    console.warn('[USERPLAYLISTS] getFromKV: Error:', error);
     return null;
   }
 }
@@ -40,11 +55,12 @@ async function saveToKV(userEmail, playlist) {
   try {
     console.log('[USERPLAYLISTS] saveToKV: Starting save process for user:', userEmail);
     // Get existing playlists
-    const existing = await getFromKV(userEmail) || [];
-    console.log('[USERPLAYLISTS] saveToKV: Found existing playlists:', existing.length);
+    const existing = await getFromKV(userEmail);
+    const existingArray = Array.isArray(existing) ? existing : [];
+    console.log('[USERPLAYLISTS] saveToKV: Found existing playlists:', existingArray.length);
     
     // Add new playlist to beginning
-    const updated = [playlist, ...existing].slice(0, 200); // Keep max 200 playlists
+    const updated = [playlist, ...existingArray].slice(0, 200); // Keep max 200 playlists
     console.log('[USERPLAYLISTS] saveToKV: Updated playlist count:', updated.length);
     
     const kvUrl = `${process.env.KV_REST_API_URL}/set/userplaylists:${encodeURIComponent(userEmail)}`;
@@ -86,16 +102,23 @@ export async function GET(request) {
   try {
     const session = await getServerSession(simpleAuthOptions);
     
+    console.log('[USERPLAYLISTS] ===== GET REQUEST =====');
     if (!session?.user?.email) {
+      console.log('[USERPLAYLISTS] GET: No session/email');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const userEmail = session.user.email;
+    console.log('[USERPLAYLISTS] GET: Fetching playlists for:', userEmail);
 
     // Try Vercel KV first
     if (hasKV()) {
+      console.log('[USERPLAYLISTS] GET: KV available, fetching...');
       const playlists = await getFromKV(userEmail);
+      console.log('[USERPLAYLISTS] GET: KV returned:', playlists ? playlists.length : null, 'playlists');
+      
       if (playlists !== null) {
+        console.log('[USERPLAYLISTS] GET: Responding with KV data');
         return NextResponse.json({
           success: true,
           playlists: playlists,
@@ -105,6 +128,7 @@ export async function GET(request) {
     }
 
     // Fallback to localStorage (client-side)
+    console.log('[USERPLAYLISTS] GET: Falling back to localStorage');
     return NextResponse.json({
       success: true,
       playlists: [],
@@ -113,7 +137,7 @@ export async function GET(request) {
     });
 
   } catch (error) {
-    console.error('Error retrieving user playlists:', error);
+    console.error('[USERPLAYLISTS] GET: Error:', error);
     return NextResponse.json({ error: 'Failed to retrieve playlists' }, { status: 500 });
   }
 }

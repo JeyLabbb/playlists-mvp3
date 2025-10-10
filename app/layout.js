@@ -3,7 +3,7 @@ import Providers from "./providers";
 import { LanguageProvider } from "./contexts/LanguageContext";
 import { Toaster } from "sonner";
 import SessionWatcher from "./components/SessionWatcher";
-import Navigation from "./components/Navigation";
+import CardNav from "./components/CardNav";
 import { Analytics } from '@vercel/analytics/react';
 
 export const metadata = {
@@ -20,7 +20,31 @@ export default function RootLayout({ children }) {
       <body className="antialiased">
         <LanguageProvider>
           <Providers>
-            <Navigation />
+            <CardNav
+              items={[
+                {
+                  label: "Explorar",
+                  links: [
+                    { label: "Generador IA", href: "/", ariaLabel: "Ir al generador de playlists con IA" },
+                    { label: "Trending", href: "/trending", ariaLabel: "Ver playlists populares" }
+                  ]
+                },
+                {
+                  label: "Tu música",
+                  links: [
+                    { label: "Mis playlists", href: "/my", ariaLabel: "Ver mis playlists guardadas" },
+                    { label: "Mi perfil", href: "/me", ariaLabel: "Ver mi perfil" }
+                  ]
+                },
+                {
+                  label: "JeyLabbb",
+                  links: [
+                    { label: "Inicio", href: "/", ariaLabel: "Volver al inicio" },
+                    { label: "Soporte", href: "mailto:jeylabbb@gmail.com", ariaLabel: "Contactar soporte" }
+                  ]
+                }
+              ]}
+            />
             {children}
             <SessionWatcher />
           </Providers>

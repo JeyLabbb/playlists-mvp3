@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import Navigation from '../components/Navigation';
 
 export default function TrendingPage() {
   const [playlists, setPlaylists] = useState([]);
@@ -313,8 +312,6 @@ export default function TrendingPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <Navigation />
-      
       {/* Header - Mobile optimized */}
       <div className="pt-12 sm:pt-20 pb-4 sm:pb-8 px-6 sm:px-6">
         <div className="max-w-4xl mx-auto">

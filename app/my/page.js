@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useSession, signIn } from 'next-auth/react';
 import Link from 'next/link';
-import Navigation from '../components/Navigation';
 
 export default function MyPlaylistsPage() {
   const { data: session, status } = useSession();
@@ -267,7 +266,6 @@ export default function MyPlaylistsPage() {
   if (status === 'unauthenticated') {
     return (
       <div className="min-h-screen bg-gray-950 text-white">
-        <Navigation />
         
         <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">
@@ -298,7 +296,6 @@ export default function MyPlaylistsPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-950 text-white">
-        <Navigation />
         
         <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
           <div className="max-w-4xl mx-auto">
@@ -318,7 +315,6 @@ export default function MyPlaylistsPage() {
   if (error) {
     return (
       <div className="min-h-screen bg-gray-950 text-white">
-        <Navigation />
         
         <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">
@@ -344,7 +340,6 @@ export default function MyPlaylistsPage() {
   if (!Array.isArray(playlists) || playlists.length === 0) {
     return (
       <div className="min-h-screen bg-gray-950 text-white">
-        <Navigation />
         
         <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">
@@ -377,7 +372,6 @@ export default function MyPlaylistsPage() {
   // Playlists list
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <Navigation />
       
       {/* Header */}
       <div className="pt-12 sm:pt-20 pb-4 sm:pb-8 px-4 sm:px-6">

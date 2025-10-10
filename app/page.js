@@ -1,16 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { signIn, signOut, useSession } from "next-auth/react";
-import Link from "next/link";
+import { signIn, useSession } from "next-auth/react";
 import { useLanguage } from "./contexts/LanguageContext";
-import LanguageSwitcher from "./components/LanguageSwitcher";
 import EpicSection from "./components/EpicSection";
 import PromptTips from "./components/PromptTips";
 import LoadingStatus from "./components/LoadingStatus";
 import FeedbackModal from "./components/FeedbackModal";
 import FeedbackGate from "./components/FeedbackGate";
 import RequestAccessModal from "./components/RequestAccessModal";
+import AnimatedList from "./components/AnimatedList";
 
 export default function Home() {
   const { data: session, status } = useSession();
@@ -51,6 +50,17 @@ export default function Home() {
   
   // Request Access Modal
   const [showRequestAccessModal, setShowRequestAccessModal] = useState(false);
+
+  // Listen for CardNav request-access event
+  useEffect(() => {
+    const handleRequestAccessEvent = () => {
+      setShowRequestAccessModal(true);
+    };
+    window.addEventListener('request-access-modal:open', handleRequestAccessEvent);
+    return () => {
+      window.removeEventListener('request-access-modal:open', handleRequestAccessEvent);
+    };
+  }, []);
 
   // Check for OAuth callback error on mount
   useEffect(() => {
@@ -777,49 +787,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-black-base">
-      {/* Header */}
-      <header className="border-b border-gray-dark mobile-header">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
-          <div className="flex justify-between items-center mobile-flex-col md:flex-row">
-            <div className="text-center md:text-left">
-              <div className="text-sm font-bold text-white mb-1">
-                <Link href="/" className="hover:text-cyan-accent transition-colors">JeyLabbb</Link>
-              </div>
-              <h1 className="text-3xl font-bold text-white mb-2">
-                <span className="cyan-accent">AI</span> Playlist Generator
-              </h1>
-              <p className="text-gray-text-secondary">
-                {t('hero.subtitle')}
-              </p>
-            </div>
-            <div className="flex items-center gap-4 mobile-button-group md:flex-row">
-              <LanguageSwitcher />
-              {session?.user ? (
-                <button
-                  onClick={() => signOut({ callbackUrl: "/" })}
-                  className="spotify-button-secondary"
-                >
-                  {t('auth.signOut')}
-                </button>
-              ) : (
-                <button
-                  onClick={() => setShowRequestAccessModal(true)}
-                  className="spotify-button"
-                >
-                  {t('auth.connectSpotify')}
-                </button>
-              )}
-            </div>
-          </div>
-          
-          <div className="mt-4 text-sm text-gray-text-secondary text-center md:text-left">
-            {status === "loading" ? t('auth.checkingSession') : 
-             session?.user ? `${t('auth.connectedAs')} ${session.user.name || session.user.email}` : 
-             t('auth.notConnected')}
-          </div>
-        </div>
-      </header>
-
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-12">
         <div className="space-y-4 sm:space-y-8">
@@ -996,58 +963,42 @@ export default function Home() {
               </h3>
               
               
-              <div className="max-h-96 overflow-y-auto mobile-track-list">
-                {tracks.map((track, i) => (
-                  <div key={`${track.id}-${i}`} className="spotify-track-item">
-                    <div className="spotify-track-info">
-                      <div className="spotify-track-name">
-                        {track.title || track.name || 'Unknown Track'}
-                      </div>
-                      <div className="spotify-track-artist">
-                        {(() => {
-                          // Handle different artistNames formats
-                          let artists = [];
-                          
-                          if (typeof track.artistNames === 'string') {
-                            artists = track.artistNames.split(',').map(a => a.trim()).filter(Boolean);
-                          } else if (Array.isArray(track.artistNames)) {
-                            artists = track.artistNames.map(a => typeof a === 'string' ? a : a?.name).filter(Boolean);
-                          } else if (Array.isArray(track.artists)) {
-                            artists = track.artists.map(a => typeof a === 'string' ? a : a?.name).filter(Boolean);
-                          }
-                          
-                          if (artists.length === 0) return '—';
-                          
-                          return artists.map((artist, index) => (
-                            <span key={index}>
-                              {artist}
-                              {index < artists.length - 1 && ', '}
-                            </span>
-                          ));
-                        })()}
-                      </div>
-                    </div>
-                    <div className="flex gap-2 mobile-flex-wrap">
-                      <a
-                        href={track.open_url || (track.id ? `https://open.spotify.com/track/${track.id}` : "#")}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="spotify-link"
-                      >
-                        Open
-                      </a>
-                      <button
-                        onClick={() => handleRemoveTrack(track.id)}
-                        disabled={removing}
-                        className="text-red-400 hover:text-red-300 text-sm px-2 py-1 rounded transition-colors"
-                        title="Remove track"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <AnimatedList
+                items={tracks.map((track) => {
+                  // Extract artist names
+                  let artists = [];
+                  if (typeof track.artistNames === 'string') {
+                    artists = track.artistNames.split(',').map(a => a.trim()).filter(Boolean);
+                  } else if (Array.isArray(track.artistNames)) {
+                    artists = track.artistNames.map(a => typeof a === 'string' ? a : a?.name).filter(Boolean);
+                  } else if (Array.isArray(track.artists)) {
+                    artists = track.artists.map(a => typeof a === 'string' ? a : a?.name).filter(Boolean);
+                  }
+                  
+                  const artistStr = artists.length > 0 ? artists.join(', ') : 'Artista desconocido';
+                  const title = track.title || track.name || 'Título desconocido';
+                  
+                  return {
+                    title: title,
+                    artist: artistStr,
+                    trackId: track.id,
+                    openUrl: track.open_url || (track.id ? `https://open.spotify.com/track/${track.id}` : undefined)
+                  };
+                })}
+                onItemSelect={(item, idx) => {
+                  // Open track in Spotify
+                  if (item.openUrl) {
+                    window.open(item.openUrl, '_blank');
+                  }
+                }}
+                onItemRemove={(item, idx) => {
+                  // Remove track from list
+                  handleRemoveTrack(item.trackId);
+                }}
+                displayScrollbar={true}
+                className=""
+                itemClassName=""
+              />
             </div>
           )}
 

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, use } from 'react';
 import { usePathname } from 'next/navigation';
-import Navigation from '../../components/Navigation';
 
 export default function PublicProfilePage({ params }) {
   const pathname = usePathname();
@@ -245,7 +244,6 @@ export default function PublicProfilePage({ params }) {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-950 text-white">
-        <Navigation />
         
         <div className="pt-20 pb-12 px-6">
           <div className="max-w-4xl mx-auto">
@@ -265,7 +263,6 @@ export default function PublicProfilePage({ params }) {
   if (error || !profile) {
     return (
       <div className="min-h-screen bg-gray-950 text-white">
-        <Navigation />
         
         <div className="pt-20 pb-12 px-6">
           <div className="max-w-4xl mx-auto text-center">
@@ -294,7 +291,6 @@ export default function PublicProfilePage({ params }) {
   // Profile exists
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <Navigation />
       
       <div className="pt-12 sm:pt-20 pb-4 sm:pb-12 px-6 sm:px-6">
         <div className="max-w-4xl mx-auto">

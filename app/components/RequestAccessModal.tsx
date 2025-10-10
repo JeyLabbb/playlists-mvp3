@@ -30,10 +30,9 @@ export default function RequestAccessModal({ open, onClose }: Props) {
     }
   }, [status, router]);
 
-  // Solo mostrar si no está autenticado y no se marcó como hecho
+  // Solo mostrar si no está autenticado (removed ea_done check for easier testing)
   const shouldOpen = 
     typeof window !== 'undefined' &&
-    localStorage.getItem('ea_done') !== '1' &&
     status !== 'authenticated' &&
     open;
 
@@ -82,8 +81,9 @@ export default function RequestAccessModal({ open, onClose }: Props) {
     try { 
       localStorage.setItem('ea_pending', '1'); 
     } catch {}
-    // IMPORTANT: fuerza volver a tu dominio
-    signIn('spotify', { callbackUrl: `${window.location.origin}/?from=oauth` });
+    // IMPORTANT: fuerza volver a 127.0.0.1 (debe coincidir con Spotify redirect URI)
+    const baseUrl = process.env.NEXT_PUBLIC_NEXTAUTH_URL || 'http://127.0.0.1:3000';
+    signIn('spotify', { callbackUrl: `${baseUrl}/?from=oauth` });
   };
 
   if (!shouldOpen) return null;

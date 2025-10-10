@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useSession, signIn } from 'next-auth/react';
-import Navigation from '../components/Navigation';
 
 export default function ProfilePage() {
   const { data: session, status } = useSession();
@@ -241,7 +240,6 @@ export default function ProfilePage() {
   if (status === 'unauthenticated') {
     return (
       <div className="min-h-screen bg-gray-950 text-white">
-        <Navigation />
         
         <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">
@@ -272,7 +270,6 @@ export default function ProfilePage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-950 text-white">
-        <Navigation />
         
         <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
           <div className="max-w-4xl mx-auto">
@@ -292,7 +289,6 @@ export default function ProfilePage() {
   if (error && !profile) {
     return (
       <div className="min-h-screen bg-gray-950 text-white">
-        <Navigation />
         
         <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">
@@ -317,7 +313,6 @@ export default function ProfilePage() {
   // Profile form
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <Navigation />
       
       <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
         <div className="max-w-2xl mx-auto">

@@ -34,8 +34,17 @@ async function getAllUserPlaylists() {
       if (playlistResponse.ok) {
         const playlistData = await playlistResponse.json();
         if (playlistData.result) {
-          const userPlaylists = JSON.parse(playlistData.result);
-          allPlaylists.push(...userPlaylists);
+          // Handle double-encoded JSON from KV
+          let parsed = JSON.parse(playlistData.result);
+          
+          // If result has a 'value' property, it's double-encoded
+          if (parsed && typeof parsed === 'object' && parsed.value) {
+            parsed = JSON.parse(parsed.value);
+          }
+          
+          if (Array.isArray(parsed)) {
+            allPlaylists.push(...parsed);
+          }
         }
       }
     }
