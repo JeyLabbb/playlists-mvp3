@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import AnimatedList from '../components/AnimatedList';
 
 export default function TrendingPage() {
   const [playlists, setPlaylists] = useState([]);
@@ -190,9 +191,12 @@ export default function TrendingPage() {
 
   const fetchTrendingPlaylists = async () => {
     try {
+      console.log('[TRENDING] Starting to fetch trending playlists...');
       setLoading(true);
       const response = await fetch(`/api/trending?sortBy=${sortBy}&limit=50`);
+      console.log('[TRENDING] Response status:', response.status);
       const data = await response.json();
+      console.log('[TRENDING] Response data:', data);
       
       if (data.success) {
         if (data.fallback) {
@@ -206,6 +210,7 @@ export default function TrendingPage() {
             console.log('No playlists found in localStorage either');
           }
         } else {
+          console.log('[TRENDING] Setting playlists:', data.playlists.length);
           setPlaylists(data.playlists);
         }
       } else {
@@ -214,6 +219,7 @@ export default function TrendingPage() {
     } catch (error) {
       console.error('Error fetching trending playlists:', error);
     } finally {
+      console.log('[TRENDING] Setting loading to false');
       setLoading(false);
     }
   };
@@ -363,13 +369,14 @@ export default function TrendingPage() {
       {/* Content - Mobile optimized */}
       <div className="px-6 sm:px-6 pb-6 sm:pb-12">
         <div className="max-w-4xl mx-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                <p className="text-gray-400">Cargando playlists trending...</p>
-              </div>
-            </div>
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <p className="text-gray-400">Cargando playlists trending...</p>
+            <p className="text-gray-500 text-xs mt-2">Debug: loading={loading.toString()}, playlists={playlists.length}</p>
+          </div>
+        </div>
           ) : playlists.length === 0 ? (
             <div className="text-center py-20">
               <div className="text-6xl mb-4">🎵</div>
@@ -533,35 +540,29 @@ export default function TrendingPage() {
                     </div>
                   ) : previewTracks.length > 0 ? (
                     <div className="p-4">
-                      <div className="space-y-1">
-                        {(() => {
-                          // Shuffle tracks and take up to 15 random ones
-                          const shuffledTracks = [...previewTracks].sort(() => Math.random() - 0.5);
-                          const randomTracks = shuffledTracks.slice(0, 15);
-                          
-                          return randomTracks.map((track, index) => (
-                          <div key={`track-${previewPlaylist.playlistId}-${index}-${track.id}`} className="flex items-center gap-3 py-1.5 border-b border-gray-800 last:border-b-0">
-                            <span className="text-gray-500 text-sm w-6">{index + 1}</span>
-                            <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
-                              <span className="text-white text-sm">🎵</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-white font-medium truncate">{track.name}</p>
-                              <p className="text-gray-400 text-sm truncate">
-                                {track.artists?.join(', ') || track.artistNames?.join(', ') || 'Artista desconocido'}
-                              </p>
-                            </div>
-                          </div>
-                          ));
-                        })()}
-                        {previewTracks.length > 15 && (
-                          <div className="text-center py-4">
-                            <p className="text-gray-500 text-sm">
-                              ... y {previewTracks.length - 15} canciones más
-                            </p>
-                          </div>
-                        )}
-                      </div>
+                      <AnimatedList
+                        items={previewTracks.slice(0, 15).map((track) => ({
+                          title: track.name || 'Título desconocido',
+                          artist: track.artists?.join(', ') || track.artistNames?.join(', ') || 'Artista desconocido',
+                          trackId: track.id,
+                          openUrl: track.open_url || `https://open.spotify.com/track/${track.id}`
+                        }))}
+                        onItemSelect={(item) => {
+                          if (item.openUrl) {
+                            window.open(item.openUrl, '_blank');
+                          }
+                        }}
+                        displayScrollbar={true}
+                        className=""
+                        itemClassName=""
+                      />
+                      {previewTracks.length > 15 && (
+                        <div className="text-center py-4">
+                          <p className="text-gray-500 text-sm">
+                            ... y {previewTracks.length - 15} canciones más
+                          </p>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="p-6 text-center">

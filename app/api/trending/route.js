@@ -192,6 +192,7 @@ export async function GET(request) {
 
     // Try KV first
     if (hasKV()) {
+      console.log('[TRENDING] KV is available, fetching playlists...');
       const allPlaylists = await getAllTrendingPlaylists();
       console.log(`[TRENDING] Found ${allPlaylists.length} total playlists from KV`);
       
@@ -248,6 +249,8 @@ export async function GET(request) {
     }
 
     const limitedPlaylists = sortedPlaylists.slice(0, limit);
+
+    console.log(`[TRENDING] Returning ${limitedPlaylists.length} playlists (total: ${playlists.length})`);
 
     return NextResponse.json({
       success: true,
