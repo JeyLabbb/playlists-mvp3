@@ -80,13 +80,18 @@ async function getAllTrendingPlaylists() {
                 parsed = JSON.parse(parsed.value);
               }
               
+              // Extract Spotify playlist ID from URL
+              const spotifyId = parsed.spotifyUrl ? 
+                parsed.spotifyUrl.split('/').pop() : 
+                key.replace('trending:', '');
+              
               // Convert trending format to user playlist format
               const convertedPlaylist = {
-                playlistId: key.replace('trending:', ''),
+                playlistId: spotifyId,
                 prompt: parsed.prompt || 'Playlist trending',
                 name: parsed.prompt || 'Playlist trending',
                 url: parsed.spotifyUrl || '#',
-                tracks: 20, // Default track count
+                tracks: parsed.trackCount || 20,
                 views: parsed.views || 0,
                 clicks: parsed.clicks || 0,
                 createdAt: parsed.createdAt || new Date().toISOString(),
