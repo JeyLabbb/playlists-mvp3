@@ -15,7 +15,7 @@
     "test:festival": "node test-artist-variety.js",
     "test:recientes": "node test-n-compliance.js",
     "test:debug": "node test-debug-controls.js",
-    "test:all": "npm run test:normal && npm run test:festival && npm run test:recientes && npm run test:debug",
+    "test:all": "npm run test:normal && npm run test:festival && npm run test:recientes && npm run test:debug"
   },
   "dependencies": {
     "@vercel/analytics": "^1.5.0",
