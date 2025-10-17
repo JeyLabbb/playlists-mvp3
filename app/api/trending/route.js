@@ -5,45 +5,104 @@ function hasKV() {
   return process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
 }
 
-// Get all user playlists from KV
-async function getAllUserPlaylists() {
+// Get all trending playlists from KV
+async function getAllTrendingPlaylists() {
   try {
-    const response = await fetch(`${process.env.KV_REST_API_URL}/keys/userplaylists:*`, {
+    const allPlaylists = [];
+    
+    // Get user playlists (existing functionality)
+    const userPlaylistsResponse = await fetch(`${process.env.KV_REST_API_URL}/keys/userplaylists:*`, {
       headers: {
         'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
         'Content-Type': 'application/json'
       }
     });
 
-    if (!response.ok) {
-      return [];
-    }
-
-    const data = await response.json();
-    const allPlaylists = [];
-    
-    // Get each user's playlists
-    for (const key of data.result || []) {
-      const playlistResponse = await fetch(`${process.env.KV_REST_API_URL}/get/${key}`, {
-        headers: {
-          'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
-      });
+    if (userPlaylistsResponse.ok) {
+      const userData = await userPlaylistsResponse.json();
       
-      if (playlistResponse.ok) {
-        const playlistData = await playlistResponse.json();
-        if (playlistData.result) {
-          // Handle double-encoded JSON from KV
-          let parsed = JSON.parse(playlistData.result);
-          
-          // If result has a 'value' property, it's double-encoded
-          if (parsed && typeof parsed === 'object' && parsed.value) {
-            parsed = JSON.parse(parsed.value);
+      // Get each user's playlists
+      for (const key of userData.result || []) {
+        const playlistResponse = await fetch(`${process.env.KV_REST_API_URL}/get/${key}`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
+            'Content-Type': 'application/json'
           }
-          
-          if (Array.isArray(parsed)) {
-            allPlaylists.push(...parsed);
+        });
+        
+        if (playlistResponse.ok) {
+          const playlistData = await playlistResponse.json();
+          if (playlistData.result) {
+            // Handle double-encoded JSON from KV
+            let parsed = JSON.parse(playlistData.result);
+            
+            // If result has a 'value' property, it's double-encoded
+            if (parsed && typeof parsed === 'object' && parsed.value) {
+              parsed = JSON.parse(parsed.value);
+            }
+            
+            if (Array.isArray(parsed)) {
+              allPlaylists.push(...parsed);
+            }
+          }
+        }
+      }
+    }
+    
+    // Get trending playlists (new functionality)
+    const trendingResponse = await fetch(`${process.env.KV_REST_API_URL}/keys/trending:*`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (trendingResponse.ok) {
+      const trendingData = await trendingResponse.json();
+      
+      // Get each trending playlist
+      for (const key of trendingData.result || []) {
+        const playlistResponse = await fetch(`${process.env.KV_REST_API_URL}/get/${key}`, {
+          headers: {
+            'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (playlistResponse.ok) {
+          const playlistData = await playlistResponse.json();
+          if (playlistData.result) {
+            try {
+              let parsed = JSON.parse(playlistData.result);
+              
+              // Handle double-encoded JSON from KV (same as user playlists)
+              if (parsed && typeof parsed === 'object' && parsed.value) {
+                parsed = JSON.parse(parsed.value);
+              }
+              
+              // Convert trending format to user playlist format
+              const convertedPlaylist = {
+                playlistId: key.replace('trending:', ''),
+                prompt: parsed.prompt || 'Playlist trending',
+                name: parsed.prompt || 'Playlist trending',
+                url: parsed.spotifyUrl || '#',
+                tracks: 20, // Default track count
+                views: parsed.views || 0,
+                clicks: parsed.clicks || 0,
+                createdAt: parsed.createdAt || new Date().toISOString(),
+                updatedAt: parsed.createdAt || new Date().toISOString(),
+                public: parsed.privacy === 'public',
+                username: parsed.creator || 'jeylabbb',
+                userEmail: `${parsed.creator || 'jeylabbb'}@example.com`,
+                userName: parsed.creator || 'JeyLabbb User',
+                userImage: null,
+                isTrending: true // Mark as trending playlist
+              };
+              
+              allPlaylists.push(convertedPlaylist);
+            } catch (parseError) {
+              console.warn('Error parsing trending playlist:', parseError);
+            }
           }
         }
       }
@@ -51,7 +110,7 @@ async function getAllUserPlaylists() {
     
     return allPlaylists;
   } catch (error) {
-    console.warn('Error getting all playlists from KV:', error);
+    console.warn('Error getting all trending playlists from KV:', error);
     return [];
   }
 }
@@ -133,7 +192,7 @@ export async function GET(request) {
 
     // Try KV first
     if (hasKV()) {
-      const allPlaylists = await getAllUserPlaylists();
+      const allPlaylists = await getAllTrendingPlaylists();
       console.log(`[TRENDING] Found ${allPlaylists.length} total playlists from KV`);
       
       // Filter only public playlists and add author info
