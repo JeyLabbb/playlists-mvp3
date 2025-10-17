@@ -93,7 +93,14 @@ export default function TrendingPage() {
       
       // Load playlist tracks
       console.log('Fetching tracks for playground:', playlist.playlistId);
-      const tracksResponse = await fetch(`/api/spotify/playlist-tracks?id=${playlist.playlistId}`);
+      
+      // Check if this is an example playlist (starts with 37i9dQZF1DX)
+      const isExamplePlaylist = playlist.playlistId.startsWith('37i9dQZF1DX');
+      const tracksEndpoint = isExamplePlaylist 
+        ? `/api/spotify/example-tracks?id=${playlist.playlistId}`
+        : `/api/spotify/playlist-tracks?id=${playlist.playlistId}`;
+      
+      const tracksResponse = await fetch(tracksEndpoint);
       const tracksData = await tracksResponse.json();
       
       console.log('Tracks response:', tracksData);

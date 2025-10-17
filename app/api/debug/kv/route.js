@@ -111,7 +111,8 @@ export async function POST(request) {
         creator: "jeylabbb",
         privacy: "public",
         createdAt: new Date().toISOString(),
-        spotifyUrl: "https://open.spotify.com/playlist/sample1"
+        spotifyUrl: "https://open.spotify.com/playlist/37i9dQZF1DX8Uebhn9wzrS",
+        trackCount: 50
       },
       {
         prompt: "música para estudiar sin distracciones",
@@ -120,7 +121,8 @@ export async function POST(request) {
         creator: "musiclover",
         privacy: "public",
         createdAt: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-        spotifyUrl: "https://open.spotify.com/playlist/sample2"
+        spotifyUrl: "https://open.spotify.com/playlist/37i9dQZF1DX8jpyvTAre41",
+        trackCount: 50
       },
       {
         prompt: "hits latinos para el verano 2024",
@@ -129,7 +131,8 @@ export async function POST(request) {
         creator: "summervibes",
         privacy: "public",
         createdAt: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
-        spotifyUrl: "https://open.spotify.com/playlist/sample3"
+        spotifyUrl: "https://open.spotify.com/playlist/37i9dQZF1DX8h3q2QqJj2N",
+        trackCount: 50
       },
       {
         prompt: "chill beats para trabajar desde casa",
@@ -138,7 +141,8 @@ export async function POST(request) {
         creator: "wfh_music",
         privacy: "public",
         createdAt: new Date(Date.now() - 259200000).toISOString(), // 3 days ago
-        spotifyUrl: "https://open.spotify.com/playlist/sample4"
+        spotifyUrl: "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M",
+        trackCount: 50
       },
       {
         prompt: "rock español clásico de los 90s",
@@ -147,7 +151,8 @@ export async function POST(request) {
         creator: "rockfan",
         privacy: "public",
         createdAt: new Date(Date.now() - 345600000).toISOString(), // 4 days ago
-        spotifyUrl: "https://open.spotify.com/playlist/sample5"
+        spotifyUrl: "https://open.spotify.com/playlist/37i9dQZF1DX9QY2w5G5W9m",
+        trackCount: 50
       }
     ];
 
