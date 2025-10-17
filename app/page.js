@@ -13,7 +13,7 @@ import AnimatedList from "./components/AnimatedList";
 
 export default function Home() {
   const { data: session, status } = useSession();
-  const { t } = useLanguage();
+  const { t, isLoading: translationsLoading } = useLanguage();
 
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useState(50);
@@ -784,6 +784,21 @@ export default function Home() {
       setRemoving(false);
     }
   };
+
+  // Show loading state while translations are loading
+  if (translationsLoading) {
+    return (
+      <div className="min-h-screen bg-black-base flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 bg-gradient-to-br from-aurora to-electric rounded-2xl mx-auto mb-4 flex items-center justify-center animate-pulse">
+            <div className="w-8 h-8 bg-white rounded-lg"></div>
+          </div>
+          <h2 className="text-2xl font-semibold text-white mb-2">PLEIA</h2>
+          <p className="text-mist">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black-base">
