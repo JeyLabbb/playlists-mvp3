@@ -111,7 +111,18 @@ export default function TrendingPage() {
         console.log('Sample track structure:', tracksData.tracks[0]);
       } else {
         console.error('Failed to load playlist tracks:', tracksData.error);
-        setPreviewTracks([]);
+        
+        // If authentication is required, show a helpful message
+        if (tracksData.error === 'Authentication required for playlist access') {
+          setPreviewTracks([{
+            name: '🔐 Autenticación Requerida',
+            artists: ['Inicia sesión con Spotify para ver las canciones'],
+            id: 'auth-required',
+            open_url: null
+          }]);
+        } else {
+          setPreviewTracks([]);
+        }
       }
     } catch (error) {
       console.error('Error loading playlist preview:', error);

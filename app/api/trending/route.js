@@ -201,9 +201,22 @@ export async function GET(request) {
       const allPlaylists = await getAllTrendingPlaylists();
       console.log(`[TRENDING] Found ${allPlaylists.length} total playlists from KV`);
       
-      // Filter only public playlists and add author info
+      // Filter only public playlists, remove duplicates, and add author info
+      const seenIds = new Set();
       playlists = allPlaylists
         .filter(playlist => playlist.public === true) // Default to true for legacy playlists
+        .filter(playlist => {
+          // Remove playlists with fake IDs (sample1, sample2, etc.)
+          if (playlist.playlistId.startsWith('sample') || playlist.playlistId.startsWith('176071')) {
+            return false;
+          }
+          // Remove duplicates
+          if (seenIds.has(playlist.playlistId)) {
+            return false;
+          }
+          seenIds.add(playlist.playlistId);
+          return true;
+        })
         .map(playlist => ({
           id: playlist.playlistId,
           prompt: playlist.prompt || 'Playlist creada',
