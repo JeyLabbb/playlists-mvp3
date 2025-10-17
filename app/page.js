@@ -802,7 +802,14 @@ export default function Home() {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={t('prompt.placeholder')}
-              className="spotify-textarea mb-6"
+              className="w-full p-4 mb-6 bg-slate border border-white/10 rounded-xl text-cloud placeholder-mist focus:border-aurora focus:shadow-aurora transition-all duration-200 ease-smooth resize-none"
+              style={{
+                background: 'var(--color-slate)',
+                border: '1px solid rgba(255, 255, 255, 0.06)',
+                borderRadius: 'var(--radius-lg)',
+                color: 'var(--color-cloud)',
+                fontFamily: 'var(--font-family-body)'
+              }}
             />
             
             {/* Example prompts */}
@@ -843,7 +850,12 @@ export default function Home() {
               <button
                 onClick={handleGenerate}
                 disabled={loading || !prompt.trim()}
-                className="spotify-button w-full md:min-w-[160px]"
+                className="primary w-full md:min-w-[160px] px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  background: 'var(--color-aurora)',
+                  color: 'var(--color-night)',
+                  fontFamily: 'var(--font-family-body)'
+                }}
               >
                 {loading ? t('prompt.generating') : t('prompt.generateButton')}
               </button>
@@ -906,14 +918,24 @@ export default function Home() {
                     <button
                       onClick={handleCreate}
                       disabled={isCreating}
-                      className="spotify-button w-full md:min-w-[180px]"
+                      className="primary w-full md:min-w-[180px] px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{
+                        background: 'var(--color-aurora)',
+                        color: 'var(--color-night)',
+                        fontFamily: 'var(--font-family-body)'
+                      }}
                     >
                       {isCreating ? t('playlist.creating') : t('playlist.createButton')}
                     </button>
                   ) : (
                     <button
                       disabled={true}
-                      className="spotify-button w-full md:min-w-[180px]"
+                      className="primary w-full md:min-w-[180px] px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{
+                        background: 'var(--color-slate)',
+                        color: 'var(--color-mist)',
+                        fontFamily: 'var(--font-family-body)'
+                      }}
                     >
                       Playlist creada exitosamente
                     </button>
@@ -922,7 +944,13 @@ export default function Home() {
                   {spotifyUrl && (
                     <button
                       onClick={() => window.open(spotifyUrl, '_blank')}
-                      className="spotify-button-secondary w-full md:min-w-[200px]"
+                      className="secondary w-full md:min-w-[200px] px-6 py-3 rounded-xl font-medium"
+                      style={{
+                        background: 'transparent',
+                        color: 'var(--color-mist)',
+                        border: '1px solid var(--color-mist)',
+                        fontFamily: 'var(--font-family-body)'
+                      }}
                     >
                       🎵 Open in Spotify
                     </button>
@@ -935,7 +963,13 @@ export default function Home() {
                 <button
                   onClick={handleRefine}
                   disabled={refining}
-                  className="spotify-button-secondary w-full md:min-w-[120px]"
+                  className="secondary w-full md:min-w-[120px] px-4 py-2 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    background: 'transparent',
+                    color: 'var(--color-mist)',
+                    border: '1px solid var(--color-mist)',
+                    fontFamily: 'var(--font-family-body)'
+                  }}
                 >
                   {refining ? 'Refining...' : '🎛️ Refine'}
                 </button>
@@ -943,7 +977,13 @@ export default function Home() {
                 <button
                   onClick={handleAddMore}
                   disabled={addingMore || tracks.length >= 200}
-                  className="spotify-button-secondary w-full md:min-w-[100px]"
+                  className="secondary w-full md:min-w-[100px] px-4 py-2 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    background: 'transparent',
+                    color: 'var(--color-mist)',
+                    border: '1px solid var(--color-mist)',
+                    fontFamily: 'var(--font-family-body)'
+                  }}
                 >
                   {addingMore ? 'Adding...' : '+5 Tracks'}
                 </button>
@@ -1023,18 +1063,21 @@ export default function Home() {
       <EpicSection />
 
       {/* Footer */}
-      <footer className="border-t border-gray-dark py-8 mobile-footer">
+      <footer className="border-t border-white/10 py-8 mobile-footer" style={{ background: 'var(--color-night)' }}>
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="text-sm text-gray-text-secondary">
-              © JeyLabbb {new Date().getFullYear()}
+            <div className="text-sm text-mist">
+              © PLEIA by JeyLabbb {new Date().getFullYear()}
+              <br />
+              <span className="text-xs opacity-70">From prompt to playlist.</span>
             </div>
             <div className="flex items-center gap-6 mobile-flex-wrap">
               <a 
                 href="https://www.instagram.com/jeylabbb/" 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="text-sm text-gray-text-secondary hover:text-cyan-accent transition-colors"
+                className="text-sm text-mist hover:text-aurora transition-colors duration-200"
+                style={{ color: 'var(--color-mist)' }}
               >
                 Instagram
               </a>
@@ -1042,7 +1085,8 @@ export default function Home() {
                 href="https://www.tiktok.com/@jeylabbb" 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="text-sm text-gray-text-secondary hover:text-cyan-accent transition-colors"
+                className="text-sm text-mist hover:text-aurora transition-colors duration-200"
+                style={{ color: 'var(--color-mist)' }}
               >
                 TikTok
               </a>
@@ -1050,7 +1094,8 @@ export default function Home() {
                 href="https://jeylabbb.com" 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="text-sm text-gray-text-secondary hover:text-cyan-accent transition-colors"
+                className="text-sm text-mist hover:text-aurora transition-colors duration-200"
+                style={{ color: 'var(--color-mist)' }}
               >
                 Ver otros proyectos
               </a>

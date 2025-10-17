@@ -1,0 +1,17 @@
+<svg width="120" height="32" viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Spark/Star over the "I" -->
+  <g transform="translate(62, 4)">
+    <path d="M4 0L5.5 3L9 3L6 5L7.5 8L4 6L0.5 8L2 5L-1 3L2.5 3L4 0Z" fill="#36E2B4" opacity="0.9"/>
+    <path d="M4 2L4.5 3.5L6 3.5L4.5 4.5L5 6L4 5L3 6L3.5 4.5L2 3.5L3.5 3.5L4 2Z" fill="#5B8CFF" opacity="0.7"/>
+  </g>
+  
+  <!-- PLEIA text -->
+  <text x="0" y="22" font-family="Space Grotesk, Inter, system-ui" font-size="18" font-weight="600" letter-spacing="0.02em" fill="#F5F7FA">
+    PLEIA
+  </text>
+  
+  <!-- by JeyLabbb -->
+  <text x="0" y="30" font-family="Inter, system-ui" font-size="10" font-weight="400" opacity="0.7" fill="#C7D0DA">
+    by JeyLabbb
+  </text>
+</svg>

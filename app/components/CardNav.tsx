@@ -24,10 +24,10 @@ export default function CardNav({
   items,
   className = "",
   ease = "power3.out",
-  baseColor = "#0a0a0a",
-  menuColor = "#fff",
-  buttonBgColor = "#16a34a",
-  buttonTextColor = "#fff",
+  baseColor = "var(--color-night)",
+  menuColor = "var(--color-cloud)",
+  buttonBgColor = "var(--color-aurora)",
+  buttonTextColor = "var(--color-night)",
 }: Props) {
   const { data: session } = useSession();
   const router = useRouter();
@@ -186,9 +186,12 @@ export default function CardNav({
           </button>
 
           <div className={styles.logo}>
-            <div className="text-lg sm:text-2xl font-bold bg-gradient-to-r from-green-400 via-cyan-400 to-blue-400 bg-clip-text text-transparent">
-              JeyLabbb
-            </div>
+            <img 
+              src="/logo-pleia.svg" 
+              alt="PLEIA" 
+              className="h-8 sm:h-10 w-auto"
+              style={{ filter: 'brightness(1) contrast(1.1)' }}
+            />
           </div>
 
           <button

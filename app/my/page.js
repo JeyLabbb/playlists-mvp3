@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSession, signIn } from 'next-auth/react';
 import Link from 'next/link';
+import AnimatedList from '../components/AnimatedList';
 
 export default function MyPlaylistsPage() {
   const { data: session, status } = useSession();
@@ -533,27 +534,22 @@ export default function MyPlaylistsPage() {
                   </div>
                 </div>
               ) : previewTracks.length > 0 ? (
-                <div className="space-y-3">
-                  {previewTracks.map((track, index) => (
-                    <div key={`track-${previewPlaylist.playlistId}-${index}-${track.id}`} className="flex items-center gap-4 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
-                      <span className="text-gray-400 text-sm w-6">{index + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-white font-medium truncate">{track.name}</div>
-                        <div className="text-gray-400 text-sm truncate">
-                          {Array.isArray(track.artists) ? track.artists.join(', ') : track.artists || 'Unknown Artist'}
-                        </div>
-                      </div>
-                      <a
-                        href={track.open_url || `https://open.spotify.com/track/${track.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-blue-400 hover:text-blue-300 text-sm px-3 py-1 rounded transition-colors"
-                      >
-                        Abrir
-                      </a>
-                    </div>
-                  ))}
-                </div>
+                <AnimatedList
+                  items={previewTracks.map((track) => ({
+                    title: track.name || 'Título desconocido',
+                    artist: Array.isArray(track.artists) ? track.artists.join(', ') : (track.artistNames || track.artists || 'Artista desconocido'),
+                    trackId: track.id,
+                    openUrl: track.open_url || `https://open.spotify.com/track/${track.id}`
+                  }))}
+                  onItemSelect={(item) => {
+                    if (item.openUrl) {
+                      window.open(item.openUrl, '_blank');
+                    }
+                  }}
+                  displayScrollbar={true}
+                  className=""
+                  itemClassName=""
+                />
               ) : (
                 <div className="text-center py-12">
                   <div className="text-gray-400 mb-4">⚠️</div>

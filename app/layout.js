@@ -7,10 +7,10 @@ import CardNav from "./components/CardNav";
 import { Analytics } from '@vercel/analytics/react';
 
 export const metadata = {
-  title: "JeyLabbb — Playlist Generator",
-  description: "Create perfect playlists with AI. Generate personalized music collections using artificial intelligence.",
+  title: "PLEIA — AI Playlist Generator",
+  description: "Create perfect playlists with AI. Generate personalized music collections using artificial intelligence. From prompt to playlist.",
   openGraph: {
-    site_name: "JeyLabbb",
+    site_name: "PLEIA",
   },
 };
 

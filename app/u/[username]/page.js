@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from 'react';
 import { usePathname } from 'next/navigation';
+import AnimatedList from '../../components/AnimatedList';
 
 export default function PublicProfilePage({ params }) {
   const pathname = usePathname();

@@ -8,8 +8,8 @@ export default function EpicSection() {
   return (
     <section className="epic-gradient py-24 px-6">
       <div className="max-w-4xl mx-auto text-center">
-        <h2 className="text-4xl md:text-5xl font-bold text-white mb-6 leading-tight">
-          JeyLabbb AI
+        <h2 className="text-4xl md:text-5xl font-bold text-white mb-6 leading-tight" style={{ fontFamily: 'var(--font-family-primary)' }}>
+          PLEIA
         </h2>
         <p className="text-xl text-gray-300 mb-4 font-medium">
           {t('epic.subtitle')}
@@ -20,7 +20,7 @@ export default function EpicSection() {
         
         <div className="grid md:grid-cols-3 gap-8 mb-12">
           <div className="text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-spotify-green to-accent-cyan rounded-2xl mx-auto mb-4 flex items-center justify-center">
+            <div className="w-16 h-16 bg-gradient-to-br from-aurora to-electric rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-aurora), var(--color-electric))' }}>
               <div className="w-8 h-8 bg-white rounded-lg"></div>
             </div>
             <h3 className="text-xl font-semibold text-white mb-2">
@@ -32,7 +32,7 @@ export default function EpicSection() {
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-spotify-green to-accent-cyan rounded-2xl mx-auto mb-4 flex items-center justify-center">
+            <div className="w-16 h-16 bg-gradient-to-br from-aurora to-electric rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-aurora), var(--color-electric))' }}>
               <div className="w-8 h-8 bg-white rounded-lg"></div>
             </div>
             <h3 className="text-xl font-semibold text-white mb-2">
@@ -44,7 +44,7 @@ export default function EpicSection() {
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-spotify-green to-accent-cyan rounded-2xl mx-auto mb-4 flex items-center justify-center">
+            <div className="w-16 h-16 bg-gradient-to-br from-aurora to-electric rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-aurora), var(--color-electric))' }}>
               <div className="w-8 h-8 bg-white rounded-lg"></div>
             </div>
             <h3 className="text-xl font-semibold text-white mb-2">
