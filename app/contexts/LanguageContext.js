@@ -6,17 +6,50 @@ const LanguageContext = createContext();
 
 export function LanguageProvider({ children }) {
   const [language, setLanguage] = useState('es');
-  const [translations, setTranslations] = useState({});
-  const [isLoading, setIsLoading] = useState(true);
+  const [translations, setTranslations] = useState({
+    'prompt.title': '¿Qué tipo de playlist quieres?',
+    'prompt.placeholder': 'Describe tu playlist perfecta... ej: \'calentar para Primavera Sound 2024\', \'reggaeton como Bad Bunny pero sin Bad Bunny\', \'girl groups k-pop 2024\'',
+    'prompt.tracksLabel': 'Canciones:',
+    'prompt.generateButton': 'Generar Playlist',
+    'prompt.examples': 'Ejemplos:',
+    'prompt.example1': 'festival warm-up para Primavera Sound 2024',
+    'prompt.example2': 'reggaeton como Bad Bunny pero sin Bad Bunny',
+    'prompt.example3': 'girl groups k-pop 2024',
+    'prompt.example4': 'música para estudiar sin distracciones',
+    'prompt.example5': 'hits latinos para el verano 2024',
+    'empty.title': 'Crea tu primera playlist',
+    'empty.description': 'Describe el tipo de música que quieres y te generaremos una playlist personalizada con IA.',
+    'playlist.createTitle': 'Crear playlist',
+    'playlist.createButton': 'Crear en Spotify',
+    'playlist.creating': 'Creando...',
+    'playlist.tracksTitle': 'Canciones generadas',
+    'progress.title': 'Generando playlist...',
+    'progress.errorTitle': 'Error al generar',
+    'tips.includeArtists.title': 'Incluye artistas específicos',
+    'tips.includeArtists.description': 'Menciona artistas que te gustan para obtener resultados más precisos.',
+    'tips.includeArtists.example': 'rock como Arctic Monkeys pero más pesado',
+    'tips.specifyLanguage.title': 'Especifica el idioma',
+    'tips.specifyLanguage.description': 'Indica si quieres música en español, inglés o ambos idiomas.',
+    'tips.specifyLanguage.example': 'reggaeton en español para el gym',
+    'tips.runningBPM.title': 'Menciona el BPM',
+    'tips.runningBPM.description': 'Si buscas música para correr, especifica el ritmo que necesitas.',
+    'tips.runningBPM.example': 'música para correr a 160 BPM',
+    'tips.festivalFormat.title': 'Formato de festival',
+    'tips.festivalFormat.description': 'Especifica si es para calentar, el peak o el cierre del festival.',
+    'tips.festivalFormat.example': 'warm-up para Primavera Sound 2024'
+  });
+  const [isLoading, setIsLoading] = useState(false);
 
   // Load translations
   useEffect(() => {
     const loadTranslations = async () => {
       setIsLoading(true);
+      
       try {
         const response = await fetch(`/locales/${language}.json`);
         if (!response.ok) throw new Error('Failed to fetch translations');
         const data = await response.json();
+        console.log('Translations loaded:', data);
         setTranslations(data);
       } catch (error) {
         console.error('Failed to load translations:', error);
@@ -58,8 +91,13 @@ export function LanguageProvider({ children }) {
   };
 
   const t = (key) => {
-    // If translations are still loading, return a loading state or the key
-    if (isLoading || Object.keys(translations).length === 0) {
+    // Direct lookup for flat keys
+    if (translations[key]) {
+      return translations[key];
+    }
+    
+    // If translations are empty, return key
+    if (Object.keys(translations).length === 0) {
       return key; // Return key while loading
     }
     
@@ -70,6 +108,7 @@ export function LanguageProvider({ children }) {
       if (value && typeof value === 'object' && k in value) {
         value = value[k];
       } else {
+        console.warn(`Translation not found for key: ${key}`);
         return key; // Return key if translation not found
       }
     }

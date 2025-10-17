@@ -785,20 +785,24 @@ export default function Home() {
     }
   };
 
-  // Show loading state while translations are loading
-  if (translationsLoading) {
-    return (
-      <div className="min-h-screen bg-black-base flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 bg-gradient-to-br from-aurora to-electric rounded-2xl mx-auto mb-4 flex items-center justify-center animate-pulse">
-            <div className="w-8 h-8 bg-white rounded-lg"></div>
-          </div>
-          <h2 className="text-2xl font-semibold text-white mb-2">PLEIA</h2>
-          <p className="text-mist">Cargando...</p>
-        </div>
-      </div>
-    );
-  }
+  // Temporarily disable loading state to debug the issue
+  // if (translationsLoading) {
+  //   return (
+  //     <div className="min-h-screen" style={{ background: 'var(--color-night)' }}>
+  //       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-12">
+  //         <div className="space-y-4 sm:space-y-8">
+  //           <div className="card" style={{ background: 'var(--color-slate)', padding: '2rem', textAlign: 'center' }}>
+  //             <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center animate-pulse" style={{ background: 'linear-gradient(135deg, var(--color-aurora), var(--color-electric))', borderRadius: 'var(--radius-lg)' }}>
+  //               <div className="w-8 h-8 bg-white rounded-lg"></div>
+  //             </div>
+  //             <h2 className="text-2xl font-semibold mb-2" style={{ color: 'var(--color-cloud)', fontFamily: 'var(--font-family-primary)' }}>PLEIA</h2>
+  //             <p style={{ color: 'var(--color-mist)' }}>Cargando traducciones...</p>
+  //           </div>
+  //         </div>
+  //       </div>
+  //     </div>
+  //   );
+  // }
 
   return (
     <div className="min-h-screen bg-black-base">
@@ -809,7 +813,7 @@ export default function Home() {
           {/* Prompt Card */}
           <div className="spotify-card">
             <h2 className="text-2xl font-semibold text-white mb-6">
-              {t('prompt.title')}
+              {t('prompt.title') || '¿Qué tipo de playlist quieres?'}
             </h2>
             
             <textarea
