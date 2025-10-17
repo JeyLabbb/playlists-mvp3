@@ -805,14 +805,14 @@ export default function Home() {
   // }
 
   return (
-    <div className="min-h-screen bg-black-base">
+    <div className="min-h-screen" style={{ background: 'var(--color-night)' }}>
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-12">
         <div className="space-y-4 sm:space-y-8">
           
           {/* Prompt Card */}
-          <div className="spotify-card">
-            <h2 className="text-2xl font-semibold text-white mb-6">
+          <div className="p-6 rounded-2xl shadow-lg" style={{ background: 'var(--color-slate)' }}>
+            <h2 className="text-2xl font-semibold mb-6" style={{ color: 'var(--color-cloud)' }}>
               {t('prompt.title') || '¿Qué tipo de playlist quieres?'}
             </h2>
             
@@ -821,26 +821,30 @@ export default function Home() {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={t('prompt.placeholder')}
-              className="w-full p-4 mb-6 bg-slate border border-white/10 rounded-xl text-cloud placeholder-mist focus:border-aurora focus:shadow-aurora transition-all duration-200 ease-smooth resize-none"
+              className="w-full p-4 mb-6 rounded-xl border-2 resize-none transition-all duration-200"
               style={{
                 background: 'var(--color-slate)',
-                border: '1px solid rgba(255, 255, 255, 0.06)',
-                borderRadius: 'var(--radius-lg)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
                 color: 'var(--color-cloud)',
-                fontFamily: 'var(--font-family-body)'
+                borderRadius: '12px'
               }}
             />
             
             {/* Example prompts */}
             <div className="mb-6">
-              <p className="text-sm text-gray-text-secondary mb-3">
+              <p className="text-sm mb-3" style={{ color: 'var(--color-mist)' }}>
                 {t('prompt.examples')}
               </p>
               <div className="flex flex-wrap gap-2">
                 {examplePrompts.map((example, i) => (
                   <span
                     key={i}
-                    className="spotify-chip"
+                    className="px-3 py-1 rounded-full text-sm border cursor-pointer"
+                    style={{ 
+                      background: 'var(--color-slate)', 
+                      borderColor: 'rgba(255, 255, 255, 0.1)',
+                      color: 'var(--color-mist)'
+                    }}
                     onClick={() => setPrompt(example)}
                   >
                     {example}
