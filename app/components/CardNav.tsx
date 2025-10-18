@@ -200,7 +200,11 @@ export default function CardNav({
           <button
             type="button"
             className={styles.cta}
-            style={{ backgroundColor: buttonBgColor, color: buttonTextColor }}
+            style={{ 
+              background: 'linear-gradient(135deg, #36E2B4, #5B8CFF)', 
+              color: buttonTextColor,
+              border: 'none'
+            }}
             onClick={ctaClick}
           >
             {session?.user ? "Mi perfil" : "Inicia sesión"}
