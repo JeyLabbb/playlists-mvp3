@@ -236,7 +236,7 @@
 }
 
 .openBtn {
-  color: #1DB954;
+  color: rgba(199, 208, 218, 0.6);
   text-decoration: none;
   font-size: 10px;
   font-weight: 700;
@@ -245,8 +245,8 @@
   transition: all 0.2s;
   padding: 6px 10px;
   border-radius: 6px;
-  background: rgba(29, 185, 84, 0.1);
-  border: 1px solid rgba(29, 185, 84, 0.2);
+  background: rgba(199, 208, 218, 0.05);
+  border: 1px solid rgba(199, 208, 218, 0.15);
   white-space: nowrap;
 }
 @media (min-width: 768px) {
@@ -258,10 +258,10 @@
   }
 }
 .openBtn:hover {
-  color: #fff;
-  background: linear-gradient(135deg, #1DB954, #22D3EE);
-  border-color: transparent;
-  box-shadow: 0 2px 8px rgba(34, 211, 238, 0.3);
+  color: rgba(199, 208, 218, 0.9);
+  background: rgba(199, 208, 218, 0.1);
+  border-color: rgba(199, 208, 218, 0.3);
+  box-shadow: 0 2px 8px rgba(199, 208, 218, 0.2);
   transform: translateY(-1px);
 }
 
