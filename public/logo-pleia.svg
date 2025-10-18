@@ -1,25 +1,19 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <title>PLEIA — Estrella transparente</title>
+<svg width="120" height="32" viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>PLEIA — Logo completo</title>
   <defs>
-    <linearGradient id="gradStar" x1="176" y1="176" x2="336" y2="336" gradientUnits="userSpaceOnUse">
+    <linearGradient id="gradStar" x1="0" y1="0" x2="1" y2="1" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#36E2B4"/>
       <stop offset="1" stop-color="#5B8CFF"/>
     </linearGradient>
   </defs>
 
-  <g id="Star">
-    <path id="StarShape"
-      d="
-        M256 136
-        L276 210
-        L352 230
-        L276 250
-        L256 324
-        L236 250
-        L160 230
-        L236 210
-        Z"
-      fill="url(#gradStar)"/>
+  <!-- Estrella -->
+  <g transform="translate(62, 4)">
+    <path d="M4 0L5.5 3L9 3L6 5L7.5 8L4 6L0.5 8L2 5L-1 3L2.5 3L4 0Z" fill="url(#gradStar)"/>
   </g>
+  
+  <!-- Texto PLEIA -->
+  <text x="0" y="22" font-family="Space Grotesk, Inter, system-ui" font-size="18" font-weight="600" letter-spacing="0.02em" fill="#F5F7FA">
+    PLEIA
+  </text>
 </svg>
