@@ -185,17 +185,25 @@ export default function CardNav({
             <span className={styles.line} />
           </button>
 
-                      <div className={styles.logo}>
-                        <img 
-                          src="/logo-pleia.svg" 
-                          alt="PLEIA" 
-                          className="h-12 sm:h-16 w-auto"
-                          style={{ 
-                            filter: 'brightness(1.1) contrast(1.2)',
-                            transform: 'scale(1.1)'
-                          }}
-                        />
-                      </div>
+          <div className={styles.logo}>
+            <span 
+              style={{ 
+                fontFamily: 'var(--font-primary)',
+                fontSize: '28px',
+                fontWeight: '700',
+                letterSpacing: '-0.03em',
+                color: 'var(--color-cloud)',
+                textShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+                background: 'linear-gradient(135deg, var(--color-aurora), var(--color-electric))',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+                lineHeight: '1'
+              }}
+            >
+              PLEIA
+            </span>
+          </div>
 
           <button
             type="button"

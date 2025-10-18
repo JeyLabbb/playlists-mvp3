@@ -8,7 +8,18 @@ export default function EpicSection() {
   return (
     <section className="epic-gradient py-24 px-6">
       <div className="max-w-4xl mx-auto text-center">
-        <h2 className="text-4xl md:text-5xl font-bold text-white mb-6 leading-tight" style={{ fontFamily: 'var(--font-family-primary)' }}>
+        <h2 className="text-5xl md:text-6xl font-bold mb-6 leading-tight" style={{
+          fontFamily: 'var(--font-primary)',
+          fontSize: '4.5rem',
+          fontWeight: '800',
+          letterSpacing: '-0.04em',
+          background: 'linear-gradient(135deg, var(--color-aurora), var(--color-electric))',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+          backgroundClip: 'text',
+          textShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+          lineHeight: '0.9'
+        }}>
           PLEIA
         </h2>
         <p className="text-xl text-gray-300 mb-4 font-medium">
