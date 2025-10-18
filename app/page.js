@@ -1134,15 +1134,15 @@ export default function Home() {
               <span className="text-xs opacity-70">From prompt to playlist.</span>
             </div>
             <div className="flex items-center gap-6 mobile-flex-wrap">
-              <a 
-                href="https://www.instagram.com/jeylabbb/" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-sm text-mist hover:text-aurora transition-colors duration-200"
-                style={{ color: 'var(--color-mist)' }}
-              >
-                Instagram
-              </a>
+                          <a 
+                            href="https://www.instagram.com/pleiamusic/" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-sm text-mist hover:text-aurora transition-colors duration-200"
+                            style={{ color: 'var(--color-mist)' }}
+                          >
+                            Instagram
+                          </a>
               <a 
                 href="https://www.tiktok.com/@jeylabbb" 
                 target="_blank" 
