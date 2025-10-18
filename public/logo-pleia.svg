@@ -7,8 +7,13 @@
     </linearGradient>
   </defs>
 
-  <!-- Estrella nueva -->
-  <g transform="translate(62, 4) scale(0.08)">
+  <!-- Texto PLEIA centrado -->
+  <text x="60" y="22" text-anchor="middle" font-family="Space Grotesk, Inter, system-ui" font-size="18" font-weight="600" letter-spacing="0.02em" fill="#F5F7FA">
+    PLEIA
+  </text>
+  
+  <!-- Estrella nueva centrada arriba del texto -->
+  <g transform="translate(60, 8) scale(0.08)">
     <path d="
       M256 136
       L276 210
@@ -20,9 +25,4 @@
       L236 210
       Z" fill="url(#gradStar)"/>
   </g>
-  
-  <!-- Texto PLEIA -->
-  <text x="0" y="22" font-family="Space Grotesk, Inter, system-ui" font-size="18" font-weight="600" letter-spacing="0.02em" fill="#F5F7FA">
-    PLEIA
-  </text>
 </svg>
