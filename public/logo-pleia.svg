@@ -1,21 +1,25 @@
 <svg width="120" height="32" viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Star with natural color mixing -->
+  <!-- Enhanced green star with blue center -->
   <g transform="translate(62, 4)">
-    <!-- Elegant outer glow -->
-    <circle cx="4" cy="4" r="8" fill="#36E2B4" opacity="0.15"/>
-    <circle cx="4" cy="4" r="6" fill="#5B8CFF" opacity="0.1"/>
+    <!-- Green outer glow -->
+    <circle cx="4" cy="4" r="8" fill="#36E2B4" opacity="0.2"/>
+    <circle cx="4" cy="4" r="6" fill="#2DD4BF" opacity="0.15"/>
     
-    <!-- Main star with gradient effect -->
+    <!-- Main green star -->
     <path d="M4 0L5.5 3L9 3L6 5L7.5 8L4 6L0.5 8L2 5L-1 3L2.5 3L4 0Z" fill="#36E2B4" opacity="1"/>
-    <path d="M4 1L5 3L8 3L6 4.5L7 7L4 5.5L1 7L2 4.5L0 3L3 3L4 1Z" fill="#47C8D1" opacity="0.8"/>
-    <path d="M4 2L4.5 3.5L6 3.5L4.5 4.5L5 6L4 5L3 6L3.5 4.5L2 3.5L3.5 3.5L4 2Z" fill="#5B8CFF" opacity="0.7"/>
+    <path d="M4 1L5 3L8 3L6 4.5L7 7L4 5.5L1 7L2 4.5L0 3L3 3L4 1Z" fill="#2DD4BF" opacity="0.9"/>
     
-    <!-- Natural center glow -->
-    <circle cx="4" cy="4" r="1.5" fill="#36E2B4" opacity="0.6"/>
+    <!-- Mini blue star in center -->
+    <path d="M4 3L4.5 4.5L6 4.5L4.5 5.5L5 7L4 6L3 7L3.5 5.5L2 4.5L3.5 4.5L4 3Z" fill="#5B8CFF" opacity="1"/>
+    <path d="M4 3.5L4.3 4.3L5 4.3L4.3 4.8L4.6 5.5L4 5L3.4 5.5L3.7 4.8L3 4.3L3.7 4.3L4 3.5Z" fill="#3B82F6" opacity="0.8"/>
     
-    <!-- Subtle sparkles -->
-    <circle cx="7" cy="2" r="0.6" fill="#5B8CFF" opacity="0.6"/>
-    <circle cx="1" cy="6" r="0.5" fill="#36E2B4" opacity="0.5"/>
+    <!-- Center glow -->
+    <circle cx="4" cy="4" r="1.5" fill="#36E2B4" opacity="0.4"/>
+    
+    <!-- Green sparkles -->
+    <circle cx="7" cy="2" r="0.6" fill="#2DD4BF" opacity="0.7"/>
+    <circle cx="1" cy="6" r="0.5" fill="#36E2B4" opacity="0.6"/>
+    <circle cx="8" cy="5" r="0.4" fill="#36E2B4" opacity="0.5"/>
   </g>
   
   <!-- PLEIA text -->
