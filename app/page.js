@@ -1030,9 +1030,10 @@ export default function Home() {
                   className="secondary w-full md:min-w-[120px] px-4 py-2 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     background: 'transparent',
-                    color: 'var(--color-mist)',
-                    border: '1px solid var(--color-mist)',
-                    fontFamily: 'var(--font-family-body)'
+                    color: 'rgba(199, 208, 218, 0.3)',
+                    border: '1px solid rgba(199, 208, 218, 0.2)',
+                    fontFamily: 'var(--font-body)',
+                    opacity: '0.4'
                   }}
                 >
                   {refining ? 'Refining...' : '🎛️ Refine'}
@@ -1044,9 +1045,10 @@ export default function Home() {
                   className="secondary w-full md:min-w-[100px] px-4 py-2 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     background: 'transparent',
-                    color: 'var(--color-mist)',
-                    border: '1px solid var(--color-mist)',
-                    fontFamily: 'var(--font-family-body)'
+                    color: 'rgba(199, 208, 218, 0.3)',
+                    border: '1px solid rgba(199, 208, 218, 0.2)',
+                    fontFamily: 'var(--font-body)',
+                    opacity: '0.4'
                   }}
                 >
                   {addingMore ? 'Adding...' : '+5 Tracks'}
