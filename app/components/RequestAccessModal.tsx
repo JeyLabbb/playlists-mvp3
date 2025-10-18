@@ -90,8 +90,8 @@ export default function RequestAccessModal({ open, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4">
-      <div className="relative w-full max-w-md rounded-2xl bg-black-surface p-6 shadow-2xl">
-        <div className="relative rounded-2xl border border-gray-dark bg-black-surface p-5">
+      <div className="relative w-full max-w-md rounded-2xl p-6 shadow-2xl" style={{ background: 'var(--color-night)' }}>
+        <div className="relative rounded-2xl border p-5" style={{ background: 'var(--color-slate)', borderColor: 'rgba(255, 255, 255, 0.1)' }}>
           <div className="flex items-start justify-between mb-6">
             <div>
               <h3 className="text-xl font-semibold text-white">Solicitar acceso al Early Access</h3>
@@ -122,7 +122,8 @@ export default function RequestAccessModal({ open, onClose }: Props) {
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="Tu nombre completo"
-                  className="w-full rounded-lg border border-gray-dark bg-black-surface p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+                  className="w-full rounded-lg border p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+                  style={{ background: 'var(--color-slate)', borderColor: 'rgba(255, 255, 255, 0.1)' }}
                   required
                   minLength={2}
                 />
@@ -137,7 +138,8 @@ export default function RequestAccessModal({ open, onClose }: Props) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="tu@email.com"
-                  className="w-full rounded-lg border border-gray-dark bg-black-surface p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+                  className="w-full rounded-lg border p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+                  style={{ background: 'var(--color-slate)', borderColor: 'rgba(255, 255, 255, 0.1)' }}
                   required
                 />
                 <p className="mt-1 text-xs text-gray-text-secondary">

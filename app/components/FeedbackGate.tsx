@@ -149,8 +149,8 @@ export default function FeedbackGate({ currentPrompt = '' }: Props) {
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4">
-      <div className={`relative w-full max-w-lg rounded-2xl bg-black-surface p-5 shadow-2xl mobile-modal-feedback ${sparkle}`} style={{ animationDuration: '2.2s' }}>
-        <div className="relative rounded-2xl border border-gray-dark bg-black-surface p-4">
+      <div className={`relative w-full max-w-lg rounded-2xl p-5 shadow-2xl mobile-modal-feedback ${sparkle}`} style={{ animationDuration: '2.2s', background: 'var(--color-night)' }}>
+        <div className="relative rounded-2xl border p-4" style={{ background: 'var(--color-slate)', borderColor: 'rgba(255, 255, 255, 0.1)' }}>
           <div className="flex items-start justify-between">
             <div>
               <h3 className="text-xl font-semibold text-white">¡Playlist creada! 🙌</h3>
@@ -173,7 +173,8 @@ export default function FeedbackGate({ currentPrompt = '' }: Props) {
               ref={aciertosRef}
               type="text"
               placeholder="Escribe lo que te gustó..."
-              className="mt-2 w-full rounded-lg border border-gray-dark bg-black-surface p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+              className="mt-2 w-full rounded-lg border p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+              style={{ background: 'var(--color-slate)', borderColor: 'rgba(255, 255, 255, 0.1)' }}
             />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {aciertosChips.map((c, i) => (
@@ -205,7 +206,8 @@ export default function FeedbackGate({ currentPrompt = '' }: Props) {
               ref={fallosRef}
               type="text"
               placeholder="Escribe lo que mejorarías..."
-              className="mt-2 w-full rounded-lg border border-gray-dark bg-black-surface p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+              className="mt-2 w-full rounded-lg border p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+              style={{ background: 'var(--color-slate)', borderColor: 'rgba(255, 255, 255, 0.1)' }}
             />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {fallosChips.map((c, i) => (
@@ -237,7 +239,8 @@ export default function FeedbackGate({ currentPrompt = '' }: Props) {
               ref={comentariosRef}
               rows={2}
               placeholder="Algo más que quieras contarnos..."
-              className="mt-2 w-full resize-y rounded-lg border border-gray-dark bg-black-surface p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+              className="mt-2 w-full resize-y rounded-lg border p-3 text-white placeholder-gray-500 outline-none focus:border-spotify-green"
+              style={{ background: 'var(--color-slate)', borderColor: 'rgba(255, 255, 255, 0.1)' }}
             />
           </div>
 
