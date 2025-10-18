@@ -1,25 +1,39 @@
 <svg width="120" height="32" viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Spark/Star over the "I" - Mixed colors harmony -->
-  <g transform="translate(62, 4)">
-    <!-- Outer glow with mixed colors -->
-    <circle cx="4" cy="4" r="7" fill="#47C8D1" opacity="0.3"/>
-    <circle cx="4" cy="4" r="5" fill="#36E2B4" opacity="0.25"/>
-    <circle cx="4" cy="4" r="3" fill="#5B8CFF" opacity="0.2"/>
+  <!-- Spark/Star over the "I" - Enhanced prominence and design -->
+  <g transform="translate(60, 2)">
+    <!-- Massive outer glow for impact -->
+    <circle cx="6" cy="6" r="12" fill="#47C8D1" opacity="0.4"/>
+    <circle cx="6" cy="6" r="9" fill="#36E2B4" opacity="0.35"/>
+    <circle cx="6" cy="6" r="6" fill="#5B8CFF" opacity="0.3"/>
+    <circle cx="6" cy="6" r="4" fill="#47C8D1" opacity="0.25"/>
     
-    <!-- Main star with gradient-like effect -->
-    <path d="M4 0L5.5 3L9 3L6 5L7.5 8L4 6L0.5 8L2 5L-1 3L2.5 3L4 0Z" fill="#36E2B4" opacity="1"/>
-    <path d="M4 1L5 3L8 3L6 4.5L7 7L4 5.5L1 7L2 4.5L0 3L3 3L4 1Z" fill="#47C8D1" opacity="0.8"/>
-    <path d="M4 2L4.5 3.5L6 3.5L4.5 4.5L5 6L4 5L3 6L3.5 4.5L2 3.5L3.5 3.5L4 2Z" fill="#5B8CFF" opacity="0.9"/>
+    <!-- Enhanced main star with more layers -->
+    <path d="M6 0L8 4L12 4L9 7L11 11L6 8L1 11L3 7L0 4L4 4L6 0Z" fill="#36E2B4" opacity="1"/>
+    <path d="M6 1L7.5 3.5L11 3.5L8.5 6L10 9L6 7L2 9L3.5 6L1 3.5L4.5 3.5L6 1Z" fill="#47C8D1" opacity="0.9"/>
+    <path d="M6 2L7 4L10 4L8 5.5L9 8L6 6.5L3 8L4 5.5L2 4L5 4L6 2Z" fill="#5B8CFF" opacity="0.95"/>
+    <path d="M6 3L6.5 4.5L8 4.5L6.5 5.5L7 7L6 6L5 7L5.5 5.5L4 4.5L5.5 4.5L6 3Z" fill="#FFFFFF" opacity="0.8"/>
     
-    <!-- Mixed color inner glow -->
-    <circle cx="4" cy="4" r="2" fill="#47C8D1" opacity="0.7"/>
-    <circle cx="4" cy="4" r="1" fill="#36E2B4" opacity="0.9"/>
+    <!-- Bright inner core with multiple layers -->
+    <circle cx="6" cy="6" r="3.5" fill="#47C8D1" opacity="0.8"/>
+    <circle cx="6" cy="6" r="2.5" fill="#36E2B4" opacity="0.9"/>
+    <circle cx="6" cy="6" r="1.5" fill="#FFFFFF" opacity="0.95"/>
+    <circle cx="6" cy="6" r="0.8" fill="#36E2B4" opacity="1"/>
     
-    <!-- Sparkles with mixed colors -->
-    <circle cx="6" cy="2" r="0.8" fill="#5B8CFF" opacity="0.8"/>
-    <circle cx="2" cy="6" r="0.7" fill="#47C8D1" opacity="0.7"/>
-    <circle cx="7" cy="5" r="0.6" fill="#36E2B4" opacity="0.6"/>
-    <circle cx="1" cy="3" r="0.5" fill="#5B8CFF" opacity="0.6"/>
+    <!-- Enhanced sparkles with varying sizes and colors -->
+    <circle cx="9" cy="2" r="1.2" fill="#5B8CFF" opacity="0.9"/>
+    <circle cx="3" cy="9" r="1" fill="#47C8D1" opacity="0.8"/>
+    <circle cx="10" cy="6" r="0.8" fill="#36E2B4" opacity="0.7"/>
+    <circle cx="2" cy="4" r="0.9" fill="#5B8CFF" opacity="0.8"/>
+    <circle cx="8" cy="10" r="0.7" fill="#47C8D1" opacity="0.7"/>
+    <circle cx="4" cy="1" r="0.6" fill="#36E2B4" opacity="0.6"/>
+    <circle cx="11" cy="8" r="0.5" fill="#5B8CFF" opacity="0.6"/>
+    <circle cx="1" cy="7" r="0.8" fill="#47C8D1" opacity="0.7"/>
+    
+    <!-- Additional sparkle rays for more impact -->
+    <line x1="6" y1="0" x2="6" y2="2" stroke="#36E2B4" stroke-width="1" opacity="0.8"/>
+    <line x1="6" y1="10" x2="6" y2="12" stroke="#5B8CFF" stroke-width="1" opacity="0.8"/>
+    <line x1="0" y1="6" x2="2" y2="6" stroke="#47C8D1" stroke-width="1" opacity="0.8"/>
+    <line x1="10" y1="6" x2="12" y2="6" stroke="#36E2B4" stroke-width="1" opacity="0.8"/>
   </g>
   
   <!-- PLEIA text -->

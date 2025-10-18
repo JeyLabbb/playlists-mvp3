@@ -190,9 +190,9 @@ export default function CardNav({
                           src="/logo-pleia.svg" 
                           alt="PLEIA" 
                           style={{ 
-                            height: '42px',
+                            height: '46px',
                             width: 'auto',
-                            filter: 'drop-shadow(0 3px 10px rgba(54, 226, 180, 0.3))'
+                            filter: 'drop-shadow(0 4px 12px rgba(54, 226, 180, 0.4))'
                           }}
                         />
                       </div>
