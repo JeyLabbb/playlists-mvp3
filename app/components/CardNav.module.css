@@ -27,7 +27,7 @@
   transition: background 0.2s;
 }
 .hamburger:hover {
-  background: rgba(54,226,180,0.1);
+  background: rgba(71, 200, 209, 0.1);
 }
 .line { 
   width: 24px; 

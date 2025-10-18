@@ -1010,10 +1010,12 @@ export default function Home() {
                       onClick={() => window.open(spotifyUrl, '_blank')}
                       className="secondary w-full md:min-w-[200px] px-6 py-3 rounded-xl font-medium"
                       style={{
-                        background: 'transparent',
-                        color: 'rgba(199, 208, 218, 0.6)',
-                        border: '1px solid rgba(199, 208, 218, 0.6)',
-                        fontFamily: 'var(--font-body)'
+                        background: 'linear-gradient(135deg, #47C8D1, #5B8CFF)',
+                        color: '#0B0F12',
+                        border: 'none',
+                        fontFamily: 'var(--font-body)',
+                        fontWeight: '600',
+                        boxShadow: '0 4px 12px rgba(71, 200, 209, 0.3)'
                       }}
                     >
                       🎵 Open in Spotify
