@@ -187,7 +187,7 @@ export default function CardNav({
 
                       <div className={styles.logo}>
                         <img 
-                          src="/logo-pleia.svg?v=9" 
+                          src="/logo-pleia.svg?v=10" 
                           alt="PLEIA" 
                           style={{ 
                             height: '46px',
