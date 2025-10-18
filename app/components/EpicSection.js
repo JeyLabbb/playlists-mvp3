@@ -35,8 +35,8 @@ export default function EpicSection() {
               <svg width="32" height="32" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                   <linearGradient id="gradStar1" x1="176" y1="176" x2="336" y2="336" gradientUnits="userSpaceOnUse">
-                    <stop offset="0" stop-color="#36E2B4"/>
-                    <stop offset="1" stop-color="#5B8CFF"/>
+                    <stop offset="0" stopColor="#36E2B4"/>
+                    <stop offset="1" stopColor="#5B8CFF"/>
                   </linearGradient>
                 </defs>
                 <path d="M256 136L276 210L352 230L276 250L256 324L236 250L160 230L236 210Z" fill="url(#gradStar1)"/>
@@ -55,8 +55,8 @@ export default function EpicSection() {
               <svg width="32" height="32" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                   <linearGradient id="gradStar1" x1="176" y1="176" x2="336" y2="336" gradientUnits="userSpaceOnUse">
-                    <stop offset="0" stop-color="#36E2B4"/>
-                    <stop offset="1" stop-color="#5B8CFF"/>
+                    <stop offset="0" stopColor="#36E2B4"/>
+                    <stop offset="1" stopColor="#5B8CFF"/>
                   </linearGradient>
                 </defs>
                 <path d="M256 136L276 210L352 230L276 250L256 324L236 250L160 230L236 210Z" fill="url(#gradStar1)"/>
@@ -75,8 +75,8 @@ export default function EpicSection() {
               <svg width="32" height="32" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <defs>
                   <linearGradient id="gradStar1" x1="176" y1="176" x2="336" y2="336" gradientUnits="userSpaceOnUse">
-                    <stop offset="0" stop-color="#36E2B4"/>
-                    <stop offset="1" stop-color="#5B8CFF"/>
+                    <stop offset="0" stopColor="#36E2B4"/>
+                    <stop offset="1" stopColor="#5B8CFF"/>
                   </linearGradient>
                 </defs>
                 <path d="M256 136L276 210L352 230L276 250L256 324L236 250L160 230L236 210Z" fill="url(#gradStar1)"/>
