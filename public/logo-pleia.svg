@@ -1,29 +1,25 @@
-<svg width="120" height="32" viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Clean green star with centered blue mini star -->
-  <g transform="translate(62, 4)">
-    <!-- Clean outer glow -->
-    <circle cx="4" cy="4" r="7" fill="#36E2B4" opacity="0.2"/>
-    
-    <!-- Main green star -->
-    <path d="M4 0L5.5 3L9 3L6 5L7.5 8L4 6L0.5 8L2 5L-1 3L2.5 3L4 0Z" fill="#36E2B4" opacity="1"/>
-    <path d="M4 1L5 3L8 3L6 4.5L7 7L4 5.5L1 7L2 4.5L0 3L3 3L4 1Z" fill="#2DD4BF" opacity="0.9"/>
-    
-    <!-- Centered mini blue star -->
-    <path d="M4 2.5L4.8 4L6.5 4L5 5L5.5 6.5L4 5.5L2.5 6.5L3 5L1.5 4L3.2 4L4 2.5Z" fill="#5B8CFF" opacity="1"/>
-    <path d="M4 3.2L4.5 4L5.5 4L4.5 4.7L5 5.5L4 5L3 5.5L3.5 4.7L2.5 4L3.5 4L4 3.2Z" fill="#3B82F6" opacity="0.8"/>
-    
-    <!-- Clean sparkles -->
-    <circle cx="6" cy="1" r="0.4" fill="#36E2B4" opacity="0.6"/>
-    <circle cx="2" cy="7" r="0.3" fill="#36E2B4" opacity="0.5"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>PLEIA — Estrella transparente</title>
+  <defs>
+    <linearGradient id="gradStar" x1="176" y1="176" x2="336" y2="336" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#36E2B4"/>
+      <stop offset="1" stop-color="#5B8CFF"/>
+    </linearGradient>
+  </defs>
+
+  <g id="Star">
+    <path id="StarShape"
+      d="
+        M256 136
+        L276 210
+        L352 230
+        L276 250
+        L256 324
+        L236 250
+        L160 230
+        L236 210
+        Z"
+      fill="url(#gradStar)"/>
   </g>
-  
-  <!-- PLEIA text -->
-  <text x="0" y="22" font-family="Space Grotesk, Inter, system-ui" font-size="18" font-weight="600" letter-spacing="0.02em" fill="#F5F7FA">
-    PLEIA
-  </text>
-  
-  <!-- by JeyLabbb -->
-  <text x="0" y="30" font-family="Inter, system-ui" font-size="10" font-weight="400" opacity="0.7" fill="#C7D0DA">
-    by JeyLabbb
-  </text>
 </svg>
