@@ -26,7 +26,7 @@ export default function CardNav({
   ease = "power3.out",
               baseColor = "var(--color-night)",
               menuColor = "var(--color-cloud)",
-              buttonBgColor = "var(--color-aurora)",
+              buttonBgColor = "var(--gradient-primary)",
               buttonTextColor = "var(--color-night)",
 }: Props) {
   const { data: session } = useSession();
