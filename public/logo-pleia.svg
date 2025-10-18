@@ -1,23 +1,19 @@
 <svg width="120" height="32" viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Spark/Star over the "I" - Prominent but not buggy -->
-  <g transform="translate(62, 2)">
-    <!-- Outer glow -->
-    <circle cx="6" cy="6" r="8" fill="#36E2B4" opacity="0.3"/>
-    <circle cx="6" cy="6" r="6" fill="#5B8CFF" opacity="0.2"/>
+  <!-- Spark/Star over the "I" - Clean and prominent -->
+  <g transform="translate(62, 4)">
+    <!-- Simple outer glow -->
+    <circle cx="4" cy="4" r="6" fill="#36E2B4" opacity="0.25"/>
     
-    <!-- Main star - prominent but clean -->
-    <path d="M6 0L8 3L12 3L9 6L11 9L6 7L1 9L3 6L0 3L4 3L6 0Z" fill="#36E2B4" opacity="1"/>
-    <path d="M6 2L7 4L9 4L7.5 5.5L8 7L6 6L4 7L4.5 5.5L3 4L5 4L6 2Z" fill="#5B8CFF" opacity="0.9"/>
+    <!-- Clean main star -->
+    <path d="M4 0L5.5 3L9 3L6 5L7.5 8L4 6L0.5 8L2 5L-1 3L2.5 3L4 0Z" fill="#36E2B4" opacity="1"/>
+    <path d="M4 2L4.5 3.5L6 3.5L4.5 4.5L5 6L4 5L3 6L3.5 4.5L2 3.5L3.5 3.5L4 2Z" fill="#5B8CFF" opacity="0.9"/>
     
-    <!-- Inner glow -->
-    <circle cx="6" cy="6" r="2" fill="#36E2B4" opacity="0.8"/>
-    <circle cx="6" cy="6" r="1" fill="#FFFFFF" opacity="0.7"/>
+    <!-- Simple inner glow -->
+    <circle cx="4" cy="4" r="1.5" fill="#36E2B4" opacity="0.8"/>
     
-    <!-- Sparkle effects -->
-    <circle cx="9" cy="2" r="1" fill="#5B8CFF" opacity="0.8"/>
-    <circle cx="3" cy="9" r="0.8" fill="#36E2B4" opacity="0.7"/>
-    <circle cx="10" cy="7" r="0.6" fill="#5B8CFF" opacity="0.6"/>
-    <circle cx="2" cy="3" r="0.7" fill="#36E2B4" opacity="0.6"/>
+    <!-- Minimal sparkles -->
+    <circle cx="6" cy="2" r="0.8" fill="#5B8CFF" opacity="0.7"/>
+    <circle cx="2" cy="6" r="0.6" fill="#36E2B4" opacity="0.6"/>
   </g>
   
   <!-- PLEIA text -->

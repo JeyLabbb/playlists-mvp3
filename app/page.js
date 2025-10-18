@@ -908,7 +908,7 @@ export default function Home() {
                             fontSize: '16px',
                             letterSpacing: '0.01em',
                             fontWeight: '600',
-                            borderRadius: '12px'
+                            borderRadius: '16px'
                           }}
               >
                 {loading ? t('prompt.generating') : t('prompt.generateButton')}
