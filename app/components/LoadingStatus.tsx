@@ -15,7 +15,7 @@ export default function LoadingStatus({ message, show, subtle }: Props) {
         {message}
       </p>
       <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--color-mist)' }}>
-        <span className="inline-block h-2.5 w-2.5 rounded-full border border-current loading-pulse" style={{ borderColor: 'var(--color-aurora)' }} />
+        <span className="inline-block h-2.5 w-2.5 rounded-full border border-current loading-pulse" style={{ borderColor: 'var(--color-accent-mixed)' }} />
         <span>Puede tardar unos minutos…</span>
       </div>
     </div>

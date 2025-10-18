@@ -201,7 +201,7 @@ export default function CardNav({
             type="button"
             className={styles.cta}
             style={{ 
-              background: 'linear-gradient(135deg, #36E2B4, #5B8CFF)', 
+              background: 'linear-gradient(135deg, #47C8D1, #5B8CFF)', 
               color: buttonTextColor,
               border: 'none'
             }}

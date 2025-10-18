@@ -14,12 +14,12 @@
   --color-electric: #5B8CFF;
   
   /* Unified Gradients */
-  --gradient-primary: linear-gradient(135deg, var(--color-aurora), var(--color-electric));
-  --gradient-soft: linear-gradient(135deg, rgba(54, 226, 180, 0.8), rgba(91, 140, 255, 0.6));
-  --gradient-subtle: linear-gradient(135deg, rgba(54, 226, 180, 0.1), rgba(91, 140, 255, 0.1));
+  --gradient-primary: linear-gradient(135deg, var(--color-accent-mixed), var(--color-electric));
+  --gradient-soft: linear-gradient(135deg, rgba(71, 200, 209, 0.8), rgba(91, 140, 255, 0.6));
+  --gradient-subtle: linear-gradient(135deg, rgba(71, 200, 209, 0.1), rgba(91, 140, 255, 0.1));
   
   /* Harmonized Accent Colors */
-  --color-accent-primary: var(--color-aurora);
+  --color-accent-primary: var(--color-accent-mixed);
   --color-accent-secondary: var(--color-electric);
   --color-accent-mixed: #47C8D1;
 
@@ -137,9 +137,9 @@ input, textarea {
 
 .thinking-text {
   background: linear-gradient(90deg,
-    rgba(54, 226, 180, 0.3) 0%,
-    rgba(54, 226, 180, 0.9) 15%,
-    rgba(54, 226, 180, 0.3) 30%
+    rgba(71, 200, 209, 0.3) 0%,
+    rgba(71, 200, 209, 0.9) 15%,
+    rgba(71, 200, 209, 0.3) 30%
   );
   background-size: 200% 100%;
   -webkit-background-clip: text;

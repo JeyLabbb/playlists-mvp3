@@ -862,10 +862,10 @@ export default function Home() {
                     }}
                     onClick={() => setPrompt(example)}
                     onMouseEnter={(e) => {
-                      e.target.style.color = 'var(--color-aurora)';
-                      e.target.style.borderColor = 'var(--color-aurora)';
+                      e.target.style.color = 'var(--color-accent-mixed)';
+                      e.target.style.borderColor = 'var(--color-accent-mixed)';
                       e.target.style.transform = 'translateY(-1px)';
-                      e.target.style.boxShadow = '0 4px 12px rgba(54, 226, 180, 0.15)';
+                      e.target.style.boxShadow = '0 4px 12px rgba(71, 200, 209, 0.15)';
                     }}
                     onMouseLeave={(e) => {
                       e.target.style.color = 'var(--color-mist)';
@@ -963,7 +963,16 @@ export default function Home() {
                     value={customPlaylistName}
                     onChange={(e) => setCustomPlaylistName(e.target.value)}
                     placeholder="Dejar vacío para nombre generado por IA"
-                    className="spotify-input"
+                    className="w-full p-4 rounded-xl border-2 transition-all duration-200"
+                    style={{
+                      background: 'var(--color-slate)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      color: 'var(--color-cloud)',
+                      borderRadius: '12px',
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '16px',
+                      lineHeight: '1.5'
+                    }}
                   />
                 </div>
                 
@@ -974,7 +983,7 @@ export default function Home() {
                       disabled={isCreating}
                       className="primary w-full md:min-w-[180px] px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{
-                        background: 'var(--color-aurora)',
+                        background: 'var(--color-accent-mixed)',
                         color: 'var(--color-night)',
                         fontFamily: 'var(--font-family-body)'
                       }}
