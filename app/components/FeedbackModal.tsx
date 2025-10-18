@@ -221,7 +221,13 @@ export default function FeedbackModal({
             <button
               type="button"
               onClick={onClose}
-              className="spotify-button-secondary flex-1"
+              className="flex-1 px-6 py-3 rounded-xl font-medium transition-all duration-200"
+              style={{
+                background: 'transparent',
+                color: 'var(--color-accent-mixed)',
+                border: '1px solid var(--color-accent-mixed)',
+                fontFamily: 'var(--font-body)'
+              }}
             >
               Cancelar
             </button>
@@ -229,7 +235,15 @@ export default function FeedbackModal({
               type="button"
               onClick={sendFeedback}
               disabled={!canSend}
-              className="spotify-button flex-1 disabled:opacity-50"
+              className="flex-1 px-6 py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+              style={{
+                background: 'linear-gradient(135deg, #47C8D1, #5B8CFF)',
+                color: '#0B0F12',
+                border: 'none',
+                fontFamily: 'var(--font-body)',
+                fontWeight: '600',
+                boxShadow: '0 4px 12px rgba(71, 200, 209, 0.3)'
+              }}
             >
               {sending ? 'Enviando…' : 'Enviar feedback'}
             </button>

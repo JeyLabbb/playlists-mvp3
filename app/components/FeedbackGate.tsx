@@ -246,19 +246,43 @@ export default function FeedbackGate({ currentPrompt = '' }: Props) {
 
           {/* Botones */}
           <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <button type="button" className="spotify-button-secondary" onClick={() => setOpen(false)}>
+            <button 
+              type="button" 
+              className="px-4 py-2 rounded-xl font-medium transition-all duration-200"
+              style={{
+                background: 'transparent',
+                color: 'var(--color-accent-mixed)',
+                border: '1px solid var(--color-accent-mixed)',
+                fontFamily: 'var(--font-body)'
+              }}
+              onClick={() => setOpen(false)}
+            >
               Saltar por ahora
             </button>
             <button
               type="button"
-              className="spotify-button"
+              className="px-6 py-2 rounded-xl font-semibold transition-all duration-200"
+              style={{
+                background: 'linear-gradient(135deg, #47C8D1, #5B8CFF)',
+                color: '#0B0F12',
+                border: 'none',
+                fontFamily: 'var(--font-body)',
+                fontWeight: '600',
+                boxShadow: '0 4px 12px rgba(71, 200, 209, 0.3)'
+              }}
               onClick={submit}
             >
               Enviar
             </button>
             <button
               type="button"
-              className="spotify-button-secondary text-spotify-green hover:text-accent-cyan"
+              className="px-4 py-2 rounded-xl font-medium transition-all duration-200"
+              style={{
+                background: 'transparent',
+                color: 'var(--color-accent-mixed)',
+                border: '1px solid var(--color-accent-mixed)',
+                fontFamily: 'var(--font-body)'
+              }}
               onClick={() => { window.open(playlist.url, '_blank', 'noopener,noreferrer'); setOpen(false); }}
             >
               Abrir en Spotify
