@@ -812,7 +812,12 @@ export default function Home() {
           
           {/* Prompt Card */}
           <div className="p-6 rounded-2xl shadow-lg" style={{ background: 'var(--color-slate)' }}>
-            <h2 className="text-2xl font-semibold mb-6" style={{ color: 'var(--color-cloud)' }}>
+            <h2 className="text-3xl font-bold mb-6" style={{ 
+              color: 'var(--color-cloud)', 
+              fontFamily: 'var(--font-primary)',
+              letterSpacing: '-0.02em',
+              lineHeight: '1.2'
+            }}>
               {t('prompt.title') || '¿Qué tipo de playlist quieres?'}
             </h2>
             
@@ -826,26 +831,48 @@ export default function Home() {
                 background: 'var(--color-slate)',
                 border: '1px solid rgba(255, 255, 255, 0.1)',
                 color: 'var(--color-cloud)',
-                borderRadius: '12px'
+                borderRadius: '12px',
+                fontFamily: 'var(--font-body)',
+                fontSize: '16px',
+                lineHeight: '1.5'
               }}
             />
             
             {/* Example prompts */}
             <div className="mb-6">
-              <p className="text-sm mb-3" style={{ color: 'var(--color-mist)' }}>
+              <p className="text-sm mb-3 font-medium" style={{ 
+                color: 'var(--color-mist)', 
+                fontFamily: 'var(--font-primary)',
+                letterSpacing: '0.01em'
+              }}>
                 {t('prompt.examples')}
               </p>
               <div className="flex flex-wrap gap-2">
                 {examplePrompts.map((example, i) => (
                   <span
                     key={i}
-                    className="px-3 py-1 rounded-full text-sm border cursor-pointer"
+                    className="px-3 py-1 rounded-full text-sm border cursor-pointer transition-all duration-200 hover-accent"
                     style={{ 
                       background: 'var(--color-slate)', 
                       borderColor: 'rgba(255, 255, 255, 0.1)',
-                      color: 'var(--color-mist)'
+                      color: 'var(--color-mist)',
+                      fontFamily: 'var(--font-body)',
+                      fontSize: '14px',
+                      fontWeight: '500'
                     }}
                     onClick={() => setPrompt(example)}
+                    onMouseEnter={(e) => {
+                      e.target.style.color = 'var(--color-aurora)';
+                      e.target.style.borderColor = 'var(--color-aurora)';
+                      e.target.style.transform = 'translateY(-1px)';
+                      e.target.style.boxShadow = '0 4px 12px rgba(54, 226, 180, 0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.color = 'var(--color-mist)';
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                      e.target.style.transform = 'translateY(0)';
+                      e.target.style.boxShadow = 'none';
+                    }}
                   >
                     {example}
                   </span>
@@ -873,11 +900,14 @@ export default function Home() {
               <button
                 onClick={handleGenerate}
                 disabled={loading || !prompt.trim()}
-                className="primary w-full md:min-w-[160px] px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                className="primary w-full md:min-w-[160px] px-6 py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
                 style={{
                   background: 'var(--color-aurora)',
                   color: 'var(--color-night)',
-                  fontFamily: 'var(--font-family-body)'
+                  fontFamily: 'var(--font-primary)',
+                  fontSize: '16px',
+                  letterSpacing: '0.01em',
+                  fontWeight: '600'
                 }}
               >
                 {loading ? t('prompt.generating') : t('prompt.generateButton')}
@@ -1071,10 +1101,18 @@ export default function Home() {
               <div className="w-16 h-16 bg-gradient-to-br from-spotify-green to-accent-cyan rounded-2xl mx-auto mb-6 flex items-center justify-center">
                 <div className="w-8 h-8 bg-white rounded-lg"></div>
               </div>
-              <h3 className="text-xl font-semibold text-white mb-3">
+              <h3 className="text-2xl font-bold mb-3" style={{ 
+                color: 'var(--color-cloud)', 
+                fontFamily: 'var(--font-primary)',
+                letterSpacing: '-0.01em'
+              }}>
                 {t('empty.title')}
               </h3>
-              <p className="text-gray-text-secondary max-w-md mx-auto">
+              <p className="max-w-md mx-auto" style={{ 
+                color: 'var(--color-mist)', 
+                fontFamily: 'var(--font-body)',
+                lineHeight: '1.6'
+              }}>
                 {t('empty.description')}
               </p>
             </div>
