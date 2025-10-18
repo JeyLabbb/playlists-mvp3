@@ -24,10 +24,10 @@ export default function CardNav({
   items,
   className = "",
   ease = "power3.out",
-  baseColor = "var(--color-night)",
-  menuColor = "var(--color-cloud)",
-  buttonBgColor = "var(--color-aurora)",
-  buttonTextColor = "var(--color-night)",
+              baseColor = "var(--color-night)",
+              menuColor = "var(--color-cloud)",
+              buttonBgColor = "var(--gradient-primary)",
+              buttonTextColor = "var(--color-night)",
 }: Props) {
   const { data: session } = useSession();
   const router = useRouter();
@@ -185,25 +185,17 @@ export default function CardNav({
             <span className={styles.line} />
           </button>
 
-          <div className={styles.logo}>
-            <span 
-              style={{ 
-                fontFamily: 'var(--font-primary)',
-                fontSize: '28px',
-                fontWeight: '700',
-                letterSpacing: '-0.03em',
-                color: 'var(--color-cloud)',
-                textShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-                background: 'linear-gradient(135deg, var(--color-aurora), var(--color-electric))',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                backgroundClip: 'text',
-                lineHeight: '1'
-              }}
-            >
-              PLEIA
-            </span>
-          </div>
+                      <div className={styles.logo}>
+                        <img 
+                          src="/logo-pleia.svg" 
+                          alt="PLEIA" 
+                          style={{ 
+                            height: '42px',
+                            width: 'auto',
+                            filter: 'drop-shadow(0 3px 10px rgba(54, 226, 180, 0.3))'
+                          }}
+                        />
+                      </div>
 
           <button
             type="button"

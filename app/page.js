@@ -901,14 +901,15 @@ export default function Home() {
                 onClick={handleGenerate}
                 disabled={loading || !prompt.trim()}
                 className="primary w-full md:min-w-[160px] px-6 py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
-                style={{
-                  background: 'var(--color-aurora)',
-                  color: 'var(--color-night)',
-                  fontFamily: 'var(--font-primary)',
-                  fontSize: '16px',
-                  letterSpacing: '0.01em',
-                  fontWeight: '600'
-                }}
+                          style={{
+                            background: 'var(--gradient-primary)',
+                            color: 'var(--color-night)',
+                            fontFamily: 'var(--font-primary)',
+                            fontSize: '16px',
+                            letterSpacing: '0.01em',
+                            fontWeight: '600',
+                            borderRadius: '12px'
+                          }}
               >
                 {loading ? t('prompt.generating') : t('prompt.generateButton')}
               </button>

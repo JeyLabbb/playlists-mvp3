@@ -13,7 +13,7 @@ export default function EpicSection() {
           fontSize: '4.5rem',
           fontWeight: '800',
           letterSpacing: '-0.04em',
-          background: 'linear-gradient(135deg, var(--color-aurora), var(--color-electric))',
+          background: 'var(--gradient-primary)',
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent',
           backgroundClip: 'text',
@@ -31,7 +31,7 @@ export default function EpicSection() {
         
         <div className="grid md:grid-cols-3 gap-8 mb-12">
           <div className="text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-aurora to-electric rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-aurora), var(--color-electric))' }}>
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'var(--gradient-primary)' }}>
               <div className="w-8 h-8 bg-white rounded-lg"></div>
             </div>
             <h3 className="text-xl font-semibold text-white mb-2">
@@ -43,7 +43,7 @@ export default function EpicSection() {
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-aurora to-electric rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-aurora), var(--color-electric))' }}>
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'var(--gradient-primary)' }}>
               <div className="w-8 h-8 bg-white rounded-lg"></div>
             </div>
             <h3 className="text-xl font-semibold text-white mb-2">
@@ -55,7 +55,7 @@ export default function EpicSection() {
           </div>
           
           <div className="text-center">
-            <div className="w-16 h-16 bg-gradient-to-br from-aurora to-electric rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--color-aurora), var(--color-electric))' }}>
+            <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'var(--gradient-primary)' }}>
               <div className="w-8 h-8 bg-white rounded-lg"></div>
             </div>
             <h3 className="text-xl font-semibold text-white mb-2">
@@ -71,7 +71,15 @@ export default function EpicSection() {
           href="https://jeylabbb.com"
           target="_blank"
           rel="noopener noreferrer"
-          className="spotify-button text-lg px-8 py-4"
+          className="inline-block text-night font-semibold text-lg px-8 py-4 rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200"
+          style={{
+            background: 'var(--gradient-primary)',
+            color: 'var(--color-night)',
+            fontFamily: 'var(--font-primary)',
+            fontWeight: '600',
+            borderRadius: '16px',
+            boxShadow: '0 8px 25px rgba(54, 226, 180, 0.25)'
+          }}
         >
           JeyLabbb
         </a>
