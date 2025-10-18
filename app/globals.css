@@ -94,6 +94,12 @@ input, textarea {
   transition: all 0.2s ease;
 }
 
+/* Placeholder styling */
+input::placeholder, textarea::placeholder {
+  color: rgba(199, 208, 218, 0.6) !important;
+  opacity: 1;
+}
+
 /* Hover effects for interactive elements - Harmonized */
 .hover-accent:hover {
   color: var(--color-accent-primary) !important;

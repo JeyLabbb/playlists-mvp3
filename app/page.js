@@ -971,7 +971,8 @@ export default function Home() {
                       borderRadius: '12px',
                       fontFamily: 'var(--font-body)',
                       fontSize: '16px',
-                      lineHeight: '1.5'
+                      lineHeight: '1.5',
+                      '--placeholder-color': 'rgba(199, 208, 218, 0.6)'
                     }}
                   />
                 </div>
@@ -1010,9 +1011,9 @@ export default function Home() {
                       className="secondary w-full md:min-w-[200px] px-6 py-3 rounded-xl font-medium"
                       style={{
                         background: 'transparent',
-                        color: 'var(--color-mist)',
-                        border: '1px solid var(--color-mist)',
-                        fontFamily: 'var(--font-family-body)'
+                        color: 'rgba(199, 208, 218, 0.6)',
+                        border: '1px solid rgba(199, 208, 218, 0.6)',
+                        fontFamily: 'var(--font-body)'
                       }}
                     >
                       🎵 Open in Spotify
