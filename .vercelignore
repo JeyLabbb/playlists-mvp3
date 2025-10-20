@@ -1,0 +1,15 @@
+ads/
+studio/
+web/
+REF_/
+exports/
+out/
+ads/out/
+public/studio/
+*.mp4
+*.mov
+*.avi
+node_modules/
+.next/
+.env.local
+.env.*.local
