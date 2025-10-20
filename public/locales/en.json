@@ -25,12 +25,12 @@
   },
   "prompt": {
     "title": "What kind of playlist do you want?",
-    "placeholder": "Describe your perfect playlist... e.g., 'festival warm-up for Primavera Sound 2024', 'reggaeton like Bad Bunny but without Bad Bunny', 'girl groups k-pop 2024'",
+    "placeholder": "Describe your perfect playlist... e.g., 'remember Riverland 2025', 'reggaeton like Bad Bunny but without Bad Bunny', 'girl groups k-pop 2024'",
     "tracksLabel": "Tracks:",
     "generateButton": "Generate Playlist",
     "generating": "Generating...",
     "examples": "Try these examples:",
-    "example1": "festival warm-up for Primavera Sound 2024",
+    "example1": "remember Riverland 2025",
     "example2": "reggaeton like Bad Bunny but without Bad Bunny",
     "example3": "girl groups k-pop 2024",
     "example4": "hardstyle nightcore 80 tracks",
@@ -120,7 +120,7 @@
     "festivalFormat": {
       "title": "🎪 Festivals: name + year",
       "description": "For festivals, include the exact name and year. The AI will search for official playlists from that festival.",
-      "example": "warm-up for Primavera Sound 2024"
+      "example": "remember Riverland 2025"
     },
     "excludeArtists": {
       "title": "❌ Exclude specific artists",

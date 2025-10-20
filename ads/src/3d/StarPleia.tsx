@@ -7,6 +7,7 @@ import React, { useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { AbsoluteFill } from 'remotion';
 import { tokens } from '../design';
+import type { Mesh } from 'three';
 
 // Componente de la estrella 3D
 const Star: React.FC<{
@@ -18,7 +19,7 @@ const Star: React.FC<{
   rotation = [0, 0, 0],
   scale = 1,
 }) => {
-  const meshRef = useRef<THREE.Mesh>(null);
+  const meshRef = useRef<Mesh | null>(null);
   
   // Animación de rotación suave
   useFrame((state) => {
@@ -38,13 +39,15 @@ const Star: React.FC<{
       {/* Geometría de estrella */}
       <octahedronGeometry args={[1, 0]} />
       
-      {/* Material con glow suave */}
-      <meshBasicMaterial
+      {/* Material con glow suave (usa Standard para soporte de emissive) */}
+      <meshStandardMaterial
         color={tokens.colors.pleia.green}
         transparent
         opacity={0.8}
-        emissive={tokens.colors.pleia.green}
+        emissive={tokens.colors.pleia.green as unknown as number}
         emissiveIntensity={0.2}
+        metalness={0.1}
+        roughness={0.8}
       />
     </mesh>
   );

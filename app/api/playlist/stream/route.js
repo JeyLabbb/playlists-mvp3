@@ -2520,7 +2520,7 @@ async function handleStreamingRequest(request) {
         'Cache-Control': 'no-cache, no-transform',
         'Connection': 'keep-alive',
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST',
+        'Access-Control-Allow-Methods': 'GET, POST',
         'Access-Control-Allow-Headers': 'Content-Type',
       },
     });

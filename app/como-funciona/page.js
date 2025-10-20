@@ -1,3 +1,4 @@
+import Link from 'next/link';
 export const metadata = {
   title: "Cómo funciona PLEIA",
   description: "Descubre cómo PLEIA genera playlists personalizadas con IA a partir de tus prompts.",
@@ -23,10 +24,10 @@ export default function ComoFuncionaPage() {
       </ol>
 
       <div className="mt-10">
-        <a href="/" className="inline-block px-6 py-3 rounded-xl font-semibold"
+        <Link href="/" className="inline-block px-6 py-3 rounded-xl font-semibold"
            style={{ background: 'var(--gradient-primary)', color: 'var(--color-night)', fontFamily: 'var(--font-primary)' }}>
           Probar PLEIA ahora
-        </a>
+        </Link>
       </div>
     </main>
   );

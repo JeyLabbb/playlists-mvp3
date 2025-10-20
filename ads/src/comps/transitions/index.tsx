@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { AbsoluteFill, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
-import { timings } from '../design';
+import { timings } from '../../design';
 
 // Tipos para las props de transición
 export interface TransitionProps {
@@ -20,7 +20,7 @@ export interface TransitionProps {
 const useAnimationValue = (
   delay: number = 0,
   duration: number = timings.durations.medium,
-  easing: number[] = timings.easings.apple.easeOut
+  easing: readonly number[] = timings.easings.apple.easeOut
 ) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();

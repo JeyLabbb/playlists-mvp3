@@ -88,6 +88,7 @@ export default function Home() {
     t('prompt.example4'),
     t('prompt.example5')
   ];
+  const limitedExamples = examplePrompts.slice(0, 3);
 
   // Progress helpers
   function startProgress(label = 'Analizando tu intención musical...') {
@@ -251,7 +252,9 @@ export default function Home() {
           playlist_name: playlistName || safeDefaultName(prompt)
         });
         
-        eventSource = new EventSource(`/api/playlist/stream?${params.toString()}`);
+        const streamUrl = new URL('/api/playlist/stream', window.location.origin);
+        streamUrl.search = params.toString();
+        eventSource = new EventSource(streamUrl.toString());
         
         // Handle different event types
         eventSource.addEventListener('LLM_START', (event) => {
@@ -846,8 +849,8 @@ export default function Home() {
               }}
             />
             
-            {/* Example prompts */}
-            <div className="mb-6">
+            {/* Example prompts (hidden on mobile) */}
+            <div className="mb-6 hidden md:block">
               <p className="text-sm mb-3 font-medium" style={{ 
                 color: 'var(--color-mist)', 
                 fontFamily: 'var(--font-primary)',
@@ -855,8 +858,8 @@ export default function Home() {
               }}>
                 {t('prompt.examples')}
               </p>
-              <div className="flex flex-wrap gap-2">
-                {examplePrompts.map((example, i) => (
+              <div className="flex gap-2 flex-wrap md:flex-nowrap">
+                {limitedExamples.map((example, i) => (
                   <span
                     key={i}
                     className="px-3 py-1 rounded-full text-sm border cursor-pointer transition-all duration-200 hover-accent"
@@ -865,7 +868,7 @@ export default function Home() {
                       borderColor: 'rgba(255, 255, 255, 0.1)',
                       color: 'var(--color-mist)',
                       fontFamily: 'var(--font-body)',
-                      fontSize: '14px',
+                      fontSize: '13px',
                       fontWeight: '500'
                     }}
                     onClick={() => setPrompt(example)}

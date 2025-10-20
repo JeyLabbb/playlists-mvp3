@@ -25,12 +25,12 @@
   },
   "prompt": {
     "title": "¿Qué tipo de playlist quieres?",
-    "placeholder": "Describe tu playlist perfecta... ej: 'calentar para Primavera Sound 2024', 'reggaeton como Bad Bunny pero sin Bad Bunny', 'girl groups k-pop 2024'",
+    "placeholder": "Describe tu playlist perfecta... ej: 'recordar Riverland 2025', 'reggaeton como Bad Bunny pero sin Bad Bunny', 'girl groups k-pop 2024'",
     "tracksLabel": "Canciones:",
     "generateButton": "Generar Playlist",
     "generating": "Generando...",
     "examples": "Prueba estos ejemplos:",
-    "example1": "calentar para Primavera Sound 2024",
+    "example1": "recordar Riverland 2025",
     "example2": "reggaeton como Bad Bunny pero sin Bad Bunny",
     "example3": "girl groups k-pop 2024",
     "example4": "hardstyle nightcore 80 canciones",
@@ -120,7 +120,7 @@
     "festivalFormat": {
       "title": "🎪 Festivales: nombre + año",
       "description": "Para festivales, incluye el nombre exacto y el año. La IA buscará playlists oficiales de ese festival.",
-      "example": "calentar para Primavera Sound 2024"
+      "example": "recordar Riverland 2025"
     },
     "excludeArtists": {
       "title": "❌ Excluye artistas específicos",

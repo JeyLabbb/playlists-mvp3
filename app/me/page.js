@@ -49,9 +49,8 @@ export default function ProfilePage() {
 
   useEffect(() => {
     if (session?.user?.email) {
-      console.log('[PROFILE] useEffect - session available, loading from localStorage');
-      loadFromLocalStorage();
-      setLoading(false);
+      console.log('[PROFILE] useEffect - session available, fetching from API');
+      fetchProfile();
     } else if (status === 'unauthenticated') {
       setLoading(false);
     }
@@ -93,19 +92,27 @@ export default function ProfilePage() {
       console.log('[PROFILE] API response:', data);
       
       if (data.success) {
-        setProfile(data.profile);
+        // Merge with any existing local profile to avoid wiping user data when KV is empty
+        const localKey = `jey_user_profile:${session.user.email}`;
+        const existingLocal = JSON.parse(localStorage.getItem(localKey) || 'null');
+        const mergedProfile = {
+          ...data.profile,
+          bio: data.profile.bio ?? existingLocal?.bio ?? '',
+          displayName: data.profile.displayName ?? existingLocal?.displayName ?? '',
+          username: data.profile.username ?? existingLocal?.username ?? (session.user.email?.split('@')[0] || ''),
+          image: data.profile.image ?? existingLocal?.image ?? (session.user.image || '')
+        };
+
+        setProfile(mergedProfile);
         setFormData({
-          displayName: data.profile.displayName || '',
-          username: data.profile.username || '',
-          bio: data.profile.bio || '',
-          image: data.profile.image || ''
+          displayName: mergedProfile.displayName || '',
+          username: mergedProfile.username || '',
+          bio: mergedProfile.bio || '',
+          image: mergedProfile.image || ''
         });
-        
-        // If fallback to localStorage, save locally
-        if (data.reason === 'fallback-localStorage') {
-          const localKey = `jey_user_profile:${session.user.email}`;
-          localStorage.setItem(localKey, JSON.stringify(data.profile));
-        }
+
+        // Always keep a local copy in localStorage for quick loads
+        localStorage.setItem(localKey, JSON.stringify(mergedProfile));
       } else {
         console.log('API returned error, trying localStorage fallback');
         setError(data.error || 'Failed to load profile');
@@ -217,12 +224,9 @@ export default function ProfilePage() {
       
       if (data.success) {
         setProfile(data.profile);
-        
-        // If fallback to localStorage, save locally
-        if (data.reason === 'fallback-localStorage') {
-          const localKey = `jey_user_profile:${session.user.email}`;
-          localStorage.setItem(localKey, JSON.stringify(data.profile));
-        }
+        // Always sync localStorage with latest profile
+        const localKey = `jey_user_profile:${session.user.email}`;
+        localStorage.setItem(localKey, JSON.stringify(data.profile));
         
         alert('Perfil guardado exitosamente');
       } else {
@@ -419,16 +423,51 @@ export default function ProfilePage() {
                 <label className="block text-sm font-medium text-white mb-2">
                   Foto de perfil (opcional)
                 </label>
-                <input
-                  type="url"
-                  value={formData.image}
-                  onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-                  placeholder="https://ejemplo.com/mi-foto.jpg"
-                  className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors"
-                />
-                <p className="text-gray-400 text-sm mt-1">
-                  URL de una imagen. Si quieres cambiar la foto de Spotify, úsala aquí.
-                </p>
+                <div className="space-y-3">
+                  <input
+                    type="url"
+                    value={formData.image}
+                    onChange={(e) => setFormData({ ...formData, image: e.target.value })}
+                    placeholder="https://ejemplo.com/mi-foto.jpg"
+                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors"
+                  />
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const dataUrl = reader.result?.toString() || '';
+                          setFormData({ ...formData, image: dataUrl });
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                      className="hidden"
+                      id="profile-photo-file"
+                    />
+                    <label
+                      htmlFor="profile-photo-file"
+                      className="inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-600 text-white font-medium px-4 py-2 rounded-lg cursor-pointer transition-colors"
+                    >
+                      📷 Subir desde dispositivo
+                    </label>
+                    {formData.image && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, image: '' })}
+                        className="text-sm text-gray-300 hover:text-white"
+                      >
+                        Quitar imagen
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-gray-400 text-sm">
+                    Puedes pegar una URL o subir una imagen desde tu dispositivo (en móvil abre Fototeca).
+                  </p>
+                </div>
               </div>
             </div>
 

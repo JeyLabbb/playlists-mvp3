@@ -1,3 +1,4 @@
+import Link from 'next/link';
 export const metadata = {
   title: "FAQ | Preguntas frecuentes",
   description: "Resuelve dudas comunes sobre PLEIA, la IA que crea playlists personalizadas.",
@@ -53,10 +54,10 @@ export default function FaqPage() {
       </div>
 
       <div className="mt-10">
-        <a href="/" className="inline-block px-6 py-3 rounded-xl font-semibold"
+        <Link href="/" className="inline-block px-6 py-3 rounded-xl font-semibold"
            style={{ background: 'var(--gradient-primary)', color: 'var(--color-night)', fontFamily: 'var(--font-primary)' }}>
           Volver al generador
-        </a>
+        </Link>
       </div>
     </main>
   );
