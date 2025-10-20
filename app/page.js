@@ -806,6 +806,14 @@ export default function Home() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-night)' }}>
+      {/* JSON-LD structured data */}
+      <script
+        type="application/ld+json"
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{
+          __html: '{"@context":"https://schema.org","@type":"SoftwareApplication","name":"PLEIA","description":"IA musical que crea playlists personalizadas a partir de prompts en lenguaje natural.","applicationCategory":"MultimediaApplication","operatingSystem":"Web","url":"https://pleia.app","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}'
+        }}
+      />
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-12">
         <div className="space-y-4 sm:space-y-8">

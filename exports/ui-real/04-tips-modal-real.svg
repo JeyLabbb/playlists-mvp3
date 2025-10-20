@@ -1,0 +1,96 @@
+<svg width="1200" height="2000" viewBox="0 0 1200 2000" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .modal-bg { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 16px; fill: rgba(0,0,0,0.8); }
+      .modal-title { font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 32px; font-weight: 700; fill: white; }
+      .modal-subtitle { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 16px; font-weight: 400; fill: #D1D5DB; }
+      .modal-intro { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; font-weight: 400; fill: #D1D5DB; line-height: 1.6; }
+      .tip-title { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 18px; font-weight: 600; fill: white; }
+      .tip-desc { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; font-weight: 400; fill: #D1D5DB; line-height: 1.6; }
+      .tip-example { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; font-weight: 400; fill: #06B6D4; }
+      .pro-tip-title { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 18px; font-weight: 700; fill: white; }
+      .pro-tip-desc { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; font-weight: 400; fill: #D1D5DB; line-height: 1.6; }
+      .close-button { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 18px; font-weight: 600; fill: white; }
+    </style>
+    <linearGradient id="modalHeaderGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(16,185,129,0.2);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:rgba(6,182,212,0.2);stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="proTipGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(16,185,129,0.2);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:rgba(6,182,212,0.2);stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Modal Background -->
+  <rect width="1200" height="2000" fill="rgba(0,0,0,0.8)" rx="0"/>
+  
+  <!-- Modal Container -->
+  <rect x="100" y="100" width="1000" height="1800" fill="#111827" stroke="rgba(55,65,81,1)" stroke-width="1" rx="16"/>
+  
+  <!-- Header -->
+  <rect x="100" y="100" width="1000" height="200" fill="url(#modalHeaderGradient)" rx="16"/>
+  <text x="600" y="160" class="modal-title" text-anchor="middle">Cómo escribir un buen prompt</text>
+  <text x="600" y="190" class="modal-subtitle" text-anchor="middle">Consejos para obtener la playlist perfecta</text>
+  
+  <!-- Close Button -->
+  <rect x="1050" y="120" width="40" height="40" fill="rgba(55,65,81,0.5)" stroke="rgba(107,114,128,1)" stroke-width="1" rx="20"/>
+  <text x="1070" y="145" class="close-button" text-anchor="middle">×</text>
+  
+  <!-- Intro -->
+  <rect x="140" y="340" width="920" height="80" fill="rgba(31,41,55,0.5)" rx="8"/>
+  <text x="600" y="370" class="modal-intro" text-anchor="middle">Sé específico y combina elementos para mejores resultados. La IA entiende contexto, idioma, época y actividad.</text>
+  
+  <!-- Tips Grid -->
+  <!-- Tip 1 -->
+  <rect x="140" y="460" width="450" height="200" fill="rgba(31,41,55,0.5)" stroke="rgba(55,65,81,0.5)" stroke-width="1" rx="12"/>
+  <text x="160" y="490" class="tip-title">🎵 Incluye artistas de referencia</text>
+  <text x="160" y="515" class="tip-desc">Menciona 1-2 artistas que te gusten para que la IA entienda mejor tu estilo musical.</text>
+  <rect x="160" y="540" width="410" height="40" fill="rgba(17,24,39,0.8)" stroke="rgba(75,85,99,0.3)" stroke-width="1" rx="8"/>
+  <text x="600" y="565" class="tip-example" text-anchor="middle">"reggaeton como Bad Bunny y J Balvin"</text>
+  
+  <!-- Tip 2 -->
+  <rect x="610" y="460" width="450" height="200" fill="rgba(31,41,55,0.5)" stroke="rgba(55,65,81,0.5)" stroke-width="1" rx="12"/>
+  <text x="630" y="490" class="tip-title">🌍 Especifica el idioma</text>
+  <text x="630" y="515" class="tip-desc">Si quieres música en un idioma específico, menciónalo claramente. También funciona con 'solo español' o 'english only'.</text>
+  <rect x="630" y="540" width="410" height="40" fill="rgba(17,24,39,0.8)" stroke="rgba(75,85,99,0.3)" stroke-width="1" rx="8"/>
+  <text x="1070" y="565" class="tip-example" text-anchor="middle">"pop español de los 2000s"</text>
+  
+  <!-- Tip 3 -->
+  <rect x="140" y="680" width="450" height="200" fill="rgba(31,41,55,0.5)" stroke="rgba(55,65,81,0.5)" stroke-width="1" rx="12"/>
+  <text x="160" y="710" class="tip-title">🏃 Para correr: indica BPM</text>
+  <text x="160" y="735" class="tip-desc">Especifica el tempo que necesitas para tu entrenamiento. 120-140 BPM para caminar, 150-180 BPM para correr.</text>
+  <rect x="160" y="760" width="410" height="40" fill="rgba(17,24,39,0.8)" stroke="rgba(75,85,99,0.3)" stroke-width="1" rx="8"/>
+  <text x="600" y="785" class="tip-example" text-anchor="middle">"música para correr a 165 BPM"</text>
+  
+  <!-- Tip 4 -->
+  <rect x="610" y="680" width="450" height="200" fill="rgba(31,41,55,0.5)" stroke="rgba(55,65,81,0.5)" stroke-width="1" rx="12"/>
+  <text x="630" y="710" class="tip-title">📚 Para estudiar: pide instrumental</text>
+  <text x="630" y="735" class="tip-desc">Si necesitas concentración, pide música sin voces. También puedes pedir 'lofi' o 'ambient'.</text>
+  <rect x="630" y="760" width="410" height="40" fill="rgba(17,24,39,0.8)" stroke="rgba(75,85,99,0.3)" stroke-width="1" rx="8"/>
+  <text x="1070" y="785" class="tip-example" text-anchor="middle">"música para estudiar, instrumental, sin voces"</text>
+  
+  <!-- Tip 5 -->
+  <rect x="140" y="900" width="450" height="200" fill="rgba(31,41,55,0.5)" stroke="rgba(55,65,81,0.5)" stroke-width="1" rx="12"/>
+  <text x="160" y="930" class="tip-title">🎪 Festivales: nombre + año</text>
+  <text x="160" y="955" class="tip-desc">Para festivales, incluye el nombre exacto y el año. La IA buscará playlists oficiales de ese festival.</text>
+  <rect x="160" y="980" width="410" height="40" fill="rgba(17,24,39,0.8)" stroke="rgba(75,85,99,0.3)" stroke-width="1" rx="8"/>
+  <text x="600" y="1005" class="tip-example" text-anchor="middle">"calentar para Primavera Sound 2024"</text>
+  
+  <!-- Tip 6 -->
+  <rect x="610" y="900" width="450" height="200" fill="rgba(31,41,55,0.5)" stroke="rgba(55,65,81,0.5)" stroke-width="1" rx="12"/>
+  <text x="630" y="930" class="tip-title">❌ Excluye artistas específicos</text>
+  <text x="630" y="955" class="tip-desc">Usa 'sin' para excluir artistas que no quieres. También funciona con 'excepto' o 'no'.</text>
+  <rect x="630" y="980" width="410" height="40" fill="rgba(17,24,39,0.8)" stroke="rgba(75,85,99,0.3)" stroke-width="1" rx="8"/>
+  <text x="1070" y="1005" class="tip-example" text-anchor="middle">"reggaeton como Bad Bunny pero sin Bad Bunny"</text>
+  
+  <!-- Pro Tip -->
+  <rect x="140" y="1140" width="920" height="120" fill="url(#proTipGradient)" stroke="rgba(16,185,129,0.3)" stroke-width="1" rx="12"/>
+  <text x="160" y="1170" class="pro-tip-title">💡 Consejo profesional</text>
+  <text x="160" y="1195" class="pro-tip-desc">Combina múltiples elementos: actividad + género + idioma + época + artistas. Ejemplo: 'reggaeton para correr, 160 BPM, solo español, como Bad Bunny pero sin Bad Bunny'</text>
+  
+  <!-- Footer -->
+  <rect x="140" y="1300" width="920" height="80" fill="rgba(31,41,55,0.3)" rx="8"/>
+  <rect x="500" y="1320" width="200" height="40" fill="#10B981" rx="8"/>
+  <text x="600" y="1345" class="close-button" text-anchor="middle">Cerrar</text>
+</svg>

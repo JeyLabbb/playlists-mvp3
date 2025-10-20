@@ -39,12 +39,12 @@ export default function CardNav({
 
   const calculateHeight = useCallback(() => {
     const navEl = navRef.current;
-    if (!navEl) return 260;
+    if (!navEl) return 400;
     const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches;
-    if (!isMobile) return 260;
+    if (!isMobile) return 400;
 
     const contentEl = navEl.querySelector(`.${styles.content}`) as HTMLDivElement | null;
-    if (!contentEl) return 260;
+    if (!contentEl) return 400;
 
     const prev = {
       visibility: contentEl.style.visibility,
@@ -59,8 +59,8 @@ export default function CardNav({
     // force reflow
     void contentEl.offsetHeight;
 
-    const topBar = 64;
-    const padding = 16;
+    const topBar = 80;
+    const padding = 80;
     const h = topBar + contentEl.scrollHeight + padding;
 
     contentEl.style.visibility = prev.visibility;
@@ -75,7 +75,7 @@ export default function CardNav({
     const navEl = navRef.current;
     if (!navEl) return null;
 
-    gsap.set(navEl, { height: 64, overflow: "hidden" });
+    gsap.set(navEl, { height: 80, overflow: "hidden" });
     gsap.set(cardsRef.current, { y: 40, opacity: 0 });
 
     const tl = gsap.timeline({ paused: true });
@@ -186,15 +186,34 @@ export default function CardNav({
           </button>
 
                       <div className={styles.logo}>
-                        <img 
-                          src="/logo-pleia.svg?v=10" 
-                          alt="PLEIA" 
-                          style={{ 
-                            height: '46px',
-                            width: 'auto',
-                            filter: 'drop-shadow(0 4px 12px rgba(54, 226, 180, 0.4))'
-                          }}
-                        />
+                        <svg width="120" height="40" viewBox="0 0 120 40" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ height: '46px', width: 'auto' }}>
+                          <title>PLEIA — Logo completo</title>
+                          <defs>
+                            <linearGradient id="gradStar" x1="176" y1="176" x2="336" y2="336" gradientUnits="userSpaceOnUse">
+                              <stop offset="0" stopColor="#36E2B4"/>
+                              <stop offset="1" stopColor="#5B8CFF"/>
+                            </linearGradient>
+                          </defs>
+
+                          {/* Texto PLEIA centrado */}
+                          <text x="60" y="26" textAnchor="middle" fontFamily="Space Grotesk, Inter, system-ui" fontSize="18" fontWeight="600" letterSpacing="0.02em" fill="#F5F7FA">
+                            PLEIA
+                          </text>
+                          
+                          {/* Estrella nueva centrada arriba del texto */}
+                          <g transform="translate(60, 10) scale(0.08)">
+                            <path d="
+                              M256 136
+                              L276 210
+                              L352 230
+                              L276 250
+                              L256 324
+                              L236 250
+                              L160 230
+                              L236 210
+                              Z" fill="url(#gradStar)"/>
+                          </g>
+                        </svg>
                       </div>
 
           <button

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="900" height="160" viewBox="0 0 900 160" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .text { font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .card-bg { fill: #14181E; }
+      .text-primary { fill: #F5F7FA; }
+      .text-secondary { fill: #F5F7FA; opacity: 0.8; }
+      .text-muted { fill: #F5F7FA; opacity: 0.6; }
+      .pleia-green { fill: #36E2B4; }
+      .pleia-blue { fill: #5B8CFF; }
+      .border { stroke: rgba(255,255,255,0.08); stroke-width: 2; fill: none; }
+    </style>
+  </defs>
+  
+  <!-- Fondo de la card -->
+  <rect x="0" y="0" width="900" height="160" rx="24" class="card-bg" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+  
+  <!-- Avatar -->
+  <rect x="32" y="40" width="80" height="80" rx="12" class="pleia-green"/>
+  <text x="72" y="90" class="text" font-size="32" font-weight="bold" fill="#0E1116" text-anchor="middle">D</text>
+  
+  <!-- Título de la canción -->
+  <text x="136" y="80" class="text text-primary" font-size="60" font-weight="700">Dale Don Dale</text>
+  
+  <!-- Artista -->
+  <text x="136" y="120" class="text text-secondary" font-size="36" font-weight="400">Don Omar</text>
+  
+  <!-- Duración -->
+  <text x="808" y="90" class="text text-muted" font-size="36">3:24</text>
+
+</svg>

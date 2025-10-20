@@ -7,10 +7,20 @@ import CardNav from "./components/CardNav";
 import { Analytics } from '@vercel/analytics/react';
 
 export const metadata = {
-  title: "PLEIA — AI Playlist Generator",
-  description: "Create perfect playlists with AI. Generate personalized music collections using artificial intelligence. From prompt to playlist.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://pleia.app"),
+  title: {
+    default: "PLEIA | Genera tu playlist perfecta con IA",
+    template: "%s | PLEIA",
+  },
+  description: "PLEIA es una IA musical que crea playlists automáticas y personalizadas a partir de prompts en lenguaje natural. Crea tu playlist perfecta para Spotify en segundos.",
+  alternates: { canonical: "/" },
+  robots: { index: true, follow: true },
   openGraph: {
     site_name: "PLEIA",
+    title: "PLEIA | Genera tu playlist perfecta con IA",
+    description: "Crea playlists personalizadas con inteligencia artificial. Describe tu mood, artistas o plan y obtén tu lista al instante.",
+    url: "/",
+    type: "website",
   },
 };
 
@@ -25,7 +35,7 @@ export default function RootLayout({ children }) {
                 {
                   label: "Explorar",
                   links: [
-                    { label: "Generador IA", href: "/", ariaLabel: "Ir al generador de playlists con IA" },
+                    { label: "Crear playlists", href: "/crear-playlists", ariaLabel: "Ir al generador de playlists con IA" },
                     { label: "Trending", href: "/trending", ariaLabel: "Ver playlists populares" }
                   ]
                 },
@@ -39,7 +49,8 @@ export default function RootLayout({ children }) {
                 {
                   label: "JeyLabbb",
                   links: [
-                    { label: "Inicio", href: "/", ariaLabel: "Volver al inicio" },
+                    { label: "Cómo funciona", href: "/como-funciona", ariaLabel: "Cómo funciona PLEIA" },
+                    { label: "FAQ", href: "/faq", ariaLabel: "Preguntas frecuentes" },
                     { label: "Soporte", href: "mailto:jeylabbb@gmail.com", ariaLabel: "Contactar soporte" }
                   ]
                 }

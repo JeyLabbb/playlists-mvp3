@@ -1,0 +1,15 @@
+<svg width="1080" height="200" viewBox="0 0 1080 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .prompt-title { font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .prompt-textarea { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    </style>
+  </defs>
+  <rect width="1080" height="200" fill="#1A232B" rx="12"/>
+  <rect x="24" y="24" width="1032" height="152" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1" rx="12"/>
+  <text x="24" y="60" class="prompt-title" font-size="48" font-weight="700" fill="#F5F7FA" letter-spacing="-0.02em">¿Qué tipo de playlist quieres?</text>
+  <rect x="24" y="80" width="1032" height="80" fill="#1A232B" stroke="rgba(255,255,255,0.1)" stroke-width="1" rx="12"/>
+  <text x="40" y="105" class="prompt-textarea" font-size="16" fill="rgba(199,208,218,0.6)">Describe your perfect playlist...</text>
+  <text x="40" y="125" class="prompt-textarea" font-size="16" fill="rgba(199,208,218,0.6)">e.g., 'festival warm-up for Primavera Sound 2024'</text>
+  <text x="40" y="145" class="prompt-textarea" font-size="16" fill="rgba(199,208,218,0.6)">'reggaeton like Bad Bunny but without Bad Bunny'</text>
+</svg>

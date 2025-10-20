@@ -1,0 +1,49 @@
+<svg width="1200" height="2000" viewBox="0 0 1200 2000" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .page-title { font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 48px; font-weight: 700; fill: #F5F7FA; }
+      .feedback-title { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 20px; font-weight: 700; fill: #F5F7FA; }
+      .feedback-text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 16px; font-weight: 400; fill: #C7D0DA; }
+      .feedback-label { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 14px; font-weight: 500; fill: #C7D0DA; }
+    </style>
+    <linearGradient id="feedbackGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F59E0B;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#EF4444;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <rect width="1200" height="2000" fill="#0B0F12"/>
+  
+  <!-- Page Title -->
+  <text x="48" y="100" class="page-title">💬 Feedback</text>
+  
+  <!-- Feedback Form -->
+  <rect x="48" y="150" width="1104" height="800" fill="#1A232B" rx="16"/>
+  
+  <!-- Rating Section -->
+  <text x="72" y="190" class="feedback-title">¿Cómo calificarías tu experiencia?</text>
+  <text x="72" y="220" class="feedback-text">★★★★★</text>
+  
+  <!-- What worked well -->
+  <text x="72" y="270" class="feedback-label">¿Qué te gustó más?</text>
+  <rect x="72" y="290" width="500" height="100" fill="#0B0F12" stroke="rgba(255,255,255,0.1)" stroke-width="1" rx="8"/>
+  <text x="82" y="320" class="feedback-text" fill="rgba(199,208,218,0.6)">Ej: La variedad de canciones, la velocidad de generación...</text>
+  
+  <!-- What could be improved -->
+  <text x="72" y="420" class="feedback-label">¿Qué mejorarías?</text>
+  <rect x="72" y="440" width="500" height="100" fill="#0B0F12" stroke="rgba(255,255,255,0.1)" stroke-width="1" rx="8"/>
+  <text x="82" y="470" class="feedback-text" fill="rgba(199,208,218,0.6)">Ej: Más diversidad de artistas, mejor ordenación...</text>
+  
+  <!-- Additional comments -->
+  <text x="72" y="570" class="feedback-label">Comentarios adicionales</text>
+  <rect x="72" y="590" width="500" height="100" fill="#0B0F12" stroke="rgba(255,255,255,0.1)" stroke-width="1" rx="8"/>
+  <text x="82" y="620" class="feedback-text" fill="rgba(199,208,218,0.6)">Cualquier otra cosa que quieras decir...</text>
+  
+  <!-- Consent checkbox -->
+  <rect x="72" y="720" width="20" height="20" fill="#0B0F12" stroke="rgba(255,255,255,0.1)" stroke-width="1" rx="4"/>
+  <text x="100" y="735" class="feedback-text">Avisarme sobre mejoras futuras</text>
+  
+  <!-- Submit Button -->
+  <rect x="72" y="780" width="200" height="50" fill="url(#feedbackGradient)" rx="12"/>
+  <text x="172" y="810" class="feedback-text" font-weight="600" fill="#0B0F12" text-anchor="middle">Enviar Feedback</text>
+</svg>
