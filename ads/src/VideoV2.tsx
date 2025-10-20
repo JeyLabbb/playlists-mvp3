@@ -9,7 +9,7 @@ import { AbsoluteFill, Sequence, useCurrentFrame, useVideoConfig, interpolate } 
 import { tokens, timings } from './design';
 import { SlideIn, FadeIn, ScaleIn, WipeDiagonal, MatchCut } from './comps/transitions';
 import { PromptBox, SongCard, PlaylistsGrid, Button } from './comps/ui';
-import { StarPleia, StarPleiaParticles } from './3d/StarPleia';
+import { StarPleia, StarPleiaParticles, StarPleiaMinimal } from './3d/StarPleia';
 import { LottieSparkles, SuccessAnimation } from './lottie';
 import { useSFX } from './audio';
 import SpotifyLogo from './components/SpotifyLogo';

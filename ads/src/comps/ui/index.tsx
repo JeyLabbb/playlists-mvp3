@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { AbsoluteFill } from 'remotion';
-import { tokens } from '../design';
+import { tokens } from '../../design';
 
 // Tipos para las props de los componentes
 interface UIComponentProps {
@@ -218,7 +218,8 @@ export const PlaylistsGrid: React.FC<UIComponentProps & {
   width = 320,
   style = {},
 }) => {
-  const itemWidth = (width - tokens.spacing[4] * (columns - 1)) / columns;
+  const gap = Number(tokens.spacing[4] as unknown as number);
+  const itemWidth = (width - gap * (columns - 1)) / columns;
   
   return (
     <div

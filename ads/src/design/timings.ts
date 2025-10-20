@@ -175,7 +175,7 @@ export const timingPresets = {
 // Utilidades para crear configuraciones de timing dinámicas
 export const createTiming = (
   duration: number = durations.medium,
-  easing: number[] = easings.apple.easeOut,
+  easing: readonly number[] = easings.apple.easeOut,
   delay: number = delays.none
 ) => ({
   duration,
@@ -188,7 +188,7 @@ export const createStagger = (
   count: number,
   baseDelay: number = delays.stagger.normal,
   duration: number = durations.medium,
-  easing: number[] = easings.apple.easeOut
+  easing: readonly number[] = easings.apple.easeOut
 ) => {
   return Array.from({ length: count }, (_, index) => ({
     duration,
