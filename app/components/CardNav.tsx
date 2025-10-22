@@ -222,7 +222,9 @@ export default function CardNav({
             type="button"
             className={styles.cta}
             style={{ 
-              background: 'linear-gradient(135deg, #47C8D1, #5B8CFF)', 
+              background: isFounder 
+                ? 'linear-gradient(135deg, #FF8C00, #FFA500)' 
+                : 'linear-gradient(135deg, #47C8D1, #5B8CFF)', 
               color: buttonTextColor,
               border: 'none'
             }}
@@ -232,13 +234,29 @@ export default function CardNav({
               <div className="flex items-center gap-2">
                 <span>Mi perfil</span>
                 {isFounder && (
-                  <span 
-                    className="text-sm"
+                  <svg 
+                    className="ml-1" 
+                    width="16" 
+                    height="16" 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
                     style={{ color: '#FF8C00' }}
                     title="Founder"
                   >
-                    👑
-                  </span>
+                    <path 
+                      d="M12 2L13.09 8.26L20 9L13.09 9.74L12 16L10.91 9.74L4 9L10.91 8.26L12 2Z" 
+                      fill="currentColor"
+                      stroke="currentColor"
+                      strokeWidth="1"
+                    />
+                    <circle 
+                      cx="12" 
+                      cy="12" 
+                      r="2" 
+                      fill="#FF8C00"
+                      opacity="0.8"
+                    />
+                  </svg>
                 )}
               </div>
             ) : (

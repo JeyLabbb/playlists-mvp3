@@ -369,7 +369,7 @@ export default function ProfilePage() {
                         className="text-xs mt-1"
                         style={{ color: '#FF8C00', opacity: 0.8 }}
                       >
-                        Founder desde {founderSince ? new Date(founderSince).toLocaleDateString('es-ES') : new Date().toLocaleDateString('es-ES')}
+                        Founder desde {founderSince ? new Date(founderSince).toLocaleDateString('es-ES') : 'hoy'}
                       </div>
                     )}
                   </div>
