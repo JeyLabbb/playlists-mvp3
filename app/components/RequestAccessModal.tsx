@@ -92,9 +92,9 @@ export default function RequestAccessModal({ open, onClose }: Props) {
     try { 
       localStorage.setItem('ea_pending', '1'); 
     } catch {}
-    // IMPORTANT: fuerza volver a 127.0.0.1 (debe coincidir con Spotify redirect URI)
+    // Siempre usar show_dialog=true para forzar re-consent
     const baseUrl = process.env.NEXT_PUBLIC_NEXTAUTH_URL || 'http://127.0.0.1:3000';
-    signIn('spotify', { callbackUrl: `${baseUrl}/?from=oauth` });
+    window.location.href = '/api/auth/signin/spotify?callbackUrl=' + encodeURIComponent(baseUrl + '/?from=oauth') + '&show_dialog=true';
   };
 
   if (!shouldOpen) return null;

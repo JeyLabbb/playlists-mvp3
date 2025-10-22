@@ -77,9 +77,19 @@ export default function Home() {
     }
   }, []);
 
-  // Show Early Access modal automatically if user is not logged in
+  // Show Early Access modal automatically if user is not logged in (but respect ea_snooze)
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    // Función para leer cookie ea_snooze
+    const getEaSnoozeCookie = () => {
+      if (typeof window === 'undefined') return false;
+      const cookies = document.cookie.split(';');
+      const eaSnoozeCookie = cookies.find(cookie => 
+        cookie.trim().startsWith('ea_snooze=')
+      );
+      return eaSnoozeCookie?.trim().split('=')[1] === '1';
+    };
+
+    if (status === 'unauthenticated' && !getEaSnoozeCookie()) {
       setShowRequestAccessModal(true);
     } else if (status === 'authenticated') {
       setShowRequestAccessModal(false);
@@ -485,15 +495,8 @@ export default function Home() {
         return eaSnoozeCookie?.trim().split('=')[1] === '1';
       };
 
-      // Si hay cookie ea_snooze (usuario cerró sesión), usar show_dialog=true
-      if (getEaSnoozeCookie()) {
-        window.location.href = '/api/auth/signin/spotify?callbackUrl=' + encodeURIComponent(window.location.origin + '/?from=oauth') + '&show_dialog=true';
-      } else {
-        // Dispatch event to open RequestAccessModal
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('request-access-modal:open'));
-        }
-      }
+      // Siempre usar show_dialog=true para forzar re-consent
+      window.location.href = '/api/auth/signin/spotify?callbackUrl=' + encodeURIComponent(window.location.origin + '/?from=oauth') + '&show_dialog=true';
       return;
     }
 

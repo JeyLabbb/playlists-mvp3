@@ -247,6 +247,19 @@ export default function ProfilePage() {
     try {
       setLoggingOut(true);
       
+      // Limpiar localStorage de estados de auth
+      try {
+        localStorage.removeItem('ea_done');
+        localStorage.removeItem('ea_pending');
+        // Limpiar cualquier perfil local
+        if (session?.user?.email) {
+          const localKey = `jey_user_profile:${session.user.email}`;
+          localStorage.removeItem(localKey);
+        }
+      } catch (e) {
+        console.warn('Error clearing localStorage:', e);
+      }
+      
       // Llamar al endpoint de logout
       const response = await fetch('/api/auth/logout', { 
         method: 'POST',

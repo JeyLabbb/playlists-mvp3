@@ -12,6 +12,9 @@ export async function POST() {
     // Snooze del Early Access tras cerrar sesión (24h)
     res.headers.set('Set-Cookie', 'ea_snooze=1; Path=/; Max-Age=86400; SameSite=Lax; Secure');
     
+    // Cookie para forzar re-consent (1h)
+    res.headers.set('Set-Cookie', 'force_reconsent=1; Path=/; Max-Age=3600; SameSite=Lax; Secure');
+    
     console.log('[LOGOUT] User logout requested:', session?.user?.email || 'anonymous');
     
     // La UI hará window.location.href = '/api/auth/signout?callbackUrl=/'

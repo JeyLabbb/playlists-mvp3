@@ -172,15 +172,8 @@ export default function CardNav({
         return eaSnoozeCookie?.trim().split('=')[1] === '1';
       };
 
-      // Si hay cookie ea_snooze (usuario cerró sesión), usar show_dialog=true
-      if (getEaSnoozeCookie()) {
-        window.location.href = '/api/auth/signin/spotify?callbackUrl=' + encodeURIComponent('/') + '&show_dialog=true';
-      } else {
-        // Dispatch event to open RequestAccessModal from page.js
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('request-access-modal:open'));
-        }
-      }
+      // Siempre usar show_dialog=true para forzar re-consent
+      window.location.href = '/api/auth/signin/spotify?callbackUrl=' + encodeURIComponent('/') + '&show_dialog=true';
     }
   };
 
