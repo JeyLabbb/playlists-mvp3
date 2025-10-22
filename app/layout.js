@@ -4,7 +4,6 @@ import { LanguageProvider } from "./contexts/LanguageContext";
 import { Toaster } from "sonner";
 import SessionWatcher from "./components/SessionWatcher";
 import CardNav from "./components/CardNav";
-import DebugBar from "./components/DebugBar";
 import { Analytics } from '@vercel/analytics/react';
 
 export const metadata = {
@@ -29,7 +28,6 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="antialiased">
-        <DebugBar />
         <LanguageProvider>
           <Providers>
             <CardNav

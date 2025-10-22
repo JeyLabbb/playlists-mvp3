@@ -24,6 +24,8 @@ export async function GET() {
     const profileKey = `profile:${session.user.email}`;
     const profile = await kv.kv.get(profileKey);
     
+    console.log('[ME] Profile data source:', { email: session.user.email, profileKey, profile });
+    
     const isFounder = profile?.plan === 'founder';
     
     const response = NextResponse.json({ 
