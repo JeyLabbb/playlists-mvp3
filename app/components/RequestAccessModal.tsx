@@ -30,10 +30,21 @@ export default function RequestAccessModal({ open, onClose }: Props) {
     }
   }, [status, router]);
 
-  // Solo mostrar si no está autenticado (removed ea_done check for easier testing)
+  // Función para leer cookie ea_snooze
+  const getEaSnoozeCookie = () => {
+    if (typeof window === 'undefined') return false;
+    const cookies = document.cookie.split(';');
+    const eaSnoozeCookie = cookies.find(cookie => 
+      cookie.trim().startsWith('ea_snooze=')
+    );
+    return eaSnoozeCookie?.trim().split('=')[1] === '1';
+  };
+
+  // Solo mostrar si no está autenticado y no hay cookie ea_snooze
   const shouldOpen = 
     typeof window !== 'undefined' &&
     status !== 'authenticated' &&
+    !getEaSnoozeCookie() &&
     open;
 
   const handleSubmit = async (e: React.FormEvent) => {

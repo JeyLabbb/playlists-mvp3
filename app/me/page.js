@@ -18,6 +18,7 @@ export default function ProfilePage() {
   });
   const [usernameAvailable, setUsernameAvailable] = useState(true);
   const [usernameDebounceTimer, setUsernameDebounceTimer] = useState(null);
+  const [loggingOut, setLoggingOut] = useState(false);
   const { isFounder, founderSince } = useProfile();
 
   // Simple localStorage loader
@@ -239,6 +240,31 @@ export default function ProfilePage() {
       setError('Failed to save profile');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      setLoggingOut(true);
+      
+      // Llamar al endpoint de logout
+      const response = await fetch('/api/auth/logout', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        // Redirigir a signout de NextAuth
+        window.location.href = '/api/auth/signout?callbackUrl=/';
+      } else {
+        console.error('Logout failed');
+        setError('Error al cerrar sesión');
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      setError('Error al cerrar sesión');
+    } finally {
+      setLoggingOut(false);
     }
   };
 
@@ -499,6 +525,28 @@ export default function ProfilePage() {
                 className="bg-green-500 hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold py-3 px-8 rounded-lg transition-colors duration-200"
               >
                 {saving ? 'Guardando...' : 'Guardar cambios'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Logout Section */}
+        <div className="mt-8 pt-8 border-t border-gray-700">
+          <div className="max-w-2xl mx-auto">
+            <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-red-400 mb-3">
+                Cerrar sesión
+              </h3>
+              <p className="text-gray-300 text-sm mb-4">
+                Cierra tu sesión actual y vuelve al estado de usuario anónimo. 
+                El Early Access no aparecerá durante las próximas 24 horas.
+              </p>
+              <button
+                onClick={handleLogout}
+                disabled={loggingOut}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+              >
+                {loggingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
               </button>
             </div>
           </div>

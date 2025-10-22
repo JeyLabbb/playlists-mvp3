@@ -162,9 +162,24 @@ export default function CardNav({
     if (session?.user) {
       router.push("/me");
     } else {
-      // Dispatch event to open RequestAccessModal from page.js
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('request-access-modal:open'));
+      // Función para leer cookie ea_snooze
+      const getEaSnoozeCookie = () => {
+        if (typeof window === 'undefined') return false;
+        const cookies = document.cookie.split(';');
+        const eaSnoozeCookie = cookies.find(cookie => 
+          cookie.trim().startsWith('ea_snooze=')
+        );
+        return eaSnoozeCookie?.trim().split('=')[1] === '1';
+      };
+
+      // Si hay cookie ea_snooze (usuario cerró sesión), usar show_dialog=true
+      if (getEaSnoozeCookie()) {
+        window.location.href = '/api/auth/signin/spotify?callbackUrl=' + encodeURIComponent('/') + '&show_dialog=true';
+      } else {
+        // Dispatch event to open RequestAccessModal from page.js
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('request-access-modal:open'));
+        }
       }
     }
   };
