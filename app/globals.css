@@ -26,6 +26,14 @@
   /* Typography */
   --font-primary: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-body: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  
+  /* PLEIA Tokens for Paywall */
+  --pleia-bg: #0B0F14;
+  --pleia-card: #0F141B;
+  --pleia-text: #EAF2FF;
+  --pleia-accent-teal: #36E2B4;
+  --pleia-accent-blue: #5B8CFF;
+  --pleia-border: rgba(255,255,255,0.08);
 }
 
 body {

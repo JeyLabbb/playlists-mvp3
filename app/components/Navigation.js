@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import { CHECKOUT_ENABLED, SHOW_MONTHLY } from '../../lib/flags';
 
 export default function Navigation() {
   const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState(null);
   const pathname = usePathname();
 
   const menuItems = [
@@ -35,8 +37,47 @@ export default function Navigation() {
       subtitle: 'Tus creaciones',
       icon: '📚',
       active: pathname === '/my'
+    },
+    {
+      href: '/pricing',
+      label: 'Planes',
+      subtitle: 'Pricing y suscripciones',
+      icon: '💎',
+      active: pathname === '/pricing'
     }
   ];
+
+  const handleSubscribe = async (plan) => {
+    if (!CHECKOUT_ENABLED) {
+      alert('Los pagos estarán disponibles próximamente');
+      return;
+    }
+
+    setLoading(plan);
+    
+    try {
+      const response = await fetch('/api/checkout/session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ plan }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error(data.reason || 'Failed to create checkout session');
+      }
+    } catch (error) {
+      console.error('Checkout error:', error);
+      alert('Error al procesar el pago. Inténtalo de nuevo.');
+    } finally {
+      setLoading(null);
+    }
+  };
 
   // Close menu on escape key
   useEffect(() => {
@@ -151,6 +192,7 @@ export default function Navigation() {
                   <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-green-500/5 to-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 </a>
               ))}
+
             </nav>
 
             {/* Footer */}

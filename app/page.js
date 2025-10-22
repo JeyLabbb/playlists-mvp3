@@ -10,6 +10,8 @@ import FeedbackModal from "./components/FeedbackModal";
 import FeedbackGate from "./components/FeedbackGate";
 import RequestAccessModal from "./components/RequestAccessModal";
 import AnimatedList from "./components/AnimatedList";
+import FounderNudge from "./components/nudges/FounderNudge";
+import PaywallModal from "./components/paywall/PaywallModal";
 
 export default function Home() {
   const { data: session, status } = useSession();
@@ -47,6 +49,10 @@ export default function Home() {
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackData, setFeedbackData] = useState({});
   const [feedbackShownForId, setFeedbackShownForId] = useState({});
+  
+  // Paywall Modal
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
+  const [usageData, setUsageData] = useState(null);
   
   // Request Access Modal
   const [showRequestAccessModal, setShowRequestAccessModal] = useState(false);
@@ -119,6 +125,24 @@ export default function Home() {
       progTimer.current = null;
     }
     setProgress(100);
+    
+    // Increment usage after successful generation
+    incrementUsage();
+  }
+
+  async function incrementUsage() {
+    try {
+      console.log('[USAGE] Incrementing usage after successful generation');
+      const response = await fetch('/api/usage/increment', { method: 'POST' });
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[USAGE] Usage incremented:', data);
+      } else {
+        console.error('[USAGE] Failed to increment usage:', response.status);
+      }
+    } catch (error) {
+      console.error('[USAGE] Error incrementing usage:', error);
+    }
   }
 
   function resetProgress() {
@@ -453,6 +477,33 @@ export default function Home() {
     if (!session?.user) {
       await signIn("spotify", { callbackUrl: `${window.location.origin}/?from=oauth` });
       return;
+    }
+
+    // Check usage limit before generating
+    try {
+      console.log('[PAYWALL] Checking usage before generation');
+      const response = await fetch('/api/usage/check');
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[PAYWALL] Usage check response:', data);
+        
+        // If no remaining uses, show paywall
+        if (data.remaining === 0) {
+          console.log('[PAYWALL] No remaining uses, showing paywall');
+          setUsageData(data);
+          setShowPaywallModal(true);
+          return;
+        }
+        
+        // If we have remaining uses, proceed with generation
+        console.log('[PAYWALL] Remaining uses:', data.remaining, '- proceeding with generation');
+      } else {
+        console.error('[PAYWALL] Failed to check usage:', response.status);
+        // Continue anyway if check fails
+      }
+    } catch (error) {
+      console.error('[PAYWALL] Error checking usage:', error);
+      // Continue anyway if check fails
     }
 
     // Asegurar número y límites 1–200
@@ -1207,6 +1258,21 @@ export default function Home() {
         open={showRequestAccessModal}
         onClose={() => setShowRequestAccessModal(false)}
       />
+
+      {/* Paywall Modal */}
+      <PaywallModal
+        isOpen={showPaywallModal}
+        onClose={() => setShowPaywallModal(false)}
+        remaining={usageData?.remaining || 0}
+        onBuyFounder={() => {
+          // This will be handled by the modal itself
+          setShowPaywallModal(false);
+        }}
+      />
+
+      {/* Founder Nudge */}
+      <FounderNudge />
+
     </div>
   );
 }

@@ -38,6 +38,7 @@
     "@remotion/three": "^4.0.363",
     "@types/lodash": "^4.17.20",
     "@vercel/analytics": "^1.5.0",
+    "@vercel/kv": "^3.0.0",
     "framer-motion": "^12.23.24",
     "gsap": "^3.13.0",
     "lodash": "^4.17.21",
@@ -52,6 +53,7 @@
     "remotion-animated": "^2.2.0",
     "resend": "^6.0.3",
     "sonner": "^2.0.7",
+    "stripe": "^19.1.0",
     "three": "^0.180.0",
     "zod": "^3.25.76"
   },

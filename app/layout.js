@@ -51,6 +51,7 @@ export default function RootLayout({ children }) {
                   links: [
                     { label: "Cómo funciona", href: "/como-funciona", ariaLabel: "Cómo funciona PLEIA" },
                     { label: "FAQ", href: "/faq", ariaLabel: "Preguntas frecuentes" },
+                    { label: "Planes", href: "/pricing", ariaLabel: "Ver planes y precios" },
                     { label: "Soporte", href: "mailto:jeylabbb@gmail.com", ariaLabel: "Contactar soporte" }
                   ]
                 }
