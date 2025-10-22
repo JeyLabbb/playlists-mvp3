@@ -538,8 +538,8 @@ export default function ProfilePage() {
                 Cerrar sesión
               </h3>
               <p className="text-gray-300 text-sm mb-4">
-                Cierra tu sesión actual y vuelve al estado de usuario anónimo. 
-                El Early Access no aparecerá durante las próximas 24 horas.
+                ¿Estás seguro de que quieres cerrar sesión? 
+                Tendrás que volver a iniciar sesión para acceder a tus playlists y configuraciones.
               </p>
               <button
                 onClick={handleLogout}
