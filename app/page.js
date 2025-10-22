@@ -496,7 +496,7 @@ export default function Home() {
       };
 
       // Usar signIn de NextAuth
-      signIn('spotify', { callbackUrl: `${window.location.origin}/?from=oauth` });
+      await signIn('spotify', { callbackUrl: `${window.location.origin}/?from=oauth` });
       return;
     }
 

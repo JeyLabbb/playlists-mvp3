@@ -88,13 +88,13 @@ export default function RequestAccessModal({ open, onClose }: Props) {
     }
   };
 
-  const handleAlreadyRequested = () => {
+  const handleAlreadyRequested = async () => {
     try { 
       localStorage.setItem('ea_pending', '1'); 
     } catch {}
     // Usar signIn de NextAuth
     const baseUrl = process.env.NEXT_PUBLIC_NEXTAUTH_URL || 'http://127.0.0.1:3000';
-    signIn('spotify', { callbackUrl: `${baseUrl}/?from=oauth` });
+    await signIn('spotify', { callbackUrl: `${baseUrl}/?from=oauth` });
   };
 
   if (!shouldOpen) return null;

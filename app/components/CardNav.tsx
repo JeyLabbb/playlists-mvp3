@@ -158,7 +158,7 @@ export default function CardNav({
     if (el) cardsRef.current[i] = el;
   };
 
-  const ctaClick = () => {
+  const ctaClick = async () => {
     if (session?.user) {
       router.push("/me");
     } else {
@@ -172,8 +172,8 @@ export default function CardNav({
         return eaSnoozeCookie?.trim().split('=')[1] === '1';
       };
 
-      // Usar signIn de NextAuth con show_dialog
-      signIn('spotify', { 
+      // Usar signIn de NextAuth
+      await signIn('spotify', { 
         callbackUrl: '/',
         redirect: true 
       });
