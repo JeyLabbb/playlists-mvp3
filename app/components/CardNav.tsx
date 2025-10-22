@@ -1,11 +1,12 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, useCallback } from "react";
+import { useLayoutEffect, useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
 import { GoArrowUpRight } from "react-icons/go";
 import styles from "./CardNav.module.css";
 import { useSession } from "next-auth/react";
+import { useProfile } from "../../lib/useProfile";
 
 type NavLink = { label: string; href: string; ariaLabel?: string };
 type NavSection = { label: string; links: NavLink[] };
@@ -33,6 +34,7 @@ export default function CardNav({
   const router = useRouter();
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const { isFounder } = useProfile();
   const navRef = useRef<HTMLDivElement | null>(null);
   const cardsRef = useRef<HTMLDivElement[]>([]);
   const tlRef = useRef<gsap.core.Timeline | null>(null);
@@ -226,7 +228,22 @@ export default function CardNav({
             }}
             onClick={ctaClick}
           >
-            {session?.user ? "Mi perfil" : "Inicia sesión"}
+            {session?.user ? (
+              <div className="flex items-center gap-2">
+                <span>Mi perfil</span>
+                {isFounder && (
+                  <span 
+                    className="text-sm"
+                    style={{ color: '#FF8C00' }}
+                    title="Founder"
+                  >
+                    👑
+                  </span>
+                )}
+              </div>
+            ) : (
+              "Inicia sesión"
+            )}
           </button>
         </div>
 

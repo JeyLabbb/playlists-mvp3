@@ -271,3 +271,44 @@ export async function POST(request) {
 export async function PATCH(request) {
   return POST(request);
 }
+
+// PUT: Update user profile (used by webhook to mark Founder status)
+export async function PUT(request) {
+  try {
+    const body = await request.json();
+    const { email, plan, founderSince } = body;
+    
+    if (!email) {
+      return NextResponse.json({ error: 'Email is required' }, { status: 400 });
+    }
+
+    if (hasKV()) {
+      // Use Vercel KV
+      const kv = await import('@vercel/kv');
+      const profileKey = `profile:${email}`;
+      
+      // Get existing profile
+      const existingProfile = await kv.kv.get(profileKey) || {};
+      
+      // Update with Founder status
+      const updatedProfile = {
+        ...existingProfile,
+        plan: plan || existingProfile.plan,
+        founderSince: founderSince || existingProfile.founderSince,
+        updatedAt: new Date().toISOString()
+      };
+      
+      await kv.kv.set(profileKey, updatedProfile);
+      console.log('[PROFILE] Updated Founder status for:', email);
+      
+      return NextResponse.json({ success: true, profile: updatedProfile });
+    } else {
+      // Fallback to localStorage simulation (not applicable for server-side)
+      console.log('[PROFILE] KV not available, cannot update Founder status');
+      return NextResponse.json({ error: 'Profile storage not available' }, { status: 503 });
+    }
+  } catch (error) {
+    console.error('[PROFILE] Error updating profile:', error);
+    return NextResponse.json({ error: 'Failed to update profile' }, { status: 500 });
+  }
+}

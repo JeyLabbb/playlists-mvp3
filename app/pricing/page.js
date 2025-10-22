@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CHECKOUT_ENABLED, SHOW_MONTHLY } from '../../lib/flags';
+import { useProfile } from '../../lib/useProfile';
 
 export default function PricingPage() {
   const [loading, setLoading] = useState(null);
+  const { isFounder, plan } = useProfile();
 
   const handleSubscribe = async (plan) => {
     if (!CHECKOUT_ENABLED) {
@@ -57,7 +59,7 @@ export default function PricingPage() {
             Elige tu plan PLEIA
           </h1>
           <p 
-            className="text-xl max-w-2xl mx-auto"
+            className="text-xl max-w-2xl mx-auto mb-6"
             style={{ 
               color: '#EAF2FF',
               fontFamily: 'Inter, sans-serif',
@@ -68,6 +70,39 @@ export default function PricingPage() {
             Desbloquea el poder de la IA para crear playlists perfectas. 
             Acceso vitalicio o suscripción mensual.
           </p>
+          
+          {/* Current Plan */}
+          {isFounder && (
+            <div 
+              className="inline-flex items-center gap-3 px-6 py-3 rounded-full"
+              style={{
+                backgroundColor: 'rgba(255, 140, 0, 0.1)',
+                border: '1px solid rgba(255, 140, 0, 0.3)'
+              }}
+            >
+              <span 
+                className="text-sm font-semibold"
+                style={{ 
+                  color: '#FF8C00',
+                  fontFamily: 'Space Grotesk, sans-serif',
+                  fontWeight: 600
+                }}
+              >
+                Tu plan actual:
+              </span>
+              <span 
+                className="px-3 py-1 text-sm font-bold rounded-full"
+                style={{
+                  backgroundColor: '#FF8C00',
+                  color: '#0B0F14',
+                  fontFamily: 'Space Grotesk, sans-serif',
+                  fontWeight: 700
+                }}
+              >
+                FOUNDER
+              </span>
+            </div>
+          )}
           {!CHECKOUT_ENABLED && (
             <div 
               className="mt-6 inline-flex items-center rounded-lg px-4 py-2"
@@ -96,10 +131,30 @@ export default function PricingPage() {
             className="relative rounded-2xl p-8 transition-all duration-200 hover:scale-[1.02]"
             style={{ 
               backgroundColor: '#0F141B',
-              border: '1px solid rgba(54, 226, 180, 0.2)',
-              boxShadow: '0 4px 20px rgba(54, 226, 180, 0.1)'
+              border: isFounder ? '2px solid #FF8C00' : '1px solid rgba(54, 226, 180, 0.2)',
+              boxShadow: isFounder ? '0 4px 20px rgba(255, 140, 0, 0.2)' : '0 4px 20px rgba(54, 226, 180, 0.1)'
             }}
           >
+            {/* Selected Badge */}
+            {isFounder && (
+              <div 
+                className="absolute -top-3 left-1/2 transform -translate-x-1/2 px-4 py-1 rounded-full"
+                style={{
+                  backgroundColor: '#FF8C00',
+                  color: '#0B0F14'
+                }}
+              >
+                <span 
+                  className="text-sm font-bold"
+                  style={{ 
+                    fontFamily: 'Space Grotesk, sans-serif',
+                    fontWeight: 700
+                  }}
+                >
+                  SELECCIONADO
+                </span>
+              </div>
+            )}
             <div className="text-center">
               <h3 
                 className="text-2xl font-bold mb-2"
@@ -231,16 +286,26 @@ export default function PricingPage() {
               </ul>
 
               <button
-                onClick={() => handleSubscribe('founder')}
-                disabled={!CHECKOUT_ENABLED || loading === 'founder'}
+                onClick={() => !isFounder && handleSubscribe('founder')}
+                disabled={isFounder || !CHECKOUT_ENABLED || loading === 'founder'}
                 className={`w-full py-3 px-6 rounded-lg font-semibold transition-all duration-200 ${
-                  CHECKOUT_ENABLED
-                    ? 'hover:shadow-lg hover:scale-[1.02]'
-                    : 'opacity-50 cursor-not-allowed'
+                  isFounder 
+                    ? 'cursor-default' 
+                    : CHECKOUT_ENABLED
+                      ? 'hover:shadow-lg hover:scale-[1.02]'
+                      : 'opacity-50 cursor-not-allowed'
                 }`}
                 style={{
-                  backgroundColor: CHECKOUT_ENABLED ? '#36E2B4' : 'rgba(255, 255, 255, 0.1)',
-                  color: CHECKOUT_ENABLED ? '#0B0F14' : '#EAF2FF',
+                  backgroundColor: isFounder 
+                    ? '#FF8C00' 
+                    : CHECKOUT_ENABLED 
+                      ? '#36E2B4' 
+                      : 'rgba(255, 255, 255, 0.1)',
+                  color: isFounder 
+                    ? '#0B0F14' 
+                    : CHECKOUT_ENABLED 
+                      ? '#0B0F14' 
+                      : '#EAF2FF',
                   fontFamily: 'Inter, sans-serif',
                   fontWeight: 600,
                   border: 'none'
@@ -254,6 +319,8 @@ export default function PricingPage() {
                     ></div>
                     Procesando...
                   </div>
+                ) : isFounder ? (
+                  '✓ Ya tienes este plan'
                 ) : CHECKOUT_ENABLED ? (
                   'Comprar ahora'
                 ) : (

@@ -53,8 +53,8 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
       <div 
         className="relative rounded-2xl shadow-2xl max-w-md w-full mx-4 p-8"
         style={{ 
-          backgroundColor: 'var(--pleia-card)',
-          border: '1px solid var(--pleia-border)'
+          backgroundColor: '#0F141B',
+          border: '1px solid rgba(255, 255, 255, 0.08)'
         }}
       >
         {/* Close button */}
@@ -62,8 +62,8 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
           onClick={onClose}
           className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center transition-colors"
           style={{ 
-            backgroundColor: 'var(--pleia-border)',
-            color: 'var(--pleia-text)'
+            backgroundColor: 'rgba(255, 255, 255, 0.08)',
+            color: '#EAF2FF'
           }}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -76,7 +76,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
           <h2 
             className="text-3xl font-bold mb-3"
             style={{ 
-              color: 'var(--pleia-text)',
+              color: '#EAF2FF',
               fontFamily: 'Space Grotesk, sans-serif',
               fontWeight: 700
             }}
@@ -87,7 +87,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
           <p 
             className="text-lg"
             style={{ 
-              color: 'var(--pleia-text)',
+              color: '#EAF2FF',
               fontFamily: 'Inter, sans-serif',
               fontWeight: 400,
               opacity: 0.8
@@ -104,7 +104,8 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
             className="rounded-xl p-6 transition-all duration-200 hover:scale-[1.02]"
             style={{ 
               backgroundColor: 'rgba(54, 226, 180, 0.1)',
-              border: '1px solid rgba(54, 226, 180, 0.2)'
+              border: '1px solid rgba(54, 226, 180, 0.2)',
+              boxShadow: '0 4px 20px rgba(54, 226, 180, 0.1)'
             }}
           >
             <div className="flex items-center justify-between mb-4">
@@ -112,7 +113,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
                 <h3 
                   className="text-xl font-semibold"
                   style={{ 
-                    color: 'var(--pleia-text)',
+                    color: '#EAF2FF',
                     fontFamily: 'Space Grotesk, sans-serif',
                     fontWeight: 600
                   }}
@@ -122,7 +123,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
                 <p 
                   className="text-sm"
                   style={{ 
-                    color: 'var(--pleia-text)',
+                    color: '#EAF2FF',
                     fontFamily: 'Inter, sans-serif',
                     fontWeight: 400,
                     opacity: 0.7
@@ -135,7 +136,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
                 <div 
                   className="text-2xl font-bold"
                   style={{ 
-                    color: 'var(--pleia-accent-teal)',
+                    color: '#36E2B4',
                     fontFamily: 'Space Grotesk, sans-serif',
                     fontWeight: 700
                   }}
@@ -145,7 +146,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
                 <div 
                   className="text-sm"
                   style={{ 
-                    color: 'var(--pleia-text)',
+                    color: '#EAF2FF',
                     fontFamily: 'Inter, sans-serif',
                     fontWeight: 400,
                     opacity: 0.7
@@ -165,8 +166,8 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
                   : 'opacity-50 cursor-not-allowed'
               }`}
               style={{
-                backgroundColor: CHECKOUT_ENABLED ? 'var(--pleia-accent-teal)' : 'rgba(255, 255, 255, 0.1)',
-                color: CHECKOUT_ENABLED ? '#0B0F14' : 'var(--pleia-text)',
+                backgroundColor: CHECKOUT_ENABLED ? '#36E2B4' : 'rgba(255, 255, 255, 0.1)',
+                color: CHECKOUT_ENABLED ? '#0B0F14' : '#EAF2FF',
                 fontFamily: 'Inter, sans-serif',
                 fontWeight: 600,
                 border: 'none'
@@ -181,7 +182,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
                   Procesando...
                 </div>
               ) : CHECKOUT_ENABLED ? (
-                'Comprar ahora – 5€'
+                'Comprar ahora'
               ) : (
                 'Próximamente'
               )}
@@ -193,7 +194,8 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
             className="rounded-xl p-6 transition-all duration-200"
             style={{ 
               backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              border: '1px solid var(--pleia-border)'
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+              boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)'
             }}
           >
             <div className="flex items-center justify-between mb-4">
@@ -201,7 +203,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
                 <h3 
                   className="text-xl font-semibold"
                   style={{ 
-                    color: 'var(--pleia-text)',
+                    color: '#EAF2FF',
                     fontFamily: 'Space Grotesk, sans-serif',
                     fontWeight: 600
                   }}
@@ -211,7 +213,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
                 <p 
                   className="text-sm"
                   style={{ 
-                    color: 'var(--pleia-text)',
+                    color: '#EAF2FF',
                     fontFamily: 'Inter, sans-serif',
                     fontWeight: 400,
                     opacity: 0.7
@@ -224,7 +226,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
                 <div 
                   className="text-2xl font-bold"
                   style={{ 
-                    color: 'var(--pleia-accent-blue)',
+                    color: '#5B8CFF',
                     fontFamily: 'Space Grotesk, sans-serif',
                     fontWeight: 700
                   }}
@@ -234,7 +236,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
                 <div 
                   className="text-sm"
                   style={{ 
-                    color: 'var(--pleia-text)',
+                    color: '#EAF2FF',
                     fontFamily: 'Inter, sans-serif',
                     fontWeight: 400,
                     opacity: 0.7
@@ -250,10 +252,10 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
               className="w-full py-3 px-6 rounded-lg font-semibold transition-all duration-200 opacity-50 cursor-not-allowed"
               style={{
                 backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                color: 'var(--pleia-text)',
+                color: '#EAF2FF',
                 fontFamily: 'Inter, sans-serif',
                 fontWeight: 600,
-                border: '1px solid var(--pleia-border)'
+                border: '1px solid rgba(255, 255, 255, 0.08)'
               }}
             >
               <div className="flex items-center justify-center">
@@ -262,7 +264,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
                   className="px-2 py-1 rounded text-xs"
                   style={{ 
                     backgroundColor: 'rgba(91, 140, 255, 0.2)',
-                    color: 'var(--pleia-accent-blue)'
+                    color: '#5B8CFF'
                   }}
                 >
                   Soon
@@ -278,7 +280,7 @@ export default function PaywallModal({ isOpen, onClose, remaining, onBuyFounder 
             href="/pricing"
             className="text-sm underline transition-colors hover:opacity-80"
             style={{ 
-              color: 'var(--pleia-accent-blue)',
+              color: '#5B8CFF',
               fontFamily: 'Inter, sans-serif',
               fontWeight: 400
             }}

@@ -14,53 +14,128 @@ export default function CheckoutSuccessPage() {
     
     setLoading(true);
     try {
-      const response = await fetch('/api/stripe/portal', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ session_id: sessionId }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.url) {
-        window.location.href = data.url;
+      // Check if this is a Founder Pass (one-time payment) or Monthly subscription
+      const sessionResponse = await fetch(`/api/stripe/session-info?session_id=${sessionId}`);
+      const sessionData = await sessionResponse.json();
+      
+      if (sessionData.isFounderPass) {
+        // Founder Pass - redirect to profile page
+        window.location.href = '/me';
       } else {
-        throw new Error('Failed to create billing portal session');
+        // Monthly subscription - use billing portal
+        const response = await fetch('/api/stripe/portal', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ session_id: sessionId }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.url) {
+          window.location.href = data.url;
+        } else {
+          console.error('Portal error:', data);
+          if (data.error === 'No customer found in session') {
+            alert('Esta sesión de pago no tiene información de cliente. Esto puede ocurrir si el pago aún no se ha procesado completamente. Inténtalo de nuevo en unos minutos.');
+          } else if (data.error === 'Stripe not configured') {
+            alert('El sistema de pagos no está configurado correctamente.');
+          } else {
+            alert(`Error al abrir el portal de facturación: ${data.error || 'Error desconocido'}`);
+          }
+        }
       }
     } catch (error) {
       console.error('Billing portal error:', error);
-      alert('Error al abrir el portal de facturación. Inténtalo de nuevo.');
+      alert('Error al procesar la solicitud. Inténtalo de nuevo.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
+    <div 
+      className="min-h-screen flex items-center justify-center"
+      style={{ backgroundColor: '#0B0F14' }}
+    >
       <div className="max-w-md mx-auto text-center px-4">
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
+        <div 
+          className="rounded-2xl shadow-2xl p-8"
+          style={{ 
+            backgroundColor: '#0F141B',
+            border: '1px solid rgba(255, 255, 255, 0.08)'
+          }}
+        >
           {/* Success Icon */}
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div 
+            className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6"
+            style={{ backgroundColor: 'rgba(54, 226, 180, 0.1)' }}
+          >
+            <svg 
+              className="w-8 h-8" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+              style={{ color: '#36E2B4' }}
+            >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
 
           {/* Success Message */}
-          <h1 className="text-3xl font-bold text-gray-900 mb-4 font-['Space_Grotesk']">
+          <h1 
+            className="text-3xl font-bold mb-4"
+            style={{ 
+              color: '#EAF2FF',
+              fontFamily: 'Space Grotesk, sans-serif',
+              fontWeight: 700
+            }}
+          >
             ¡Pago completado!
           </h1>
           
-          <p className="text-gray-600 mb-6 font-['Inter']">
+          <p 
+            className="mb-6"
+            style={{ 
+              color: '#EAF2FF',
+              fontFamily: 'Inter, sans-serif',
+              fontWeight: 400,
+              opacity: 0.8
+            }}
+          >
             ✅ Pago completado. Revisa tu email.
           </p>
 
           {sessionId && (
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
-              <p className="text-sm text-gray-500 mb-1 font-['Inter']">ID de Sesión:</p>
-              <p className="text-xs font-mono text-gray-700 break-all">{sessionId}</p>
+            <div 
+              className="rounded-lg p-4 mb-6"
+              style={{ 
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid rgba(255, 255, 255, 0.08)'
+              }}
+            >
+              <p 
+                className="text-sm mb-1"
+                style={{ 
+                  color: '#EAF2FF',
+                  fontFamily: 'Inter, sans-serif',
+                  fontWeight: 400,
+                  opacity: 0.7
+                }}
+              >
+                ID de Sesión:
+              </p>
+              <p 
+                className="text-xs font-mono break-all"
+                style={{ 
+                  color: '#EAF2FF',
+                  fontFamily: 'monospace',
+                  opacity: 0.8
+                }}
+              >
+                {sessionId}
+              </p>
             </div>
           )}
 
@@ -69,29 +144,57 @@ export default function CheckoutSuccessPage() {
             <button
               onClick={handleManageBilling}
               disabled={loading || !sessionId}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 font-['Inter']"
+              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+              style={{
+                backgroundColor: loading || !sessionId ? 'rgba(255, 255, 255, 0.1)' : '#5B8CFF',
+                color: '#0B0F14',
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 600,
+                border: 'none'
+              }}
             >
               {loading ? (
                 <div className="flex items-center justify-center">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  <div 
+                    className="animate-spin rounded-full h-5 w-5 border-b-2 mr-2"
+                    style={{ borderColor: '#0B0F14' }}
+                  ></div>
                   Abriendo...
                 </div>
-              ) : (
-                'Gestionar facturación (Billing Portal)'
-              )}
+                     ) : (
+                       'Ir a mi perfil'
+                     )}
             </button>
             
             <Link
               href="/"
-              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-3 px-6 rounded-lg transition-all duration-200 inline-block font-['Inter']"
+              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 inline-block hover:shadow-lg hover:scale-[1.02]"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                color: '#EAF2FF',
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 600,
+                border: '1px solid rgba(255, 255, 255, 0.08)'
+              }}
             >
               Volver al Inicio
             </Link>
           </div>
 
           {/* Additional Info */}
-          <div className="mt-8 pt-6 border-t border-gray-200">
-            <p className="text-sm text-gray-500 font-['Inter']">
+          <div 
+            className="mt-8 pt-6"
+            style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}
+          >
+            <p 
+              className="text-sm"
+              style={{ 
+                color: '#EAF2FF',
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 400,
+                opacity: 0.7
+              }}
+            >
               Recibirás un email de confirmación en breve con los detalles de tu suscripción.
             </p>
           </div>

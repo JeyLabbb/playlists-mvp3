@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSession, signIn } from 'next-auth/react';
+import { useProfile } from '../../lib/useProfile';
 
 export default function ProfilePage() {
   const { data: session, status } = useSession();
@@ -17,6 +18,7 @@ export default function ProfilePage() {
   });
   const [usernameAvailable, setUsernameAvailable] = useState(true);
   const [usernameDebounceTimer, setUsernameDebounceTimer] = useState(null);
+  const { isFounder, founderSince } = useProfile();
 
   // Simple localStorage loader
   const loadFromLocalStorage = () => {
@@ -343,10 +345,32 @@ export default function ProfilePage() {
                     )}
                   </div>
                   <div>
-                    <div className="text-white font-medium">{formData.displayName || 'Nombre no establecido'}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-white font-medium">{formData.displayName || 'Nombre no establecido'}</div>
+                      {isFounder && (
+                        <span 
+                          className="px-2 py-1 text-xs font-semibold rounded-full"
+                          style={{
+                            backgroundColor: '#FF8C00',
+                            color: '#0B0F14',
+                            fontWeight: 700
+                          }}
+                        >
+                          FOUNDER
+                        </span>
+                      )}
+                    </div>
                     <div className="text-gray-400 text-sm">@{formData.username || 'username'}</div>
                     {formData.bio && (
                       <div className="text-gray-300 text-sm mt-1">{formData.bio}</div>
+                    )}
+                    {isFounder && (
+                      <div 
+                        className="text-xs mt-1"
+                        style={{ color: '#FF8C00', opacity: 0.8 }}
+                      >
+                        Founder desde {founderSince ? new Date(founderSince).toLocaleDateString('es-ES') : new Date().toLocaleDateString('es-ES')}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -413,10 +437,6 @@ export default function ProfilePage() {
                   placeholder="Cuéntanos algo sobre ti..."
                   className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors resize-none"
                 />
-                {/* Debug info */}
-                <div className="text-xs text-gray-500 mt-1">
-                  Debug: formData.bio = &ldquo;{formData.bio}&rdquo;
-                </div>
               </div>
 
               <div>

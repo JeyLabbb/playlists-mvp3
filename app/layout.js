@@ -4,6 +4,7 @@ import { LanguageProvider } from "./contexts/LanguageContext";
 import { Toaster } from "sonner";
 import SessionWatcher from "./components/SessionWatcher";
 import CardNav from "./components/CardNav";
+import DebugBar from "./components/DebugBar";
 import { Analytics } from '@vercel/analytics/react';
 
 export const metadata = {
@@ -28,6 +29,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="antialiased">
+        <DebugBar />
         <LanguageProvider>
           <Providers>
             <CardNav
@@ -43,7 +45,8 @@ export default function RootLayout({ children }) {
                   label: "Tu música",
                   links: [
                     { label: "Mis playlists", href: "/my", ariaLabel: "Ver mis playlists guardadas" },
-                    { label: "Mi perfil", href: "/me", ariaLabel: "Ver mi perfil" }
+                    { label: "Mi perfil", href: "/me", ariaLabel: "Ver mi perfil" },
+                    { label: "Planes", href: "/pricing", ariaLabel: "Ver planes y precios" }
                   ]
                 },
                 {
@@ -51,7 +54,6 @@ export default function RootLayout({ children }) {
                   links: [
                     { label: "Cómo funciona", href: "/como-funciona", ariaLabel: "Cómo funciona PLEIA" },
                     { label: "FAQ", href: "/faq", ariaLabel: "Preguntas frecuentes" },
-                    { label: "Planes", href: "/pricing", ariaLabel: "Ver planes y precios" },
                     { label: "Soporte", href: "mailto:jeylabbb@gmail.com", ariaLabel: "Contactar soporte" }
                   ]
                 }
