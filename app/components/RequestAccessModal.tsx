@@ -92,9 +92,9 @@ export default function RequestAccessModal({ open, onClose }: Props) {
     try { 
       localStorage.setItem('ea_pending', '1'); 
     } catch {}
-    // Siempre usar show_dialog=true para forzar re-consent
+    // Usar signIn de NextAuth
     const baseUrl = process.env.NEXT_PUBLIC_NEXTAUTH_URL || 'http://127.0.0.1:3000';
-    window.location.href = '/api/auth/signin/spotify?callbackUrl=' + encodeURIComponent(baseUrl + '/?from=oauth') + '&show_dialog=true';
+    signIn('spotify', { callbackUrl: `${baseUrl}/?from=oauth` });
   };
 
   if (!shouldOpen) return null;

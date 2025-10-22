@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
 import { GoArrowUpRight } from "react-icons/go";
 import styles from "./CardNav.module.css";
-import { useSession } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 import { useProfile } from "../../lib/useProfile";
 
 type NavLink = { label: string; href: string; ariaLabel?: string };
@@ -172,8 +172,11 @@ export default function CardNav({
         return eaSnoozeCookie?.trim().split('=')[1] === '1';
       };
 
-      // Siempre usar show_dialog=true para forzar re-consent
-      window.location.href = '/api/auth/signin/spotify?callbackUrl=' + encodeURIComponent('/') + '&show_dialog=true';
+      // Usar signIn de NextAuth con show_dialog
+      signIn('spotify', { 
+        callbackUrl: '/',
+        redirect: true 
+      });
     }
   };
 

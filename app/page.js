@@ -495,8 +495,8 @@ export default function Home() {
         return eaSnoozeCookie?.trim().split('=')[1] === '1';
       };
 
-      // Siempre usar show_dialog=true para forzar re-consent
-      window.location.href = '/api/auth/signin/spotify?callbackUrl=' + encodeURIComponent(window.location.origin + '/?from=oauth') + '&show_dialog=true';
+      // Usar signIn de NextAuth
+      signIn('spotify', { callbackUrl: `${window.location.origin}/?from=oauth` });
       return;
     }
 
