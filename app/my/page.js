@@ -16,26 +16,6 @@ export default function MyPlaylistsPage() {
   const [updatingPrivacy, setUpdatingPrivacy] = useState(new Set());
   const [menuOpen, setMenuOpen] = useState(null);
 
-  useEffect(() => {
-    if (session?.user?.email) {
-      fetchUserPlaylists();
-    } else if (status === 'unauthenticated') {
-      setLoading(false);
-    }
-  }, [session, status, fetchUserPlaylists]);
-
-  // Cerrar menú al hacer clic fuera
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (menuOpen && !event.target.closest('.menu-container')) {
-        setMenuOpen(null);
-      }
-    };
-
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, [menuOpen]);
-
   const fetchUserPlaylists = useCallback(async () => {
     try {
       setLoading(true);
@@ -69,6 +49,27 @@ export default function MyPlaylistsPage() {
       setLoading(false);
     }
   }, [session?.user?.email]);
+
+  useEffect(() => {
+    if (session?.user?.email) {
+      fetchUserPlaylists();
+    } else if (status === 'unauthenticated') {
+      setLoading(false);
+    }
+  }, [session, status, fetchUserPlaylists]);
+
+  // Cerrar menú al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuOpen && !event.target.closest('.menu-container')) {
+        setMenuOpen(null);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [menuOpen]);
+
 
 
   const loadPlaylistDetails = async (playlist) => {

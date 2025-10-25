@@ -11,6 +11,41 @@ export default function TrendingPage() {
   const [previewTracks, setPreviewTracks] = useState([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
+  const fetchTrendingPlaylists = useCallback(async () => {
+    try {
+      console.log('[TRENDING] Starting to fetch trending playlists...');
+      setLoading(true);
+      const response = await fetch(`/api/trending?sortBy=${sortBy}&limit=50`);
+      console.log('[TRENDING] Response status:', response.status);
+      const data = await response.json();
+      console.log('[TRENDING] Response data:', data);
+      
+      if (data.success) {
+        if (data.fallback) {
+          // KV not available, try to get playlists from localStorage
+          console.log('KV not available, trying localStorage fallback');
+          const localStoragePlaylists = await getPlaylistsFromLocalStorage();
+          setPlaylists(localStoragePlaylists);
+          
+          // If no playlists found in localStorage either, show a message
+          if (localStoragePlaylists.length === 0) {
+            console.log('No playlists found in localStorage either');
+          }
+        } else {
+          console.log('[TRENDING] Setting playlists:', data.playlists.length);
+          setPlaylists(data.playlists);
+        }
+      } else {
+        console.error('Error fetching trending playlists:', data.error);
+      }
+    } catch (error) {
+      console.error('Error fetching trending playlists:', error);
+    } finally {
+      console.log('[TRENDING] Setting loading to false');
+      setLoading(false);
+    }
+  }, [sortBy]);
+
   // Helper function to update metrics in localStorage
   const updateMetricsInLocalStorage = async (playlistId, type) => {
     try {
@@ -207,40 +242,6 @@ export default function TrendingPage() {
     }
   }, [playlists, trackView]);
 
-  const fetchTrendingPlaylists = useCallback(async () => {
-    try {
-      console.log('[TRENDING] Starting to fetch trending playlists...');
-      setLoading(true);
-      const response = await fetch(`/api/trending?sortBy=${sortBy}&limit=50`);
-      console.log('[TRENDING] Response status:', response.status);
-      const data = await response.json();
-      console.log('[TRENDING] Response data:', data);
-      
-      if (data.success) {
-        if (data.fallback) {
-          // KV not available, try to get playlists from localStorage
-          console.log('KV not available, trying localStorage fallback');
-          const localStoragePlaylists = await getPlaylistsFromLocalStorage();
-          setPlaylists(localStoragePlaylists);
-          
-          // If no playlists found in localStorage either, show a message
-          if (localStoragePlaylists.length === 0) {
-            console.log('No playlists found in localStorage either');
-          }
-        } else {
-          console.log('[TRENDING] Setting playlists:', data.playlists.length);
-          setPlaylists(data.playlists);
-        }
-      } else {
-        console.error('Error fetching trending playlists:', data.error);
-      }
-    } catch (error) {
-      console.error('Error fetching trending playlists:', error);
-    } finally {
-      console.log('[TRENDING] Setting loading to false');
-      setLoading(false);
-    }
-  }, [sortBy]);
 
   const getPlaylistsFromLocalStorage = async () => {
     try {

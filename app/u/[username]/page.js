@@ -17,12 +17,6 @@ export default function PublicProfilePage({ params }) {
   const [previewTracks, setPreviewTracks] = useState([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
-  useEffect(() => {
-    if (username) {
-      fetchUserProfile();
-    }
-  }, [username, fetchUserProfile]);
-
   const fetchUserProfile = useCallback(async () => {
     try {
       setLoading(true); 
@@ -110,6 +104,13 @@ export default function PublicProfilePage({ params }) {
       setLoading(false);
     }
   }, [username]);
+
+  useEffect(() => {
+    if (username) {
+      fetchUserProfile();
+    }
+  }, [username, fetchUserProfile]);
+
 
   // React to localStorage search function
   const getPlaylistsFromLocalStorage = async () => {

@@ -9,10 +9,11 @@ let supabaseAdmin: ReturnType<typeof createClient> | null = null;
 
 function getSupabaseAdmin() {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables');
+    console.warn('[DB] Missing Supabase environment variables - returning null for build');
+    return null;
   }
   
-  if (!supabaseAdmin) {
+  if (supabaseAdmin === null) {
     supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -38,7 +39,12 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseAdmin();
     
-    console.log('[RECREATE] Starting table recreation...');
+    if (!supabase) {
+      return NextResponse.json({ 
+        ok: false, 
+        error: 'Supabase not configured - skipping table recreation' 
+      }, { status: 200 });
+    }
     
     // Try to drop tables by attempting to delete all records first
     console.log('[RECREATE] Clearing existing data...');

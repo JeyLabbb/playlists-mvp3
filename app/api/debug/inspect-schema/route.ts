@@ -9,10 +9,11 @@ let supabaseAdmin: ReturnType<typeof createClient> | null = null;
 
 function getSupabaseAdmin() {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY environment variables');
+    console.warn('[DB] Missing Supabase environment variables - returning null for build');
+    return null;
   }
   
-  if (!supabaseAdmin) {
+  if (supabaseAdmin === null) {
     supabaseAdmin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -29,6 +30,13 @@ function getSupabaseAdmin() {
 export async function GET(request: NextRequest) {
   try {
     const supabase = getSupabaseAdmin();
+    
+    if (!supabase) {
+      return NextResponse.json({ 
+        ok: false, 
+        error: 'Supabase not configured - skipping schema inspection' 
+      }, { status: 200 });
+    }
     
     // Try to get a sample record to see the actual structure
     const { data: playlistsData, error: playlistsError } = await supabase
