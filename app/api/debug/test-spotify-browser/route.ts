@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   try {
     console.log('[DEBUG] Testing Spotify API from browser...');
     
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as any);
     if (!session?.accessToken) {
       return NextResponse.json({
         ok: false,
