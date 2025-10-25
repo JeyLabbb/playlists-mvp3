@@ -98,7 +98,7 @@ export async function POST(req) {
       try {
         // Mark user as Founder using direct KV access
         const kv = await import('@vercel/kv');
-        const profileKey = `userprofile:${session.customer_details.email}`;
+        const profileKey = `jey_user_profile:${session.customer_details.email}`;
         
         // Get existing profile
         const existingProfile = await kv.kv.get(profileKey) || {};
