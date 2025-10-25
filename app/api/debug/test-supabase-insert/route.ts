@@ -20,7 +20,6 @@ export async function GET(request: NextRequest) {
     console.log('[DEBUG] Creating Supabase client...');
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { persistSession: false },
-      db: { schema: 'public' }
     });
     
     console.log('[DEBUG] Testing payments table insert...');

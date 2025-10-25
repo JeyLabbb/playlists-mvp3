@@ -18,7 +18,6 @@ function getSupabaseAdmin() {
       process.env.SUPABASE_SERVICE_ROLE_KEY,
       { 
         auth: { persistSession: false },
-        db: { schema: 'public' }
       }
     );
     console.log('[DB] Supabase admin client initialized');
