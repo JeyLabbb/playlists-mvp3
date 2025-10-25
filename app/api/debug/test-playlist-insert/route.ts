@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
         spotify_url: 'https://open.spotify.com/playlist/test',
         spotify_id: 'test123',
         track_count: 10
-      }])
+      }] as any)
       .select()
       .single();
 
