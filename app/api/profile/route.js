@@ -46,7 +46,7 @@ function generateUsername(displayName, email, existingUsernames = []) {
 // Get user profile from KV
 async function getProfileFromKV(email) {
   try {
-    const response = await fetch(`${process.env.KV_REST_API_URL}/get/userprofile:${encodeURIComponent(email)}`, {
+    const response = await fetch(`${process.env.KV_REST_API_URL}/get/jey_user_profile:${encodeURIComponent(email)}`, {
       headers: {
         'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
         'Content-Type': 'application/json'
@@ -69,7 +69,7 @@ async function getProfileFromKV(email) {
 // Save user profile to KV
 async function saveProfileToKV(email, profile) {
   try {
-    const response = await fetch(`${process.env.KV_REST_API_URL}/set/userprofile:${encodeURIComponent(email)}`, {
+    const response = await fetch(`${process.env.KV_REST_API_URL}/set/jey_user_profile:${encodeURIComponent(email)}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
@@ -95,7 +95,7 @@ async function saveProfileToKV(email, profile) {
 // Get all user profiles to check username uniqueness
 async function getAllProfilesForUsernameCheck() {
   try {
-    const response = await fetch(`${process.env.KV_REST_API_URL}/keys/userprofile:*`, {
+    const response = await fetch(`${process.env.KV_REST_API_URL}/keys/jey_user_profile:*`, {
       headers: {
         'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
         'Content-Type': 'application/json'
