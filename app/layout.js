@@ -28,8 +28,11 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <head>
-        <link rel="icon" href="/favicon.ico" />
-        <link rel="shortcut icon" href="/favicon.ico" />
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png" />
+        <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+        <link rel="icon" href="/favicon-48.png" sizes="48x48" type="image/png" />
+        <link rel="apple-touch-icon" href="/logo-pleia.png" />
         <meta name="theme-color" content="#000000" />
       </head>
       <body className="antialiased">
