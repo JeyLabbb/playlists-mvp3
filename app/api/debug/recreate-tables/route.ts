@@ -99,8 +99,12 @@ export async function POST(request: NextRequest) {
     }
     
     // Clean up test data
-    await supabase.from('playlists').delete().eq('id', playlistTest.id);
-    await supabase.from('payments').delete().eq('id', paymentTest.id);
+    if (playlistTest?.id) {
+      await supabase.from('playlists').delete().eq('id', playlistTest.id);
+    }
+    if (paymentTest?.id) {
+      await supabase.from('payments').delete().eq('id', paymentTest.id);
+    }
     
     console.log('[RECREATE] Table tests completed successfully');
     
