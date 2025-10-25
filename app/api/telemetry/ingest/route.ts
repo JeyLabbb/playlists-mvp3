@@ -51,8 +51,9 @@ async function insertPrompt(userEmail: string, text: string, source: string = 'w
       return null;
     }
     
-    console.log(`[DB] prompts.insert ok id=${data.id}`);
-    return data.id;
+    const result = data as any;
+    console.log(`[DB] prompts.insert ok id=${result.id}`);
+    return result.id;
   } catch (error) {
     console.error('[DB] Error in insertPrompt:', error);
     return null;
@@ -125,8 +126,9 @@ async function insertUsageEvent(userEmail: string, action: string, meta: any = {
       return null;
     }
     
-    console.log(`[DB] usage_events.insert ok id=${data.id}`);
-    return data.id;
+    const result = data as any;
+    console.log(`[DB] usage_events.insert ok id=${result.id}`);
+    return result.id;
   } catch (error) {
     console.error('[DB] Error in insertUsageEvent:', error);
     return null;
@@ -164,8 +166,9 @@ async function insertPlaylist(userEmail: string, playlistName: string, prompt: s
       return null;
     }
     
-    console.log(`[DB] playlists.insert ok id=${data.id}`);
-    return data.id;
+    const result = data as any;
+    console.log(`[DB] playlists.insert ok id=${result.id}`);
+    return result.id;
   } catch (error) {
     console.error('[DB] Error in insertPlaylist:', error);
     return null;
@@ -205,8 +208,9 @@ async function insertPayment(userEmail: string, stripePaymentIntentId: string, s
       return null;
     }
     
-    console.log(`[DB] payments.insert ok id=${data.id}`);
-    return data.id;
+    const result = data as any;
+    console.log(`[DB] payments.insert ok id=${result.id}`);
+    return result.id;
   } catch (error) {
     console.error('[DB] Error in insertPayment:', error);
     return null;
