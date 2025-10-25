@@ -17,8 +17,7 @@ function getSupabaseAdmin() {
       process.env.NEXT_PUBLIC_SUPABASE_URL,
       process.env.SUPABASE_SERVICE_ROLE_KEY,
       { 
-        auth: { persistSession: false },
-        db: { schema: 'public' }
+        auth: { persistSession: false }
       }
     );
     console.log('[DB] Supabase admin client initialized');
