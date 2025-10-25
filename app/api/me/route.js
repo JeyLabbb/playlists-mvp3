@@ -21,7 +21,7 @@ export async function GET() {
 
     // Get profile from KV
     const kv = await import('@vercel/kv');
-    const profileKey = `userprofile:${session.user.email}`;
+    const profileKey = `jey_user_profile:${session.user.email}`;
     const profile = await kv.kv.get(profileKey);
     
     console.log('[ME] Profile data source:', { email: session.user.email, profileKey, profile });
