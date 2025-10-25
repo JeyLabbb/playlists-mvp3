@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 
-export default function InvitePage() {
+function InvitePageContent() {
   const searchParams = useSearchParams();
   const refEmail = searchParams.get('ref');
   const [loading, setLoading] = useState(false);
@@ -189,5 +189,20 @@ export default function InvitePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function InvitePage() {
+  return (
+    <Suspense fallback={
+      <div 
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: '#0B0F14' }}
+      >
+        <div className="text-white">Cargando...</div>
+      </div>
+    }>
+      <InvitePageContent />
+    </Suspense>
   );
 }
