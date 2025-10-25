@@ -16,7 +16,7 @@ export default function AdminLogin() {
     setError('');
 
     try {
-      const response = await fetch('/api/debug/login-test', {
+      const response = await fetch('/api/admin/auth', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
