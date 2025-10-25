@@ -29,7 +29,7 @@ function getSupabaseAdmin() {
 
 export async function GET(request: NextRequest) {
   try {
-    // Allow in production for admin access
+    // Allow in production for admin access - ENABLED
     // if (process.env.NODE_ENV === 'production') {
     //   return NextResponse.json({ 
     //     ok: false, 
