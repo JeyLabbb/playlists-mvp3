@@ -99,10 +99,10 @@ export async function POST(request: NextRequest) {
     }
     
     // Clean up test data
-    if (playlistTest?.id) {
+    if (playlistTest && playlistTest.id) {
       await supabase.from('playlists').delete().eq('id', playlistTest.id);
     }
-    if (paymentTest?.id) {
+    if (paymentTest && paymentTest.id) {
       await supabase.from('payments').delete().eq('id', paymentTest.id);
     }
     
