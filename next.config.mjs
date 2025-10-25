@@ -9,6 +9,10 @@ const nextConfig = {
     };
     return config;
   },
+  // Desactivar el sistema de favicons de Next.js
+  experimental: {
+    optimizePackageImports: ['sharp'],
+  },
 };
 
 export default nextConfig;

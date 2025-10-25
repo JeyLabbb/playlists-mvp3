@@ -529,7 +529,7 @@ export default function AdminDebugDB() {
                 onError={(e) => {
                   // Fallback si no carga el logo
                   e.currentTarget.style.display = 'none';
-                  e.currentTarget.nextElementSibling.style.display = 'block';
+                  e.currentTarget.nextElementSibling?.style && (e.currentTarget.nextElementSibling.style.display = 'block');
                 }}
               />
               <span className="text-white font-bold text-6xl hidden">★</span>
@@ -575,7 +575,7 @@ export default function AdminDebugDB() {
                   onError={(e) => {
                     // Fallback si no carga el logo
                     e.currentTarget.style.display = 'none';
-                    e.currentTarget.nextElementSibling.style.display = 'block';
+                    e.currentTarget.nextElementSibling?.style && (e.currentTarget.nextElementSibling.style.display = 'block');
                   }}
                 />
                 <span className="text-white font-semibold text-3xl sm:text-4xl hidden">★</span>
