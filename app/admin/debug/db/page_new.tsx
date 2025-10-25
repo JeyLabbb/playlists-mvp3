@@ -374,11 +374,12 @@ export default function AdminDebugDB() {
   };
 
   useEffect(() => {
-    if (process.env.NODE_ENV === 'production') {
-      setError('Debug page is not available in production');
-      setLoading(false);
-      return;
-    }
+    // Allow admin page in production for debugging
+    // if (process.env.NODE_ENV === 'production') {
+    //   setError('Debug page is not available in production');
+    //   setLoading(false);
+    //   return;
+    // }
 
     fetchData();
 
