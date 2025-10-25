@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
     
     console.log(`[DEBUG] Testing Spotify API: ${testType}`);
     
-    const session = await getServerSession(authOptions as any);
+    const session = await getServerSession(authOptions as any) as any;
     if (!session?.accessToken) {
       return NextResponse.json({
         ok: false,
