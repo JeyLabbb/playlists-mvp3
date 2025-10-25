@@ -46,6 +46,11 @@ async function insertPrompt(userEmail: string, text: string, source: string = 'w
       return null;
     }
     
+    if (!data) {
+      console.error('[DB] prompts.insert: no data returned');
+      return null;
+    }
+    
     console.log(`[DB] prompts.insert ok id=${data.id}`);
     return data.id;
   } catch (error) {
@@ -115,6 +120,11 @@ async function insertUsageEvent(userEmail: string, action: string, meta: any = {
       return null;
     }
     
+    if (!data) {
+      console.error('[DB] usage_events.insert: no data returned');
+      return null;
+    }
+    
     console.log(`[DB] usage_events.insert ok id=${data.id}`);
     return data.id;
   } catch (error) {
@@ -146,6 +156,11 @@ async function insertPlaylist(userEmail: string, playlistName: string, prompt: s
     
     if (error) {
       console.error('[DB] playlists.insert error:', error.message);
+      return null;
+    }
+    
+    if (!data) {
+      console.error('[DB] playlists.insert: no data returned');
       return null;
     }
     
@@ -182,6 +197,11 @@ async function insertPayment(userEmail: string, stripePaymentIntentId: string, s
     
     if (error) {
       console.error('[DB] payments.insert error:', error.message);
+      return null;
+    }
+    
+    if (!data) {
+      console.error('[DB] payments.insert: no data returned');
       return null;
     }
     
