@@ -71,7 +71,7 @@ async function getUserUUID(userEmail: string): Promise<string | null> {
       .eq('email', userEmail)
       .single();
     
-    if (!userError && user?.id) {
+    if (!userError && user && user.id) {
       return user.id;
     }
     
@@ -82,7 +82,7 @@ async function getUserUUID(userEmail: string): Promise<string | null> {
       .eq('email', userEmail)
       .single();
     
-    if (!profileError && profile?.user_id) {
+    if (!profileError && profile && profile.user_id) {
       return profile.user_id;
     }
     
