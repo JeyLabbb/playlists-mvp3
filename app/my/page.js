@@ -14,6 +14,7 @@ export default function MyPlaylistsPage() {
   const [previewTracks, setPreviewTracks] = useState([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [updatingPrivacy, setUpdatingPrivacy] = useState(new Set());
+  const [menuOpen, setMenuOpen] = useState(null);
 
   useEffect(() => {
     if (session?.user?.email) {
@@ -22,6 +23,18 @@ export default function MyPlaylistsPage() {
       setLoading(false);
     }
   }, [session, status]);
+
+  // Cerrar menú al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuOpen && !event.target.closest('.menu-container')) {
+        setMenuOpen(null);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [menuOpen]);
 
   const fetchUserPlaylists = async () => {
     try {
@@ -375,13 +388,13 @@ export default function MyPlaylistsPage() {
     <div className="min-h-screen bg-gray-950 text-white">
       
       {/* Header */}
-      <div className="pt-12 sm:pt-20 pb-4 sm:pb-8 px-4 sm:px-6">
+      <div className="pt-8 sm:pt-20 pb-3 sm:pb-8 px-3 sm:px-6">
         <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-4 sm:mb-8">
-            <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-green-400 to-cyan-400 bg-clip-text text-transparent">
+          <div className="text-center mb-3 sm:mb-8">
+            <h1 className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4 bg-gradient-to-r from-green-400 to-cyan-400 bg-clip-text text-transparent">
               Mis Playlists
             </h1>
-            <p className="text-gray-300 text-lg">
+            <p className="text-gray-300 text-sm sm:text-lg">
               {playlists.length} playlist{playlists.length !== 1 ? 's' : ''} creada{playlists.length !== 1 ? 's' : ''}
             </p>
           </div>
@@ -389,43 +402,43 @@ export default function MyPlaylistsPage() {
       </div>
 
       {/* Content */}
-      <div className="px-4 sm:px-6 pb-6 sm:pb-12">
+      <div className="px-3 sm:px-6 pb-6 sm:pb-12">
         <div className="max-w-4xl mx-auto">
-          <div className="grid gap-3 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-2 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
             {(Array.isArray(playlists) ? playlists : []).map((playlist) => (
               <div
                 key={playlist.playlistId}
-                className="bg-gray-800/50 border border-gray-700 rounded-xl p-3 sm:p-6 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70 group"
+                className="bg-gray-800/50 border border-gray-700 rounded-lg sm:rounded-xl p-2 sm:p-6 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70 group"
               >
                 <div className="flex items-start gap-2 sm:gap-4 mb-2 sm:mb-4">
                   {/* Album Art Placeholder */}
-                  <div className="flex-shrink-0 w-10 h-10 sm:w-16 sm:h-16 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
-                    <span className="text-white text-lg sm:text-2xl">🎵</span>
+                  <div className="flex-shrink-0 w-8 h-8 sm:w-16 sm:h-16 bg-gradient-to-br from-green-500 to-cyan-500 rounded-md sm:rounded-lg flex items-center justify-center">
+                    <span className="text-white text-sm sm:text-2xl">🎵</span>
                   </div>
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-sm sm:text-lg font-bold text-white mb-1 truncate group-hover:text-green-400 transition-colors">
-                      {playlist.name}
+                    <h3 className="text-xs sm:text-lg font-bold text-white mb-1 truncate group-hover:text-green-400 transition-colors" title={playlist.name}>
+                      {playlist.name.length > 30 ? `${playlist.name.substring(0, 30)}...` : playlist.name}
                     </h3>
                     
-                    <p className="text-gray-400 text-xs sm:text-sm mb-1 sm:mb-2 line-clamp-2">
-                      &ldquo;{playlist.prompt}&rdquo;
+                    <p className="text-gray-400 text-xs sm:text-sm mb-1 sm:mb-2 line-clamp-1 sm:line-clamp-2" title={playlist.prompt}>
+                      &ldquo;{playlist.prompt.length > 40 ? `${playlist.prompt.substring(0, 40)}...` : playlist.prompt}&rdquo;
                     </p>
                     
-                    <div className="flex items-center gap-2 sm:gap-3 text-xs text-gray-500">
+                    <div className="flex items-center gap-1 sm:gap-3 text-xs text-gray-500">
                       <span>{playlist.tracks} canciones</span>
-                      <span>•</span>
-                      <span>{formatDate(playlist.createdAt)}</span>
+                      <span className="hidden sm:inline">•</span>
+                      <span className="hidden sm:inline">{formatDate(playlist.createdAt)}</span>
                     </div>
                   </div>
                 </div>
 
                 {/* Privacy Toggle */}
-                <div className="flex items-center justify-between mb-4 p-3 bg-gray-700/30 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-300">Visible en Trending</span>
-                    <span className={`text-xs px-2 py-1 rounded ${
+                <div className="flex items-center justify-between mb-3 sm:mb-4 p-2 sm:p-3 bg-gray-700/30 rounded-md sm:rounded-lg">
+                  <div className="flex items-center gap-1 sm:gap-2">
+                    <span className="text-xs sm:text-sm text-gray-300">Visible en Trending</span>
+                    <span className={`text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 rounded ${
                       playlist.public !== false 
                         ? 'bg-green-500/20 text-green-400' 
                         : 'bg-red-500/20 text-red-400'
@@ -436,13 +449,13 @@ export default function MyPlaylistsPage() {
                   <button
                     onClick={() => togglePlaylistPrivacy(playlist.playlistId, playlist.public !== false)}
                     disabled={updatingPrivacy.has(playlist.playlistId)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${
+                    className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${
                       playlist.public !== false ? 'bg-green-500' : 'bg-gray-600'
                     } ${updatingPrivacy.has(playlist.playlistId) ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
-                        playlist.public !== false ? 'translate-x-6' : 'translate-x-1'
+                      className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform duration-200 ${
+                        playlist.public !== false ? 'translate-x-5 sm:translate-x-6' : 'translate-x-1'
                       }`}
                     />
                   </button>
@@ -453,9 +466,9 @@ export default function MyPlaylistsPage() {
                   <button
                     onClick={() => loadPlaylistDetails(playlist)}
                     disabled={loadingPreview}
-                    className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-700 text-white px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg transition-colors duration-200 text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-2"
+                    className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-700 text-white px-2 sm:px-4 py-1 sm:py-2 rounded-md sm:rounded-lg transition-colors duration-200 text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-2"
                   >
-                    <span className="text-sm sm:text-base">👁️</span>
+                    <span className="text-xs sm:text-base">👁️</span>
                     <span className="hidden sm:inline">{loadingPreview ? 'Cargando...' : 'Ver detalles'}</span>
                     <span className="sm:hidden">Ver</span>
                   </button>
@@ -472,20 +485,43 @@ export default function MyPlaylistsPage() {
                         console.error('Error opening playlist:', error);
                       }
                     }}
-                    className="bg-green-500 hover:bg-green-600 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg transition-colors duration-200 text-xs sm:text-sm flex items-center justify-center"
+                    className="bg-green-500 hover:bg-green-600 text-white px-2 sm:px-3 py-1 sm:py-2 rounded-md sm:rounded-lg transition-colors duration-200 text-xs sm:text-sm flex items-center justify-center"
                     title="Abrir en Spotify"
                   >
-                    <span className="text-sm sm:text-base">🎧</span>
+                    <span className="text-xs sm:text-base">🎧</span>
                   </button>
                   
-                  <button
-                    onClick={() => deletePlaylist(playlist.playlistId, playlist.name)}
-                    disabled={deletingPlaylist.has(playlist.playlistId)}
-                    className="bg-red-500 hover:bg-red-600 disabled:bg-red-700 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg transition-colors duration-200 text-xs sm:text-sm flex items-center justify-center"
-                    title="Eliminar playlist"
-                  >
-                    {deletingPlaylist.has(playlist.playlistId) ? '⏳' : '🗑️'}
-                  </button>
+                  {/* Menu de 3 puntos */}
+                  <div className="relative menu-container">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuOpen(menuOpen === playlist.playlistId ? null : playlist.playlistId);
+                      }}
+                      className="bg-gray-600 hover:bg-gray-500 text-gray-300 hover:text-white px-2 sm:px-3 py-1 sm:py-2 rounded-md sm:rounded-lg transition-colors duration-200 text-xs sm:text-sm flex items-center justify-center"
+                      title="Más opciones"
+                    >
+                      <span className="text-xs sm:text-base">⋯</span>
+                    </button>
+                    
+                    {/* Dropdown Menu */}
+                    {menuOpen === playlist.playlistId && (
+                      <div className="absolute right-0 top-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-10 min-w-[120px] sm:min-w-[140px]">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deletePlaylist(playlist.playlistId, playlist.name);
+                            setMenuOpen(null);
+                          }}
+                          disabled={deletingPlaylist.has(playlist.playlistId)}
+                          className="w-full px-2 sm:px-3 py-1.5 sm:py-2 text-left text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors duration-200 text-xs sm:text-sm flex items-center gap-1 sm:gap-2"
+                        >
+                          {deletingPlaylist.has(playlist.playlistId) ? '⏳' : '🗑️'}
+                          {deletingPlaylist.has(playlist.playlistId) ? 'Eliminando...' : 'Eliminar'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   
                 </div>
               </div>

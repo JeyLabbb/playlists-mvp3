@@ -28,6 +28,75 @@ const vlog = (...args) => {
   if (VERBOSE_LOGS) console.log(...args);
 };
 
+// Helper to log metrics to Supabase via telemetry API
+async function logMetrics(userEmail, action, meta) {
+  try {
+    const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'usage',
+        payload: {
+          email: userEmail,
+          event: action,
+          meta: meta
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[METRICS] Error logging metrics:', errorText);
+      return { ok: false, error: errorText };
+    } else {
+      const result = await response.json();
+      console.log(`[METRICS] logged ${action} for ${userEmail}`, result);
+      return result;
+    }
+  } catch (error) {
+    console.error('[METRICS] Error in logMetrics:', error);
+    return { ok: false, error: error.message };
+  }
+}
+
+// Helper to log playlists to Supabase via telemetry API
+async function logPlaylist(userEmail, playlistName, prompt, spotifyUrl, spotifyId, trackCount) {
+  try {
+    const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'playlist',
+        payload: {
+          email: userEmail,
+          playlistName: playlistName,
+          prompt: prompt,
+          spotifyUrl: spotifyUrl,
+          spotifyId: spotifyId,
+          trackCount: trackCount
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[PLAYLIST] Error logging playlist:', errorText);
+      return { ok: false, error: errorText };
+    } else {
+      const result = await response.json();
+      console.log(`[PLAYLIST] logged playlist for ${userEmail}`, result);
+      return result;
+    }
+  } catch (error) {
+    console.error('[PLAYLIST] Error in logPlaylist:', error);
+    return { ok: false, error: error.message };
+  }
+}
+
 // Get top 3 tracks of an artist
 async function getArtistTopTracks(accessToken, artistName, limit = 3) {
   vlog(`[ARTIST-TOP] Getting top ${limit} tracks for "${artistName}"`);
@@ -1997,6 +2066,37 @@ async function handleStreamingRequest(request) {
     
     const accessToken = session.accessToken;
     console.log(`[STREAM:${traceId}] Session found for user: ${session.user?.email || 'unknown'}`);
+
+    // Check usage limit before generating playlist
+    if (session.user?.email) {
+      try {
+        // Direct KV operations instead of HTTP call
+        const kv = await import('@vercel/kv');
+        const profileKey = `userprofile:${session.user.email}`;
+        const profile = await kv.kv.get(profileKey);
+        
+        const used = profile?.usage?.used || 0;
+        const isFounder = profile?.plan === 'founder';
+        const limit = used >= 5 && !isFounder; // Only limit if not founder
+        
+        if (limit) {
+          console.log(`[STREAM:${traceId}] Usage limit reached for user ${session.user.email}: ${used}/5`);
+          return NextResponse.json({
+            code: "LIMIT_REACHED",
+            error: "Usage limit reached",
+            message: "You have reached your usage limit. Please upgrade to continue generating playlists.",
+            used: used,
+            remaining: Math.max(0, 5 - used)
+          }, { status: 403 });
+        } else if (isFounder) {
+          console.log(`[STREAM:${traceId}] Founder user - unlimited access: ${used}/∞`);
+        } else {
+          console.log(`[STREAM:${traceId}] Usage check passed: ${used}/5`);
+        }
+      } catch (usageError) {
+        console.warn(`[STREAM:${traceId}] Error checking usage status:`, usageError);
+      }
+    }
     
     // Create SSE response
     const encoder = new TextEncoder();
@@ -2007,6 +2107,7 @@ async function handleStreamingRequest(request) {
         // Use global usedTracks to prevent repetition across all contexts
         let usedTracks = globalUsedTracks;
         let heartbeatInterval;
+        let firstTrackSent = false; // Flag to track if we've sent the first track
         
         // Set up heartbeat
         heartbeatInterval = setInterval(() => {
@@ -2062,6 +2163,26 @@ async function handleStreamingRequest(request) {
                      throw new Error("Failed to generate intent");
                    }
                    
+                   // Log prompt to Supabase
+                   console.log(`[STREAM:${traceId}] ===== LOGGING PROMPT TO SUPABASE =====`);
+                   console.log(`[STREAM:${traceId}] Email: ${session.user.email}`);
+                   console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
+                   try {
+                     const logResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
+                       method: 'POST',
+                       headers: { 'Content-Type': 'application/json' },
+                       body: JSON.stringify({
+                         type: 'prompt',
+                         payload: { email: session.user.email, prompt, source: 'web' }
+                       })
+                     });
+                     if (logResponse.ok) {
+                       console.log(`[STREAM:${traceId}] ===== PROMPT LOGGED =====`);
+                     }
+                   } catch (logError) {
+                     console.warn(`[STREAM:${traceId}] Failed to log prompt:`, logError);
+                   }
+                   
                    console.log(`[STREAM:${traceId}] ===== INTENT GENERATED =====`);
                    console.log(`[STREAM:${traceId}] Intent summary:`, {
                      mode: determineMode(intent, prompt),
@@ -2086,6 +2207,75 @@ async function handleStreamingRequest(request) {
                 if (track.id) usedTracks.add(track.id);
               });
               allTracks = [...allTracks, ...chunk];
+              
+              // Consume usage when first track is sent
+              if (!firstTrackSent && chunk.length > 0 && session.user?.email) {
+                firstTrackSent = true;
+                try {
+                  console.log(`[STREAM:${traceId}] Consuming usage for first track`);
+                  
+                  // Direct KV operations instead of HTTP call
+                  const kv = await import('@vercel/kv');
+                  const profileKey = `userprofile:${session.user.email}`;
+                  const profile = await kv.kv.get(profileKey);
+                  
+                  let used = profile?.usage?.used || 0;
+                  const isFounder = profile?.plan === 'founder';
+                  
+                  if (isFounder) {
+                    console.log(`[STREAM:${traceId}] Founder user - no usage consumption needed: ${used}/∞`);
+                    
+       // Log metrics to Supabase for founder
+       console.log(`[STREAM:${traceId}] ===== LOGGING METRICS FOR FOUNDER =====`);
+       console.log(`[STREAM:${traceId}] Email: ${session.user.email}`);
+       await logMetrics(session.user.email, 'generate_playlist', {
+         prompt: prompt,
+         trackCount: target_tracks,
+         plan: 'founder',
+         remainingUses: '∞'
+       });
+       console.log(`[STREAM:${traceId}] ===== METRICS LOGGED FOR FOUNDER =====`);
+       
+      // Log playlist creation for founder
+      console.log(`[STREAM:${traceId}] ===== LOGGING PLAYLIST CREATION FOR FOUNDER =====`);
+      await logPlaylist(session.user.email, playlist_name || `Playlist ${new Date().toISOString()}`, prompt, null, null, target_tracks);
+      console.log(`[STREAM:${traceId}] ===== PLAYLIST LOGGED FOR FOUNDER =====`);
+                  } else if (used >= 5) {
+                    console.log(`[STREAM:${traceId}] Usage limit already reached: ${used}/5`);
+                  } else {
+                    used += 1;
+                    const updatedProfile = {
+                      ...profile,
+                      usage: {
+                        used,
+                        lastUsed: new Date().toISOString()
+                      }
+                    };
+                    
+                    await kv.kv.set(profileKey, updatedProfile);
+                    console.log(`[STREAM:${traceId}] Usage consumed: ${used}/5`);
+                    
+       // Log metrics to Supabase
+       console.log(`[STREAM:${traceId}] ===== LOGGING METRICS FOR USER =====`);
+       console.log(`[STREAM:${traceId}] Email: ${session.user.email}`);
+       console.log(`[STREAM:${traceId}] Used: ${used}/5`);
+       await logMetrics(session.user.email, 'generate_playlist', {
+         prompt: prompt,
+         trackCount: target_tracks,
+         plan: profile?.plan || 'free',
+         remainingUses: 5 - used
+       });
+       console.log(`[STREAM:${traceId}] ===== METRICS LOGGED FOR USER =====`);
+       
+      // Log playlist creation
+      console.log(`[STREAM:${traceId}] ===== LOGGING PLAYLIST CREATION =====`);
+      await logPlaylist(session.user.email, playlist_name || `Playlist ${new Date().toISOString()}`, prompt, null, null, target_tracks);
+      console.log(`[STREAM:${traceId}] ===== PLAYLIST LOGGED =====`);
+                  }
+                } catch (consumeError) {
+                  console.warn(`[STREAM:${traceId}] Error consuming usage:`, consumeError);
+                }
+              }
               
               try {
                 controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
@@ -2156,6 +2346,54 @@ async function handleStreamingRequest(request) {
                 });
                 allTracks = [...allTracks, ...chunk];
                 spotifyYielded += chunk.length;
+                
+                // Consume usage when first track is sent (if not already consumed in LLM phase)
+                if (!firstTrackSent && chunk.length > 0 && session.user?.email) {
+                  firstTrackSent = true;
+                  try {
+                    console.log(`[STREAM:${traceId}] Consuming usage for first Spotify track`);
+                    
+                    // Direct KV operations instead of HTTP call
+                    const kv = await import('@vercel/kv');
+                    const profileKey = `userprofile:${session.user.email}`;
+                    const profile = await kv.kv.get(profileKey);
+                    
+                    let used = profile?.usage?.used || 0;
+                    const isFounder = profile?.plan === 'founder';
+                    
+                    if (isFounder) {
+                      console.log(`[STREAM:${traceId}] Founder user - no usage consumption needed: ${used}/∞`);
+                    } else if (used >= 5) {
+                      console.log(`[STREAM:${traceId}] Usage limit already reached: ${used}/5`);
+                    } else {
+                      used += 1;
+                      const updatedProfile = {
+                        ...profile,
+                        usage: {
+                          used,
+                          lastUsed: new Date().toISOString()
+                        }
+                      };
+                      
+                      await kv.kv.set(profileKey, updatedProfile);
+                      console.log(`[STREAM:${traceId}] Usage consumed: ${used}/5`);
+                    }
+
+                    // Log metrics to Supabase
+                    const metricsResult = await logMetrics(session.user.email, 'generate_playlist', {
+                      prompt: intent.prompt || '',
+                      trackCount: target_tracks,
+                      plan: profile?.plan || 'free',
+                      remainingUses: isFounder ? '∞' : (5 - used)
+                    });
+                    
+                    if (metricsResult.ok) {
+                      console.log(`[METRICS] Successfully logged playlist generation for ${session.user.email}`);
+                    }
+                  } catch (consumeError) {
+                    console.warn(`[STREAM:${traceId}] Error consuming usage:`, consumeError);
+                  }
+                }
                 
                 controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
                   tracks: chunk,
@@ -2489,6 +2727,41 @@ async function handleStreamingRequest(request) {
             
           } catch (error) {
             console.error(`[STREAM:${traceId}] Processing error:`, error);
+            
+            // If usage was consumed but no tracks were generated, refund the usage
+            if (firstTrackSent && allTracks.length === 0 && session.user?.email) {
+              try {
+                console.log(`[STREAM:${traceId}] Refunding usage due to error with no tracks`);
+                
+                // Direct KV operations instead of HTTP call
+                const kv = await import('@vercel/kv');
+                const profileKey = `userprofile:${session.user.email}`;
+                const profile = await kv.kv.get(profileKey);
+                
+                  let used = profile?.usage?.used || 0;
+                  const isFounder = profile?.plan === 'founder';
+                  
+                  if (isFounder) {
+                    console.log(`[STREAM:${traceId}] Founder user - no usage refund needed: ${used}/∞`);
+                  } else if (used > 0) {
+                    used -= 1;
+                    const updatedProfile = {
+                      ...profile,
+                      usage: {
+                        used,
+                        lastUsed: new Date().toISOString()
+                      }
+                    };
+                    
+                    await kv.kv.set(profileKey, updatedProfile);
+                    console.log(`[STREAM:${traceId}] Usage refunded: ${used}/5`);
+                  } else {
+                    console.log(`[STREAM:${traceId}] No usage to refund`);
+                  }
+              } catch (refundError) {
+                console.warn(`[STREAM:${traceId}] Error refunding usage:`, refundError);
+              }
+            }
             
             clearTimeout(timeout);
             clearInterval(heartbeatInterval);

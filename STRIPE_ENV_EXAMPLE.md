@@ -20,3 +20,4 @@ NEXTAUTH_URL=http://localhost:3000
 # Note: In production, replace with your actual domain
 # NEXTAUTH_URL=https://yourdomain.com
 
+

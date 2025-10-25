@@ -136,13 +136,24 @@ async function getAllProfilesForUsernameCheck() {
 // GET: Retrieve user profile
 export async function GET(request) {
   try {
-    const session = await getServerSession(simpleAuthOptions);
+    const { searchParams } = new URL(request.url);
+    const emailParam = searchParams.get('email');
     
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    let session = null;
+    let email = null;
+    
+    if (emailParam) {
+      // Direct email query (for internal API calls)
+      email = emailParam;
+    } else {
+      // Session-based query
+      session = await getServerSession(simpleAuthOptions);
+      if (!session?.user?.email) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      email = session.user.email;
     }
 
-    const email = session.user.email;
     let profile = null;
 
     // Try Vercel KV first
@@ -150,8 +161,8 @@ export async function GET(request) {
       profile = await getProfileFromKV(email);
     }
 
-    // If no profile exists, create one
-    if (!profile) {
+    // If no profile exists, create one (only for session-based queries)
+    if (!profile && !emailParam) {
       const allProfiles = hasKV() ? await getAllProfilesForUsernameCheck() : [];
       const existingUsernames = allProfiles.map(p => p.username).filter(Boolean);
       
@@ -203,19 +214,30 @@ export async function POST(request) {
     const { displayName, bio, image, username } = body;
     const email = session.user.email;
 
-    // Get existing profile
+    // Get existing profile using DIRECT KV SDK (same as other endpoints)
     let existingProfile = null;
     if (hasKV()) {
-      existingProfile = await getProfileFromKV(email);
+      const kv = await import('@vercel/kv');
+      const profileKey = `userprofile:${email}`;
+      existingProfile = await kv.kv.get(profileKey) || {};
     }
 
-    // Prepare updated profile
+    // Prepare updated profile - PRESERVE CRITICAL FIELDS
     const updatedProfile = {
       ...existingProfile,
       email,
       displayName: displayName || existingProfile?.displayName || session.user.name || email.split('@')[0],
       image: image !== undefined ? image : existingProfile?.image || session.user.image || null,
       bio: bio !== undefined ? bio : existingProfile?.bio || null,
+      // PRESERVE CRITICAL FIELDS - DO NOT OVERWRITE
+      plan: existingProfile?.plan || null,
+      founderSince: existingProfile?.founderSince || null,
+      usage: existingProfile?.usage || { used: 0, lastUsed: null },
+      // PRESERVE REFERRAL FIELDS
+      referrals: existingProfile?.referrals || [],
+      referredQualifiedCount: existingProfile?.referredQualifiedCount || 0,
+      referredBy: existingProfile?.referredBy || null,
+      hasCreatedPlaylist: existingProfile?.hasCreatedPlaylist || 0,
       updatedAt: new Date().toISOString()
     };
 
@@ -239,17 +261,24 @@ export async function POST(request) {
       updatedProfile.username = existingProfile?.username || generateUsername(existingProfile?.displayName, email, []);
     }
 
-    // Try to save to KV
+    // Save to KV using DIRECT SDK (same as other endpoints)
     if (hasKV()) {
-      const saved = await saveProfileToKV(email, updatedProfile);
-      if (saved) {
-        return NextResponse.json({
-          success: true,
-          profile: updatedProfile,
-          saved: true,
-          source: 'kv'
-        });
-      }
+      const kv = await import('@vercel/kv');
+      const profileKey = `userprofile:${email}`;
+      await kv.kv.set(profileKey, updatedProfile);
+      
+      console.log('[PROFILE] Updated profile via POST:', email, { 
+        plan: updatedProfile.plan, 
+        founderSince: updatedProfile.founderSince, 
+        usage: updatedProfile.usage 
+      });
+      
+      return NextResponse.json({
+        success: true,
+        profile: updatedProfile,
+        saved: true,
+        source: 'kv'
+      });
     }
 
     // Fallback response for localStorage
@@ -272,11 +301,11 @@ export async function PATCH(request) {
   return POST(request);
 }
 
-// PUT: Update user profile (used by webhook to mark Founder status)
+// PUT: Update user profile (used by webhook to mark Founder status and usage)
 export async function PUT(request) {
   try {
     const body = await request.json();
-    const { email, plan, founderSince } = body;
+    const { email, plan, founderSince, usage } = body;
     
     if (!email) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 });
@@ -285,30 +314,116 @@ export async function PUT(request) {
     if (hasKV()) {
       // Use Vercel KV
       const kv = await import('@vercel/kv');
-      const profileKey = `profile:${email}`;
+      const profileKey = `userprofile:${email}`;
       
       // Get existing profile
       const existingProfile = await kv.kv.get(profileKey) || {};
       
-      // Update with Founder status
+      // Update with Founder status and/or usage - PRESERVE REFERRAL FIELDS
       const updatedProfile = {
         ...existingProfile,
-        plan: plan || existingProfile.plan,
-        founderSince: founderSince || existingProfile.founderSince,
+        plan: plan !== undefined ? plan : existingProfile.plan,
+        founderSince: founderSince !== undefined ? founderSince : existingProfile.founderSince,
+        usage: usage !== undefined ? usage : existingProfile.usage,
+        // PRESERVE REFERRAL FIELDS
+        referrals: existingProfile.referrals || [],
+        referredQualifiedCount: existingProfile.referredQualifiedCount || 0,
+        referredBy: existingProfile.referredBy || null,
+        hasCreatedPlaylist: existingProfile.hasCreatedPlaylist || 0,
         updatedAt: new Date().toISOString()
       };
       
       await kv.kv.set(profileKey, updatedProfile);
-      console.log('[PROFILE] Updated Founder status for:', email);
+      console.log('[PROFILE] Updated profile for:', email, { plan, founderSince, usage });
       
       return NextResponse.json({ success: true, profile: updatedProfile });
     } else {
       // Fallback to localStorage simulation (not applicable for server-side)
-      console.log('[PROFILE] KV not available, cannot update Founder status');
+      console.log('[PROFILE] KV not available, cannot update profile');
       return NextResponse.json({ error: 'Profile storage not available' }, { status: 503 });
     }
   } catch (error) {
     console.error('[PROFILE] Error updating profile:', error);
     return NextResponse.json({ error: 'Failed to update profile' }, { status: 500 });
+  }
+}
+
+// DELETE: Delete user account and all associated data
+export async function DELETE(request) {
+  try {
+    const session = await getServerSession(simpleAuthOptions);
+    
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const email = session.user.email;
+    console.log('[PROFILE] Deleting account for:', email);
+
+    if (hasKV()) {
+      const kv = await import('@vercel/kv');
+      
+      // Delete user profile
+      const profileKey = `userprofile:${email}`;
+      await kv.kv.del(profileKey);
+      console.log('[PROFILE] Deleted profile for:', email);
+
+      // Delete user playlists from trending/userplaylists
+      try {
+        // Get all playlists to find user's playlists
+        const allPlaylistsKey = 'all_playlists';
+        const allPlaylists = await kv.kv.get(allPlaylistsKey) || [];
+        
+        // Filter out user's playlists
+        const remainingPlaylists = allPlaylists.filter(playlist => 
+          playlist.userEmail !== email
+        );
+        
+        // Update the all_playlists with remaining playlists
+        await kv.kv.set(allPlaylistsKey, remainingPlaylists);
+        
+        const deletedCount = allPlaylists.length - remainingPlaylists.length;
+        console.log(`[PROFILE] Deleted ${deletedCount} playlists for user:`, email);
+        
+        // Also delete from userplaylists if it exists
+        const userPlaylistsKey = `userplaylists:${email}`;
+        await kv.kv.del(userPlaylistsKey);
+        console.log('[PROFILE] Deleted user playlists collection for:', email);
+        
+      } catch (playlistError) {
+        console.warn('[PROFILE] Error deleting playlists:', playlistError);
+        // Continue with account deletion even if playlist deletion fails
+      }
+
+      // Delete any other user-specific data
+      try {
+        // Delete usage data (if stored separately)
+        const usageKey = `usage:${email}`;
+        await kv.kv.del(usageKey);
+        
+        // Delete any session data
+        const sessionKey = `session:${email}`;
+        await kv.kv.del(sessionKey);
+        
+        console.log('[PROFILE] Deleted additional user data for:', email);
+      } catch (dataError) {
+        console.warn('[PROFILE] Error deleting additional data:', dataError);
+        // Continue even if some data deletion fails
+      }
+
+      console.log('[PROFILE] Account deletion completed for:', email);
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Account and all associated data deleted successfully' 
+      });
+      
+    } else {
+      console.log('[PROFILE] KV not available, cannot delete account');
+      return NextResponse.json({ error: 'Account deletion not available' }, { status: 503 });
+    }
+    
+  } catch (error) {
+    console.error('[PROFILE] Error deleting account:', error);
+    return NextResponse.json({ error: 'Failed to delete account' }, { status: 500 });
   }
 }

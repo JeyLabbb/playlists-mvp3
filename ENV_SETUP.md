@@ -48,3 +48,4 @@ NODE_ENV=development
 4. Set `USAGE_WINDOW_DAYS` to the window duration (30 for monthly)
 5. In production, set `NODE_ENV=production` to disable checkout
 
+

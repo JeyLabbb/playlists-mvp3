@@ -159,6 +159,35 @@ export async function POST(req) {
     
     console.log('[CREATE] ok', { id: playlistId, url: playlistUrl, added });
     
+    // Log playlist creation to Supabase
+    console.log(`[CREATE] ===== LOGGING PLAYLIST CREATION TO SUPABASE =====`);
+    try {
+      const logResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'playlist',
+          payload: {
+            email: session?.user?.email || 'unknown@example.com',
+            playlistName: safeName,
+            prompt: prompt || 'Generated from streaming',
+            spotifyUrl: playlistUrl,
+            spotifyId: playlistId,
+            trackCount: added
+          }
+        })
+      });
+      
+      if (logResponse.ok) {
+        const logResult = await logResponse.json();
+        console.log(`[CREATE] ===== PLAYLIST LOGGED TO SUPABASE =====`, logResult);
+      } else {
+        console.error(`[CREATE] Failed to log playlist:`, await logResponse.text());
+      }
+    } catch (logError) {
+      console.error(`[CREATE] Error logging playlist:`, logError);
+    }
+    
     return NextResponse.json({
       ok: true,
       playlistId: playlistId,

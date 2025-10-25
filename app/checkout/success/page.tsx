@@ -3,55 +3,58 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { mutate } from 'swr';
 
 export default function CheckoutSuccessPage() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session_id');
   const [loading, setLoading] = useState(false);
+  const [webhookProcessed, setWebhookProcessed] = useState(false);
 
-  const handleManageBilling = async () => {
+  // Auto-process webhook when component mounts
+  useEffect(() => {
+    if (sessionId && !webhookProcessed) {
+      processWebhook();
+    }
+  }, [sessionId, webhookProcessed]);
+
+  const processWebhook = async () => {
     if (!sessionId) return;
     
-    setLoading(true);
     try {
-      // Check if this is a Founder Pass (one-time payment) or Monthly subscription
-      const sessionResponse = await fetch(`/api/stripe/session-info?session_id=${sessionId}`);
-      const sessionData = await sessionResponse.json();
+      console.log('[SUCCESS-PAGE] Associating purchase with current user for session:', sessionId);
+      const webhookResponse = await fetch('/api/associate-purchase', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sessionId })
+      });
       
-      if (sessionData.isFounderPass) {
-        // Founder Pass - redirect to profile page
-        window.location.href = '/me';
-      } else {
-        // Monthly subscription - use billing portal
-        const response = await fetch('/api/stripe/portal', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ session_id: sessionId }),
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.url) {
-          window.location.href = data.url;
-        } else {
-          console.error('Portal error:', data);
-          if (data.error === 'No customer found in session') {
-            alert('Esta sesión de pago no tiene información de cliente. Esto puede ocurrir si el pago aún no se ha procesado completamente. Inténtalo de nuevo en unos minutos.');
-          } else if (data.error === 'Stripe not configured') {
-            alert('El sistema de pagos no está configurado correctamente.');
-          } else {
-            alert(`Error al abrir el portal de facturación: ${data.error || 'Error desconocido'}`);
-          }
+      if (webhookResponse.ok) {
+        const result = await webhookResponse.json();
+        console.log('[SUCCESS-PAGE] Purchase associated successfully:', result);
+        setWebhookProcessed(true);
+        
+        if (result.isFounder) {
+          console.log('[SUCCESS-PAGE] User is now founder, refreshing profile data...');
+          await mutate('/api/me');
+          console.log('[SUCCESS-PAGE] Profile data refreshed');
         }
+      } else {
+        console.error('[SUCCESS-PAGE] Purchase association failed');
       }
     } catch (error) {
-      console.error('Billing portal error:', error);
-      alert('Error al procesar la solicitud. Inténtalo de nuevo.');
-    } finally {
-      setLoading(false);
+      console.error('[SUCCESS-PAGE] Error associating purchase:', error);
     }
+  };
+
+  const handleGoToProfile = () => {
+    window.location.href = '/me?checkout=success';
+  };
+
+  const handleGoHome = () => {
+    window.location.href = '/?checkout=success';
   };
 
   return (
@@ -104,7 +107,7 @@ export default function CheckoutSuccessPage() {
               opacity: 0.8
             }}
           >
-            ✅ Pago completado. Revisa tu email.
+            ✅ Pago completado. Tu cuenta se ha actualizado automáticamente.
           </p>
 
           {sessionId && (
@@ -142,33 +145,22 @@ export default function CheckoutSuccessPage() {
           {/* Action Buttons */}
           <div className="space-y-3">
             <button
-              onClick={handleManageBilling}
-              disabled={loading || !sessionId}
-              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+              onClick={handleGoToProfile}
+              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg hover:scale-[1.02]"
               style={{
-                backgroundColor: loading || !sessionId ? 'rgba(255, 255, 255, 0.1)' : '#5B8CFF',
+                backgroundColor: '#5B8CFF',
                 color: '#0B0F14',
                 fontFamily: 'Inter, sans-serif',
                 fontWeight: 600,
                 border: 'none'
               }}
             >
-              {loading ? (
-                <div className="flex items-center justify-center">
-                  <div 
-                    className="animate-spin rounded-full h-5 w-5 border-b-2 mr-2"
-                    style={{ borderColor: '#0B0F14' }}
-                  ></div>
-                  Abriendo...
-                </div>
-                     ) : (
-                       'Ir a mi perfil'
-                     )}
+              Ir a mi perfil
             </button>
             
-            <Link
-              href="/"
-              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 inline-block hover:shadow-lg hover:scale-[1.02]"
+            <button
+              onClick={handleGoHome}
+              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg hover:scale-[1.02]"
               style={{
                 backgroundColor: 'rgba(255, 255, 255, 0.05)',
                 color: '#EAF2FF',
@@ -178,7 +170,7 @@ export default function CheckoutSuccessPage() {
               }}
             >
               Volver al Inicio
-            </Link>
+            </button>
           </div>
 
           {/* Additional Info */}
@@ -195,7 +187,7 @@ export default function CheckoutSuccessPage() {
                 opacity: 0.7
               }}
             >
-              Recibirás un email de confirmación en breve con los detalles de tu suscripción.
+              Recibirás un email de confirmación en breve. ¡Bienvenido al grupo FOUNDERS!
             </p>
           </div>
         </div>

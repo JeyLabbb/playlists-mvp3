@@ -390,13 +390,13 @@ export default function PublicProfilePage({ params }) {
                           &ldquo;{anonymizePrompt(playlist.prompt)}&rdquo;
                         </p>
                         
-                        <div className="flex items-center gap-1 sm:gap-4 text-xs text-gray-500">
+                        <div className="flex items-center gap-1 sm:gap-4 text-xs text-gray-500 flex-wrap">
                           <span>{playlist.trackCount} canciones</span>
                           <span className="hidden sm:inline">👀</span>
                           <span>{playlist.views || 0}</span>
                           <span className="hidden sm:inline">🔗</span>
                           <span>{playlist.clicks || 0}</span>
-                          <span className="hidden sm:inline">
+                          <span className="hidden sm:inline truncate">
                             {new Date(playlist.createdAt).toLocaleDateString('es-ES', {
                               month: 'short',
                               day: 'numeric'

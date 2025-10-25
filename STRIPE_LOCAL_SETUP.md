@@ -25,3 +25,4 @@ STRIPE_PRICE_PRO=price_test_pro_monthly
 # NextAuth URL (for other auth features)
 NEXTAUTH_URL=http://localhost:3000
 
+

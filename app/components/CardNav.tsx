@@ -209,7 +209,7 @@ export default function CardNav({
                           </defs>
 
                           {/* Texto PLEIA centrado */}
-                          <text x="60" y="26" textAnchor="middle" fontFamily="Space Grotesk, Inter, system-ui" fontSize="18" fontWeight="600" letterSpacing="0.02em" fill="#F5F7FA">
+                          <text x="60" y="28" textAnchor="middle" fontFamily="Space Grotesk, Inter, system-ui" fontSize="18" fontWeight="600" letterSpacing="0.02em" fill="#F5F7FA">
                             PLEIA
                           </text>
                           

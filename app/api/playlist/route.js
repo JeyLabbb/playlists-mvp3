@@ -1006,6 +1006,54 @@ export async function POST(req) {
   try {
     const { intent, prompt, target_tracks } = await req.json();
     
+    let token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    
+    // For debug purposes, create mock token if none exists
+    if (!token?.accessToken && process.env.NODE_ENV === "development") {
+      token = {
+        accessToken: "mock-token-for-debug",
+        user: { name: "Debug User", email: "debug@example.com" }
+      };
+    } else if (!token?.accessToken) {
+      return NextResponse.json({ error: "No access token" }, { status: 401 });
+    }
+
+    // Check usage limit before generating playlist
+    if (token.user?.email) {
+      try {
+        const usageResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/usage/status?email=${encodeURIComponent(token.user.email)}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (usageResponse.ok) {
+          const usageData = await usageResponse.json();
+          // Check if user is founder by getting profile
+          const kv = await import('@vercel/kv');
+          const profileKey = `userprofile:${token.user.email}`;
+          const profile = await kv.kv.get(profileKey);
+          const isFounder = profile?.plan === 'founder';
+          
+          if (usageData.limit && !isFounder) {
+            console.log(`[PLAYLIST] Usage limit reached for user ${token.user.email}: ${usageData.used}/5`);
+            return NextResponse.json({
+              code: "LIMIT_REACHED",
+              error: "Usage limit reached",
+              message: "You have reached your usage limit. Please upgrade to continue generating playlists.",
+              used: usageData.used,
+              remaining: usageData.remaining
+            }, { status: 403 });
+          } else if (isFounder) {
+            console.log(`[PLAYLIST] Founder user - unlimited access: ${usageData.used}/∞`);
+          }
+        } else {
+          console.warn('[PLAYLIST] Failed to check usage status, proceeding with generation');
+        }
+      } catch (usageError) {
+        console.warn('[PLAYLIST] Error checking usage status:', usageError);
+      }
+    }
+    
     // If we have a prompt, use the new LLM-first system
     if (prompt && typeof prompt === 'string') {
       console.log(`[PLAYLIST] Using LLM-first system for prompt: "${prompt}"`);
@@ -1022,18 +1070,6 @@ export async function POST(req) {
       } else {
         console.warn('[PLAYLIST] LLM-first system failed, falling back to legacy system');
       }
-    }
-    
-    let token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-    
-    // For debug purposes, create mock token if none exists
-    if (!token?.accessToken && process.env.NODE_ENV === "development") {
-      token = {
-        accessToken: "mock-token-for-debug",
-        user: { name: "Debug User", email: "debug@example.com" }
-      };
-    } else if (!token?.accessToken) {
-      return NextResponse.json({ error: "No access token" }, { status: 401 });
     }
     
     if (!intent) {

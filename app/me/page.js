@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useSession, signIn } from 'next-auth/react';
+import { useSession, signIn, signOut } from 'next-auth/react';
+import ReferralModule from '../components/ReferralModule';
 import { useProfile } from '../../lib/useProfile';
 
 export default function ProfilePage() {
@@ -19,6 +20,8 @@ export default function ProfilePage() {
   const [usernameAvailable, setUsernameAvailable] = useState(true);
   const [usernameDebounceTimer, setUsernameDebounceTimer] = useState(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const { isFounder, founderSince } = useProfile();
 
   // Simple localStorage loader
@@ -278,6 +281,43 @@ export default function ProfilePage() {
       setError('Error al cerrar sesión');
     } finally {
       setLoggingOut(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    try {
+      setDeletingAccount(true);
+      
+      const response = await fetch('/api/profile', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        // Limpiar localStorage
+        try {
+          localStorage.removeItem('ea_done');
+          localStorage.removeItem('ea_pending');
+          if (session?.user?.email) {
+            const localKey = `jey_user_profile:${session.user.email}`;
+            localStorage.removeItem(localKey);
+          }
+        } catch (e) {
+          console.warn('Error clearing localStorage:', e);
+        }
+        
+        // Cerrar sesión y redirigir
+        await signOut({ callbackUrl: '/' });
+      } else {
+        const data = await response.json();
+        setError(data.error || 'Error al eliminar la cuenta');
+      }
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      setError('Error al eliminar la cuenta');
+    } finally {
+      setDeletingAccount(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -543,27 +583,112 @@ export default function ProfilePage() {
           </div>
         </div>
 
+        {/* Referral Section */}
+        <div className="mt-8 pt-8 border-t border-gray-700">
+          <div className="max-w-2xl mx-auto space-y-6">
+            <ReferralModule userEmail={session?.user?.email} />
+          </div>
+        </div>
+
         {/* Logout Section */}
         <div className="mt-8 pt-8 border-t border-gray-700">
-          <div className="max-w-2xl mx-auto">
-            <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-6">
-              <h3 className="text-lg font-semibold text-red-400 mb-3">
+          <div className="max-w-2xl mx-auto space-y-6">
+            {/* Cerrar sesión */}
+            <div className="bg-gray-800/50 border border-gray-600/30 rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-300 mb-3">
                 Cerrar sesión
               </h3>
-              <p className="text-gray-300 text-sm mb-4">
-                ¿Estás seguro de que quieres cerrar sesión? 
+              <p className="text-gray-400 text-sm mb-4">
+                Cierra tu sesión actual. No se eliminarán tus datos ni playlists.
                 Tendrás que volver a iniciar sesión para acceder a tus playlists y configuraciones.
               </p>
               <button
                 onClick={handleLogout}
                 disabled={loggingOut}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-800 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
               >
                 {loggingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
               </button>
             </div>
+
+            {/* Eliminar cuenta */}
+            <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-6">
+              <h3 className="text-lg font-semibold text-red-400 mb-3">
+                ⚠️ Eliminar cuenta
+              </h3>
+              <p className="text-gray-300 text-sm mb-4">
+                <strong>Acción irreversible:</strong> Se eliminarán permanentemente todos tus datos, 
+                playlists creadas, y tu cuenta de PLEIA. Esta acción no se puede deshacer.
+              </p>
+              <div className="space-y-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  Eliminar mi cuenta
+                </button>
+                <p className="text-xs text-gray-400">
+                  Para más información sobre la eliminación de datos, visita nuestra página de 
+                  <a href="/delete-data" className="text-blue-400 hover:underline ml-1">eliminación de datos</a>.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
+
+        {/* Modal de confirmación de eliminación */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-gray-900 border border-red-500/30 rounded-lg p-6 max-w-md w-full">
+              <h3 className="text-xl font-semibold text-red-400 mb-4">
+                ⚠️ Confirmar eliminación de cuenta
+              </h3>
+              <p className="text-gray-300 mb-6">
+                <strong>Esta acción es irreversible.</strong> Se eliminarán permanentemente:
+              </p>
+              <ul className="text-gray-300 text-sm mb-6 space-y-1">
+                <li>• Tu perfil y datos personales</li>
+                <li>• Todas las playlists creadas</li>
+                <li>• Historial de uso y estadísticas</li>
+                <li>• Acceso a tu cuenta de PLEIA</li>
+              </ul>
+              <p className="text-gray-400 text-sm mb-6">
+                Si estás seguro, escribe <strong>"ELIMINAR"</strong> para confirmar:
+              </p>
+              <div className="space-y-4">
+                <input
+                  type="text"
+                  placeholder="Escribe ELIMINAR para confirmar"
+                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400"
+                  id="deleteConfirmInput"
+                />
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      const input = document.getElementById('deleteConfirmInput');
+                      if (input?.value === 'ELIMINAR') {
+                        handleDeleteAccount();
+                      } else {
+                        setError('Debes escribir "ELIMINAR" para confirmar');
+                      }
+                    }}
+                    disabled={deletingAccount}
+                    className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+                  >
+                    {deletingAccount ? 'Eliminando...' : 'Eliminar cuenta'}
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={deletingAccount}
+                    className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-800 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

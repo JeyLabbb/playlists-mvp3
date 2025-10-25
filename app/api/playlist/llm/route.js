@@ -105,6 +105,42 @@ export async function POST(request) {
     
     const accessToken = session.accessToken;
     console.log(`[TRACE:${traceId}] Session found for user: ${session.user?.email || 'unknown'}`);
+
+    // Check usage limit before generating playlist
+    if (session.user?.email) {
+      try {
+        const usageResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/usage/status?email=${encodeURIComponent(session.user.email)}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (usageResponse.ok) {
+          const usageData = await usageResponse.json();
+          // Check if user is founder by getting profile
+          const kv = await import('@vercel/kv');
+          const profileKey = `userprofile:${session.user.email}`;
+          const profile = await kv.kv.get(profileKey);
+          const isFounder = profile?.plan === 'founder';
+          
+          if (usageData.limit && !isFounder) {
+            console.log(`[TRACE:${traceId}] Usage limit reached for user ${session.user.email}: ${usageData.used}/5`);
+            return NextResponse.json({
+              code: "LIMIT_REACHED",
+              error: "Usage limit reached",
+              message: "You have reached your usage limit. Please upgrade to continue generating playlists.",
+              used: usageData.used,
+              remaining: usageData.remaining
+            }, { status: 403 });
+          } else if (isFounder) {
+            console.log(`[TRACE:${traceId}] Founder user - unlimited access: ${usageData.used}/∞`);
+          }
+        } else {
+          console.warn(`[TRACE:${traceId}] Failed to check usage status, proceeding with generation`);
+        }
+      } catch (usageError) {
+        console.warn(`[TRACE:${traceId}] Error checking usage status:`, usageError);
+      }
+    }
     
     // Get intent from LLM
     const intent = await getIntentFromLLM(prompt, target_tracks);

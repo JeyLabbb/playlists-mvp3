@@ -3,26 +3,82 @@
 import { useState, useEffect } from 'react';
 import { CHECKOUT_ENABLED, SHOW_MONTHLY } from '../../../lib/flags';
 import { useProfile } from '../../../lib/useProfile';
+import { useSession } from 'next-auth/react';
+import { REFERRALS_ENABLED, canInvite } from '../../../lib/referrals';
 
 export default function FounderNudge() {
   const [isVisible, setIsVisible] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
   const [loading, setLoading] = useState(null);
   const [usageData, setUsageData] = useState(null);
+  const { data: session } = useSession();
   const { isFounder } = useProfile();
+  
+  // Check if user is in founder whitelist
+  const isFounderWhitelist = REFERRALS_ENABLED && session?.user?.email && canInvite(session.user.email);
 
   useEffect(() => {
     // Only show nudge if user is NOT a Founder and hasn't seen it
     if (!isFounder) {
       const hasSeenNudge = sessionStorage.getItem('pleia-founder-nudge-seen');
+      console.log('[FounderNudge] isFounder:', isFounder, 'hasSeenNudge:', hasSeenNudge);
       if (!hasSeenNudge) {
+        // Load usage data first
+        loadUsageData();
         // Show nudge after a short delay
         setTimeout(() => {
+          console.log('[FounderNudge] Showing nudge after delay');
           setIsVisible(true);
         }, 3000);
       }
     }
   }, [isFounder]);
+
+  const loadUsageData = async () => {
+    try {
+      const response = await fetch('/api/usage/status');
+      if (response.ok) {
+        const data = await response.json();
+        setUsageData(data);
+        console.log('[FounderNudge] Usage data loaded:', data);
+      }
+    } catch (error) {
+      console.error('[FounderNudge] Error loading usage data:', error);
+    }
+  };
+
+  // Listen for usage updates from parent
+  useEffect(() => {
+    const handleUsageUpdate = (event) => {
+      console.log('[FounderNudge] Received usageUpdated event:', event);
+      if (event.detail && event.detail.usageData) {
+        console.log('[FounderNudge] Updating usage data from:', usageData, 'to:', event.detail.usageData);
+        setUsageData(event.detail.usageData);
+        console.log('[FounderNudge] Usage data updated from parent:', event.detail.usageData);
+      } else {
+        console.log('[FounderNudge] Event received but no valid usageData in detail, reloading from server');
+        // If no valid data in event, reload from server
+        loadUsageData();
+      }
+    };
+
+    console.log('[FounderNudge] Adding event listener for usageUpdated');
+    window.addEventListener('usageUpdated', handleUsageUpdate);
+    return () => {
+      console.log('[FounderNudge] Removing event listener for usageUpdated');
+      window.removeEventListener('usageUpdated', handleUsageUpdate);
+    };
+  }, [usageData]);
+
+  // Also reload usage data periodically to ensure it's up to date
+  useEffect(() => {
+    const interval = setInterval(() => {
+      console.log('[FounderNudge] Periodic usage data reload');
+      loadUsageData();
+    }, 10000); // Reload every 10 seconds
+
+    return () => clearInterval(interval);
+  }, []);
 
   const handleDismiss = () => {
     setIsVisible(false);
@@ -67,7 +123,12 @@ export default function FounderNudge() {
   };
 
   // Don't show if user has Founder plan or has been dismissed
-  if (!isVisible || isDismissed || isFounder) return null;
+  if (!isVisible || isDismissed || isFounder) {
+    console.log('[FounderNudge] Not showing - isVisible:', isVisible, 'isDismissed:', isDismissed, 'isFounder:', isFounder);
+    return null;
+  }
+
+  console.log('[FounderNudge] Rendering nudge with usageData:', usageData);
 
   return (
     <div className="fixed bottom-6 right-6 z-40 max-w-sm">
@@ -121,23 +182,100 @@ export default function FounderNudge() {
               >
                 TE QUEDAN SOLO {usageData?.remaining || 0} USOS
               </h3>
-              <p 
-                className="text-sm"
-                style={{ 
-                  color: '#EAF2FF',
-                  fontFamily: 'Inter, sans-serif',
-                  fontWeight: 400,
-                  opacity: 0.8
-                }}
-              >
-                Por 5€ tienes acceso ilimitado (Founder Pass).
-              </p>
+              {isFounderWhitelist ? (
+                <div>
+                  <p 
+                    className="text-sm mb-2"
+                    style={{ 
+                      color: '#FF8C00',
+                      fontFamily: 'Inter, sans-serif',
+                      fontWeight: 500
+                    }}
+                  >
+                    🎯 ¡Eres parte de la Newsletter Founder!
+                  </p>
+                  <p 
+                    className="text-sm"
+                    style={{ 
+                      color: '#EAF2FF',
+                      fontFamily: 'Inter, sans-serif',
+                      fontWeight: 400,
+                      opacity: 0.8
+                    }}
+                  >
+                    Invita 3 amigos y consigue Founder <strong>GRATIS</strong>
+                  </p>
+                </div>
+              ) : (
+                <p 
+                  className="text-sm"
+                  style={{ 
+                    color: '#EAF2FF',
+                    fontFamily: 'Inter, sans-serif',
+                    fontWeight: 400,
+                    opacity: 0.8
+                  }}
+                >
+                  Por 5€ tienes acceso ilimitado (Founder Pass) - menos que un cubata.
+                </p>
+              )}
             </div>
           </div>
 
           {/* Pricing Plans */}
           <div className="space-y-3 mb-4">
-            {/* Founder Pass */}
+            {isFounderWhitelist ? (
+              /* Special buttons for founder whitelist */
+              <>
+                <button
+                  onClick={() => window.location.href = '/pricing'}
+                  className="w-full py-2 px-3 rounded-lg text-sm font-semibold transition-all duration-200 hover:shadow-lg hover:scale-[1.02]"
+                  style={{
+                    backgroundColor: '#FF8C00',
+                    color: '#0B0F14',
+                    fontFamily: 'Inter, sans-serif',
+                    fontWeight: 600,
+                    border: 'none'
+                  }}
+                >
+                  🎯 Ver mi ventaja especial
+                </button>
+                
+                <button
+                  onClick={() => handleSubscribe('founder')}
+                  disabled={!CHECKOUT_ENABLED || loading === 'founder'}
+                  className={`w-full py-2 px-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                    CHECKOUT_ENABLED
+                      ? 'hover:shadow-lg hover:scale-[1.02]'
+                      : 'opacity-50 cursor-not-allowed'
+                  } ${loading === 'founder' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  style={{
+                    backgroundColor: CHECKOUT_ENABLED ? '#5B8CFF' : 'rgba(255, 255, 255, 0.1)',
+                    color: CHECKOUT_ENABLED ? '#FFFFFF' : '#EAF2FF',
+                    fontFamily: 'Inter, sans-serif',
+                    fontWeight: 600,
+                    border: 'none'
+                  }}
+                >
+                  {loading === 'founder' ? (
+                    <div className="flex items-center justify-center">
+                      <div 
+                        className="animate-spin rounded-full h-3 w-3 border-b-2 mr-2"
+                        style={{ borderColor: '#FFFFFF' }}
+                      ></div>
+                      Procesando...
+                    </div>
+                  ) : CHECKOUT_ENABLED ? (
+                    '💳 Comprar por 5€ (menos que un cubata)'
+                  ) : (
+                    'Próximamente'
+                  )}
+                </button>
+              </>
+            ) : (
+              /* Regular buttons for normal users */
+              <>
+                {/* Founder Pass */}
             <div 
               className="rounded-lg p-3"
               style={{ 
@@ -315,6 +453,8 @@ export default function FounderNudge() {
                   )}
                 </button>
               </div>
+            )}
+              </>
             )}
           </div>
 
