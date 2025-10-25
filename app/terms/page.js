@@ -89,7 +89,7 @@ export default function TermsPage() {
               Limitación de responsabilidad
             </h2>
             <p className="mb-6">
-              PLEIA se proporciona "tal como está" sin garantías de ningún tipo. No seremos responsables 
+              PLEIA se proporciona &quot;tal como está&quot; sin garantías de ningún tipo. No seremos responsables 
               por daños directos, indirectos, incidentales o consecuentes que puedan resultar del uso de 
               nuestro servicio.
             </p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import AnimatedList from '../components/AnimatedList';
 
 export default function TrendingPage() {
@@ -173,7 +173,7 @@ export default function TrendingPage() {
     }
   };
 
-  const trackView = async (playlistId) => {
+  const trackView = useCallback(async (playlistId) => {
     try {
       const response = await fetch('/api/metrics', {
         method: 'POST',
@@ -191,11 +191,11 @@ export default function TrendingPage() {
     } catch (error) {
       console.error('Error tracking view:', error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchTrendingPlaylists();
-  }, [sortBy]);
+  }, [sortBy, fetchTrendingPlaylists]);
 
   // Auto-track views when playlists are loaded
   useEffect(() => {
@@ -205,9 +205,9 @@ export default function TrendingPage() {
         await trackView(playlist.playlistId);
       });
     }
-  }, [playlists]);
+  }, [playlists, trackView]);
 
-  const fetchTrendingPlaylists = async () => {
+  const fetchTrendingPlaylists = useCallback(async () => {
     try {
       console.log('[TRENDING] Starting to fetch trending playlists...');
       setLoading(true);
@@ -240,7 +240,7 @@ export default function TrendingPage() {
       console.log('[TRENDING] Setting loading to false');
       setLoading(false);
     }
-  };
+  }, [sortBy]);
 
   const getPlaylistsFromLocalStorage = async () => {
     try {

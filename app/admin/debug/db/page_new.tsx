@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
 // Componente Chart simplificado inline
@@ -12,7 +12,7 @@ function SimpleChart({ data, title, color = '#3b82f6' }: { data: ChartData[]; ti
   const maxCount = Math.max(...chartData.map(d => d.count), 1);
 
   // Función para obtener datos según el período
-  const fetchDataForPeriod = async (period: 'day' | 'week' | 'month' | 'year') => {
+  const fetchDataForPeriod = useCallback(async (period: 'day' | 'week' | 'month' | 'year') => {
     setLoading(true);
     try {
       const tableName = title.toLowerCase().includes('prompt') ? 'prompts' :
@@ -32,12 +32,12 @@ function SimpleChart({ data, title, color = '#3b82f6' }: { data: ChartData[]; ti
     } finally {
       setLoading(false);
     }
-  };
+  }, [title]);
 
   // Actualizar datos cuando cambia el período
   useEffect(() => {
     fetchDataForPeriod(timeRange);
-  }, [timeRange]);
+  }, [timeRange, fetchDataForPeriod]);
 
   return (
     <div className="bg-gray-800 rounded-lg border border-gray-700 p-6">

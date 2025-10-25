@@ -77,8 +77,8 @@ export default function DeleteDataPage() {
                 </p>
                 <ol className="list-decimal pl-6 space-y-2">
                   <li>Ve a tu <a href="/me" style={{ color: '#36E2B4' }}>perfil de usuario</a></li>
-                  <li>Busca la sección "Configuración de cuenta"</li>
-                  <li>Haz clic en "Eliminar cuenta"</li>
+                  <li>Busca la sección &quot;Configuración de cuenta&quot;</li>
+                  <li>Haz clic en &quot;Eliminar cuenta&quot;</li>
                   <li>Confirma la eliminación</li>
                 </ol>
               </div>
@@ -126,8 +126,8 @@ export default function DeleteDataPage() {
             </p>
             <ol className="list-decimal pl-6 mb-6 space-y-2">
               <li>Ve a tu <a href="https://www.spotify.com/account/apps/" target="_blank" rel="noopener noreferrer" style={{ color: '#36E2B4' }}>página de aplicaciones conectadas en Spotify</a></li>
-              <li>Busca "PLEIA" en la lista de aplicaciones</li>
-              <li>Haz clic en "Desconectar" o "Remove access"</li>
+              <li>Busca &quot;PLEIA&quot; en la lista de aplicaciones</li>
+              <li>Haz clic en &quot;Desconectar&quot; o &quot;Remove access&quot;</li>
             </ol>
 
             <h2 className="text-2xl font-semibold mb-4" style={{ color: '#36E2B4' }}>

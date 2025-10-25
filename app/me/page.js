@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession, signIn, signOut } from 'next-auth/react';
 import ReferralModule from '../components/ReferralModule';
 import { useProfile } from '../../lib/useProfile';
@@ -60,7 +60,7 @@ export default function ProfilePage() {
     } else if (status === 'unauthenticated') {
       setLoading(false);
     }
-  }, [session, status]);
+  }, [session, status, fetchProfile]);
 
   // Debug formData changes
   useEffect(() => {
@@ -89,7 +89,7 @@ export default function ProfilePage() {
     }
   }, [session?.user?.email, loading, formData.bio]);
 
-  const fetchProfile = async () => {
+  const fetchProfile = useCallback(async () => {
     try {
       setLoading(true);
       console.log('[PROFILE] Fetching profile for user:', session.user.email);
@@ -170,7 +170,7 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [session?.user?.email]);
 
   const checkUsernameAvailability = async (username) => {
     if (!username || username === profile?.username) {
@@ -653,7 +653,7 @@ export default function ProfilePage() {
                 <li>• Acceso a tu cuenta de PLEIA</li>
               </ul>
               <p className="text-gray-400 text-sm mb-6">
-                Si estás seguro, escribe <strong>"ELIMINAR"</strong> para confirmar:
+                Si estás seguro, escribe <strong>&quot;ELIMINAR&quot;</strong> para confirmar:
               </p>
               <div className="space-y-4">
                 <input
@@ -669,7 +669,7 @@ export default function ProfilePage() {
                       if (input?.value === 'ELIMINAR') {
                         handleDeleteAccount();
                       } else {
-                        setError('Debes escribir "ELIMINAR" para confirmar');
+                        setError('Debes escribir &quot;ELIMINAR&quot; para confirmar');
                       }
                     }}
                     disabled={deletingAccount}

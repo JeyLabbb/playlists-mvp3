@@ -87,13 +87,13 @@ export default function ReviewChecklistPage() {
                 style={{ border: '1px solid rgba(34, 197, 94, 0.2)' }}
               >
                 <h3 className="font-semibold mb-3" style={{ color: '#22c55e' }}>
-                  Botón "Crear en Spotify"
+                  Botón &quot;Crear en Spotify&quot;
                 </h3>
                 <p className="mb-2">Verificar que incluya:</p>
                 <ul className="list-disc pl-6 space-y-1">
                   <li>Logo oficial de Spotify (16-18px)</li>
-                  <li>Texto "Crear en Spotify" o "Añadir a Spotify"</li>
-                  <li>Leyenda "Funciona con Spotify" debajo</li>
+                  <li>Texto &quot;Crear en Spotify&quot; o &quot;Añadir a Spotify&quot;</li>
+                  <li>Leyenda &quot;Funciona con Spotify&quot; debajo</li>
                   <li>Colores oficiales de Spotify</li>
                 </ul>
               </div>
@@ -108,7 +108,7 @@ export default function ReviewChecklistPage() {
                 <p className="mb-2">Verificar que incluya:</p>
                 <ul className="list-disc pl-6 space-y-1">
                   <li>Logo oficial de Spotify</li>
-                  <li>Texto "Iniciar sesión con Spotify"</li>
+                  <li>Texto &quot;Iniciar sesión con Spotify&quot;</li>
                   <li>Colores oficiales de Spotify</li>
                   <li>Sin alteraciones de marca</li>
                 </ul>

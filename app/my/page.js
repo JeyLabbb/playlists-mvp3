@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession, signIn } from 'next-auth/react';
 import Link from 'next/link';
 import AnimatedList from '../components/AnimatedList';
@@ -22,7 +22,7 @@ export default function MyPlaylistsPage() {
     } else if (status === 'unauthenticated') {
       setLoading(false);
     }
-  }, [session, status]);
+  }, [session, status, fetchUserPlaylists]);
 
   // Cerrar menú al hacer clic fuera
   useEffect(() => {
@@ -36,7 +36,7 @@ export default function MyPlaylistsPage() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, [menuOpen]);
 
-  const fetchUserPlaylists = async () => {
+  const fetchUserPlaylists = useCallback(async () => {
     try {
       setLoading(true);
       console.log('[MY-PLAYLISTS] Fetching playlists for:', session?.user?.email);
@@ -68,7 +68,7 @@ export default function MyPlaylistsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [session?.user?.email]);
 
 
   const loadPlaylistDetails = async (playlist) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
 import AnimatedList from '../../components/AnimatedList';
 
@@ -21,9 +21,9 @@ export default function PublicProfilePage({ params }) {
     if (username) {
       fetchUserProfile();
     }
-  }, [username]);
+  }, [username, fetchUserProfile]);
 
-  const fetchUserProfile = async () => {
+  const fetchUserProfile = useCallback(async () => {
     try {
       setLoading(true); 
       
@@ -109,7 +109,7 @@ export default function PublicProfilePage({ params }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [username]);
 
   // React to localStorage search function
   const getPlaylistsFromLocalStorage = async () => {
