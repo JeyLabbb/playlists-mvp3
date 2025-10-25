@@ -79,7 +79,7 @@ export default function Navigation() {
     }
   };
 
-  // Close menu on escape key
+  // Close menu on escape key and manage body overflow
   useEffect(() => {
     const handleEscape = (e) => {
       if (e.key === 'Escape') setIsOpen(false);
