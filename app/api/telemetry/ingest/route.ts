@@ -71,8 +71,8 @@ async function getUserUUID(userEmail: string): Promise<string | null> {
       .eq('email', userEmail)
       .single();
     
-    if (!userError && user && user.id) {
-      return user.id;
+    if (!userError && user && (user as any).id) {
+      return (user as any).id;
     }
     
     // If not found in users, try to get from profiles
@@ -82,8 +82,8 @@ async function getUserUUID(userEmail: string): Promise<string | null> {
       .eq('email', userEmail)
       .single();
     
-    if (!profileError && profile && profile.user_id) {
-      return profile.user_id;
+    if (!profileError && profile && (profile as any).user_id) {
+      return (profile as any).user_id;
     }
     
     console.warn(`[DB] User not found for email: ${userEmail}`);
