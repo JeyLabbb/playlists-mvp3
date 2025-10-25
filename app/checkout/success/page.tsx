@@ -11,13 +11,6 @@ export default function CheckoutSuccessPage() {
   const [loading, setLoading] = useState(false);
   const [webhookProcessed, setWebhookProcessed] = useState(false);
 
-  // Auto-process webhook when component mounts
-  useEffect(() => {
-    if (sessionId && !webhookProcessed) {
-      processWebhook();
-    }
-  }, [sessionId, webhookProcessed, processWebhook]);
-
   const processWebhook = useCallback(async () => {
     if (!sessionId) return;
     
@@ -48,6 +41,13 @@ export default function CheckoutSuccessPage() {
       console.error('[SUCCESS-PAGE] Error associating purchase:', error);
     }
   }, [sessionId]);
+
+  // Auto-process webhook when component mounts
+  useEffect(() => {
+    if (sessionId && !webhookProcessed) {
+      processWebhook();
+    }
+  }, [sessionId, webhookProcessed, processWebhook]);
 
   const handleGoToProfile = () => {
     window.location.href = '/me?checkout=success';
