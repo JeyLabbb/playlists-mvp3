@@ -33,139 +33,50 @@ export async function GET(request: NextRequest) {
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     
     if (!supabaseUrl || !supabaseServiceKey) {
-      console.warn('[CHART] Missing Supabase environment variables - using real data from debug endpoint');
+      console.warn('[CHART] Missing Supabase environment variables - using mock data for build');
       console.warn(`[CHART] URL: ${!!supabaseUrl}, Service Key: ${!!supabaseServiceKey}`);
       
-      // Usar datos reales del endpoint principal cuando no hay Supabase
-      try {
-        const debugResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://127.0.0.1:3000'}/api/admin/debug/db`);
-        if (debugResponse.ok) {
-          const debugData = await debugResponse.json();
-          const currentCount = debugData.counts[table] || 0;
-          
-          // Generar datos basados en el contador real según el período
-          const realData = [];
-          const today = new Date();
-          
-          // Calcular cuántos períodos necesitamos según el filtro
-          let periodsToShow = 0;
-          let periodLabel = '';
-          
-          switch (period) {
-            case 'day':
-              periodsToShow = days;
-              periodLabel = 'días';
-              break;
-            case 'week':
-              periodsToShow = Math.ceil(days / 7);
-              periodLabel = 'semanas';
-              break;
-            case 'month':
-              periodsToShow = 12; // Siempre 12 meses
-              periodLabel = 'meses';
-              break;
-            case 'year':
-              periodsToShow = 5; // Siempre 5 años
-              periodLabel = 'años';
-              break;
-          }
-          
-          console.log(`[CHART] Generating ${periodsToShow} ${periodLabel} of data`);
-          
-          for (let i = periodsToShow - 1; i >= 0; i--) {
-            let date: Date;
-            let dateStr: string;
-            
-            switch (period) {
-              case 'day':
-                date = new Date(today);
-                date.setDate(date.getDate() - i);
-                dateStr = date.toISOString().split('T')[0];
-                break;
-              case 'week':
-                date = new Date(today);
-                date.setDate(date.getDate() - (i * 7));
-                dateStr = date.toISOString().split('T')[0];
-                break;
-            case 'month':
-              // Calcular el mes correcto: desde el mes actual hacia atrás
-              // i=0 es el mes actual, i=1 es el mes anterior, etc.
-              const currentMonth = today.getMonth(); // 0-11 (enero=0, diciembre=11)
-              const currentYear = today.getFullYear();
-              
-              // Calcular año y mes correctos
-              let year = currentYear;
-              let month = currentMonth - i;
-              
-              // Si el mes es negativo, ajustar año y mes
-              while (month < 0) {
-                month += 12;
-                year -= 1;
-              }
-              
-              // Crear la fecha como string ISO para evitar problemas de zona horaria
-              // month+1 porque los meses van de 0-11 pero en ISO van de 01-12
-              const monthStr = String(month + 1).padStart(2, '0');
-              dateStr = `${year}-${monthStr}-01`;
-              date = new Date(dateStr + 'T00:00:00.000Z');
-              
-              break;
-              case 'year':
-                date = new Date(today);
-                date.setFullYear(date.getFullYear() - i);
-                dateStr = date.toISOString().split('T')[0];
-                break;
-              default:
-                date = new Date(today);
-                dateStr = date.toISOString().split('T')[0];
-            }
-            
-            // Solo datos reales: período actual tiene el contador, anteriores = 0
-            let count = 0;
-            if (i === 0) {
-              // Período actual: usar el contador completo
-              count = currentCount;
-            } else {
-              // Períodos anteriores: siempre 0 (datos reales)
-              count = 0;
-            }
-            
-            realData.push({ date: dateStr, count });
-          }
-          
-          return NextResponse.json({
-            ok: true,
-            data: realData,
-            table,
-            days,
-            period,
-            periodsToShow,
-            totalRecords: currentCount,
-            realData: true
-          }, { status: 200 });
-        }
-      } catch (error) {
-        console.error('[CHART] Error fetching real data:', error);
-      }
+      // Durante el build, usar datos mock para evitar errores
+      const currentCount = 0; // Mock count for build time
       
-      // Fallback a datos vacíos si no se puede obtener datos reales
-      const emptyData = [];
+      // Generar datos mock simples para el build
+      const mockData = [];
       const today = new Date();
       
-      for (let i = days - 1; i >= 0; i--) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
-        emptyData.push({ date: dateStr, count: 0 });
+      // Solo generar datos para el período actual
+      let dateStr: string;
+      switch (period) {
+        case 'day':
+          dateStr = today.toISOString().split('T')[0];
+          break;
+        case 'week':
+          dateStr = today.toISOString().split('T')[0];
+          break;
+        case 'month':
+          const month = String(today.getMonth() + 1).padStart(2, '0');
+          const year = today.getFullYear();
+          dateStr = `${year}-${month}-01`;
+          break;
+        case 'year':
+          dateStr = String(today.getFullYear());
+          break;
+        default:
+          dateStr = today.toISOString().split('T')[0];
       }
+      
+      mockData.push({
+        date: dateStr,
+        count: currentCount
+      });
       
       return NextResponse.json({
         ok: true,
-        data: emptyData,
+        data: mockData,
         table,
         days,
-        totalRecords: 0,
-        fallback: true
+        period,
+        totalRecords: currentCount,
+        mockData: true
       }, { status: 200 });
     }
 
