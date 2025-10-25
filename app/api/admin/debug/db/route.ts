@@ -29,13 +29,13 @@ function getSupabaseAdmin() {
 
 export async function GET(request: NextRequest) {
   try {
-    // Only allow in development
-    if (process.env.NODE_ENV === 'production') {
-      return NextResponse.json({ 
-        ok: false, 
-        error: 'Debug page is not available in production' 
-      }, { status: 404 });
-    }
+    // Allow in production for admin access
+    // if (process.env.NODE_ENV === 'production') {
+    //   return NextResponse.json({ 
+    //     ok: false, 
+    //     error: 'Debug page is not available in production' 
+    //   }, { status: 404 });
+    // }
 
     const supabase = getSupabaseAdmin();
     
