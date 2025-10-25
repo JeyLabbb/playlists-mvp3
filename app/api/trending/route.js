@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 // Check if Vercel KV is available
 function hasKV() {
-  return process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
+  return !!(process.env.UPSTASH_REDIS_KV_REST_API_URL && process.env.UPSTASH_REDIS_KV_REST_API_TOKEN);
 }
 
 // Fallback playlists when KV is not available or empty
@@ -106,108 +106,58 @@ function getFallbackPlaylists() {
 // Get all trending playlists from KV
 async function getAllTrendingPlaylists() {
   try {
+    const kv = await import('@vercel/kv');
     const allPlaylists = [];
     
-    // Get user playlists (existing functionality)
-    const userPlaylistsResponse = await fetch(`${process.env.KV_REST_API_URL}/keys/userplaylists:*`, {
-      headers: {
-        'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (userPlaylistsResponse.ok) {
-      const userData = await userPlaylistsResponse.json();
-      
-      // Get each user's playlists
-      for (const key of userData.result || []) {
-        const playlistResponse = await fetch(`${process.env.KV_REST_API_URL}/get/${key}`, {
-          headers: {
-            'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        if (playlistResponse.ok) {
-          const playlistData = await playlistResponse.json();
-          if (playlistData.result) {
-            // Handle double-encoded JSON from KV
-            let parsed = JSON.parse(playlistData.result);
-            
-            // If result has a 'value' property, it's double-encoded
-            if (parsed && typeof parsed === 'object' && parsed.value) {
-              parsed = JSON.parse(parsed.value);
-            }
-            
-            if (Array.isArray(parsed)) {
-              allPlaylists.push(...parsed);
-            }
-          }
+    // Get user playlists
+    const userPlaylistKeys = await kv.kv.keys('userplaylists:*');
+    
+    for (const key of userPlaylistKeys) {
+      try {
+        const playlists = await kv.kv.get(key);
+        if (Array.isArray(playlists)) {
+          allPlaylists.push(...playlists);
         }
+      } catch (err) {
+        console.warn('Error getting user playlists for key:', key, err);
       }
     }
     
-    // Get trending playlists (new functionality)
-    const trendingResponse = await fetch(`${process.env.KV_REST_API_URL}/keys/trending:*`, {
-      headers: {
-        'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (trendingResponse.ok) {
-      const trendingData = await trendingResponse.json();
-      
-      // Get each trending playlist
-      for (const key of trendingData.result || []) {
-        const playlistResponse = await fetch(`${process.env.KV_REST_API_URL}/get/${key}`, {
-          headers: {
-            'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        if (playlistResponse.ok) {
-          const playlistData = await playlistResponse.json();
-          if (playlistData.result) {
-            try {
-              let parsed = JSON.parse(playlistData.result);
-              
-              // Handle double-encoded JSON from KV (same as user playlists)
-              if (parsed && typeof parsed === 'object' && parsed.value) {
-                parsed = JSON.parse(parsed.value);
-              }
-              
-              // Extract Spotify playlist ID from URL
-              const spotifyId = parsed.spotifyUrl ? 
-                parsed.spotifyUrl.split('/').pop() : 
-                key.replace('trending:', '');
-              
-              // Convert trending format to user playlist format
-              const convertedPlaylist = {
-                playlistId: spotifyId,
-                prompt: parsed.prompt || 'Playlist trending',
-                name: parsed.prompt || 'Playlist trending',
-                url: parsed.spotifyUrl || '#',
-                tracks: parsed.trackCount || 20,
-                views: parsed.views || 0,
-                clicks: parsed.clicks || 0,
-                createdAt: parsed.createdAt || new Date().toISOString(),
-                updatedAt: parsed.createdAt || new Date().toISOString(),
-                public: parsed.privacy === 'public',
-                username: parsed.creator || 'jeylabbb',
-                userEmail: `${parsed.creator || 'jeylabbb'}@example.com`,
-                userName: parsed.creator || 'JeyLabbb User',
-                userImage: null,
-                isTrending: true // Mark as trending playlist
-              };
-              
-              allPlaylists.push(convertedPlaylist);
-            } catch (parseError) {
-              console.warn('Error parsing trending playlist:', parseError);
-            }
-          }
+    // Get trending playlists
+    const trendingKeys = await kv.kv.keys('trending:*');
+    
+    for (const key of trendingKeys) {
+      try {
+        const playlist = await kv.kv.get(key);
+        if (playlist) {
+          // Extract Spotify playlist ID from URL
+          const spotifyId = playlist.spotifyUrl ? 
+            playlist.spotifyUrl.split('/').pop() : 
+            key.replace('trending:', '');
+          
+          // Convert trending format to user playlist format
+          const convertedPlaylist = {
+            playlistId: spotifyId,
+            prompt: playlist.prompt || 'Playlist trending',
+            name: playlist.prompt || 'Playlist trending',
+            url: playlist.spotifyUrl || '#',
+            tracks: playlist.trackCount || 20,
+            views: playlist.views || 0,
+            clicks: playlist.clicks || 0,
+            createdAt: playlist.createdAt || new Date().toISOString(),
+            updatedAt: playlist.createdAt || new Date().toISOString(),
+            public: playlist.privacy === 'public',
+            username: playlist.creator || 'jeylabbb',
+            userEmail: `${playlist.creator || 'jeylabbb'}@example.com`,
+            userName: playlist.creator || 'JeyLabbb User',
+            userImage: null,
+            isTrending: true // Mark as trending playlist
+          };
+          
+          allPlaylists.push(convertedPlaylist);
         }
+      } catch (err) {
+        console.warn('Error getting trending playlist for key:', key, err);
       }
     }
     

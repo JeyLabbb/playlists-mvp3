@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 // Check if Vercel KV is available
 function hasKV() {
-  return process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
+  return !!(process.env.UPSTASH_REDIS_KV_REST_API_URL && process.env.UPSTASH_REDIS_KV_REST_API_TOKEN);
 }
 
 // Test KV connection
@@ -12,53 +12,32 @@ async function testKVConnection() {
       ok: false,
       error: 'KV environment variables not set',
       missing: {
-        KV_REST_API_URL: !process.env.KV_REST_API_URL,
-        KV_REST_API_TOKEN: !process.env.KV_REST_API_TOKEN
+        UPSTASH_REDIS_KV_REST_API_URL: !process.env.UPSTASH_REDIS_KV_REST_API_URL,
+        UPSTASH_REDIS_KV_REST_API_TOKEN: !process.env.UPSTASH_REDIS_KV_REST_API_TOKEN
       }
     };
   }
 
   try {
+    const kv = await import('@vercel/kv');
+    
     // Test basic KV connection with a simple get operation
     const testKey = 'kv-test-connection';
-    const response = await fetch(`${process.env.KV_REST_API_URL}/get/${testKey}`, {
-      headers: {
-        'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: `KV connection failed with status ${response.status}`,
-        status: response.status
-      };
-    }
+    await kv.kv.get(testKey);
 
     // Try to get some trending playlists to verify data access
-    const trendingResponse = await fetch(`${process.env.KV_REST_API_URL}/keys/trending:*`, {
-      headers: {
-        'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    let trendingCount = 0;
-    if (trendingResponse.ok) {
-      const trendingData = await trendingResponse.json();
-      trendingCount = Array.isArray(trendingData.result) ? trendingData.result.length : 0;
-    }
+    const trendingKeys = await kv.kv.keys('trending:*');
+    const trendingCount = trendingKeys.length;
 
     return {
       ok: true,
       message: 'KV connection successful',
       trendingPlaylists: trendingCount,
       env: {
-        hasUrl: !!process.env.KV_REST_API_URL,
-        hasToken: !!process.env.KV_REST_API_TOKEN,
-        urlLength: process.env.KV_REST_API_URL?.length || 0,
-        tokenLength: process.env.KV_REST_API_TOKEN?.length || 0
+        hasUrl: !!process.env.UPSTASH_REDIS_KV_REST_API_URL,
+        hasToken: !!process.env.UPSTASH_REDIS_KV_REST_API_TOKEN,
+        urlLength: process.env.UPSTASH_REDIS_KV_REST_API_URL?.length || 0,
+        tokenLength: process.env.UPSTASH_REDIS_KV_REST_API_TOKEN?.length || 0
       }
     };
 
@@ -158,27 +137,15 @@ export async function POST(request) {
 
     // Store each playlist in KV
     const results = [];
+    const kv = await import('@vercel/kv');
+    
     for (let i = 0; i < samplePlaylists.length; i++) {
       const playlist = samplePlaylists[i];
       const key = `trending:${Date.now()}-${i}`;
       
       try {
-        const response = await fetch(`${process.env.KV_REST_API_URL}/set/${key}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            value: JSON.stringify(playlist)
-          })
-        });
-
-        if (response.ok) {
-          results.push({ key, success: true, playlist: playlist.prompt });
-        } else {
-          results.push({ key, success: false, error: `Status ${response.status}` });
-        }
+        await kv.kv.set(key, playlist);
+        results.push({ key, success: true, playlist: playlist.prompt });
       } catch (error) {
         results.push({ key, success: false, error: error.message });
       }

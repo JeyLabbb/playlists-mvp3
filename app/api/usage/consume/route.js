@@ -4,31 +4,16 @@ import { authOptions } from '../../../../lib/auth/config';
 
 // Helper function to check if KV is available
 function hasKV() {
-  return !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+  return !!(process.env.UPSTASH_REDIS_KV_REST_API_URL && process.env.UPSTASH_REDIS_KV_REST_API_TOKEN);
 }
 
 // Get user profile from KV
 async function getProfileFromKV(email) {
   try {
-    const response = await fetch(`${process.env.KV_REST_API_URL}/get/userprofile:${encodeURIComponent(email)}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      console.warn('KV GET profile failed:', response.status);
-      return null;
-    }
-
-    const data = await response.json();
-    if (data.result) {
-      return JSON.parse(data.result);
-    }
-
-    return null;
+    const kv = await import('@vercel/kv');
+    const profileKey = `jey_user_profile:${email}`;
+    const profile = await kv.kv.get(profileKey);
+    return profile;
   } catch (error) {
     console.warn('KV GET profile error:', error);
     return null;
@@ -38,22 +23,9 @@ async function getProfileFromKV(email) {
 // Save user profile to KV
 async function saveProfileToKV(email, profile) {
   try {
-    const response = await fetch(`${process.env.KV_REST_API_URL}/set/userprofile:${encodeURIComponent(email)}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        value: JSON.stringify(profile)
-      })
-    });
-
-    if (!response.ok) {
-      console.warn('KV SET profile failed:', response.status);
-      return false;
-    }
-
+    const kv = await import('@vercel/kv');
+    const profileKey = `jey_user_profile:${email}`;
+    await kv.kv.set(profileKey, profile);
     return true;
   } catch (error) {
     console.warn('KV SET profile error:', error);
@@ -61,7 +33,7 @@ async function saveProfileToKV(email, profile) {
   }
 }
 
-// POST: Consume one usage
+// POST: Consume usage
 export async function POST(request) {
   try {
     const session = await getServerSession(authOptions);
@@ -71,6 +43,8 @@ export async function POST(request) {
     }
 
     const email = session.user.email;
+    const { amount = 1 } = await request.json();
+    
     let profile = null;
 
     // Try Vercel KV first
@@ -78,58 +52,84 @@ export async function POST(request) {
       profile = await getProfileFromKV(email);
     }
 
-    // If no profile exists, create one with default usage
+    // If no profile found, create a default one
     if (!profile) {
       profile = {
         email,
+        plan: 'free',
         usage: {
-          used: 0,
-          lastUsed: null
+          count: 0,
+          windowStart: new Date().toISOString(),
+          windowEnd: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         },
         updatedAt: new Date().toISOString()
       };
     }
 
-    // Ensure usage object exists
-    if (!profile.usage) {
-      profile.usage = {
-        used: 0,
-        lastUsed: null
-      };
-    }
+    // Check if user has unlimited uses
+    const isFounder = profile.plan === 'founder';
+    const isMonthly = profile.plan === 'monthly';
+    const hasUnlimitedUses = isFounder || isMonthly;
 
-    const currentUsed = profile.usage.used || 0;
-
-    // Check if user has reached the limit
-    if (currentUsed >= 5) {
+    if (hasUnlimitedUses) {
       return NextResponse.json({
-        limit: true,
-        used: currentUsed,
-        remaining: 0
+        success: true,
+        consumed: amount,
+        remaining: 'unlimited',
+        plan: profile.plan,
+        unlimited: true
       });
     }
 
-    // Increment usage
-    const newUsed = currentUsed + 1;
-    profile.usage.used = newUsed;
-    profile.usage.lastUsed = new Date().toISOString();
-    profile.updatedAt = new Date().toISOString();
+    // Check usage window
+    const now = new Date();
+    const windowStart = new Date(profile.usage?.windowStart || now);
+    const windowEnd = new Date(profile.usage?.windowEnd || new Date(now.getTime() + 24 * 60 * 60 * 1000));
+    
+    const isInWindow = now >= windowStart && now <= windowEnd;
+    const currentCount = isInWindow ? (profile.usage?.count || 0) : 0;
+    
+    const freeUses = parseInt(process.env.FREE_USES) || 3;
+    const remainingUses = Math.max(0, freeUses - currentCount);
+    
+    if (remainingUses < amount) {
+      return NextResponse.json({
+        success: false,
+        error: 'Usage limit exceeded',
+        current: currentCount,
+        limit: freeUses,
+        remaining: remainingUses,
+        requested: amount
+      }, { status: 429 });
+    }
+
+    // Update usage count
+    const newCount = currentCount + amount;
+    const updatedProfile = {
+      ...profile,
+      usage: {
+        count: newCount,
+        windowStart: windowStart.toISOString(),
+        windowEnd: windowEnd.toISOString()
+      },
+      updatedAt: new Date().toISOString()
+    };
 
     // Save updated profile
     if (hasKV()) {
-      const saved = await saveProfileToKV(email, profile);
+      const saved = await saveProfileToKV(email, updatedProfile);
       if (!saved) {
-        console.error('Failed to save profile after usage increment');
         return NextResponse.json({ error: 'Failed to save usage' }, { status: 500 });
       }
     }
 
-    console.log(`[USAGE] User ${email} consumed usage: ${newUsed}/5`);
-
     return NextResponse.json({
-      limit: false,
-      used: newUsed,
-      remaining: 5 - newUsed
+      success: true,
+      consumed: amount,
+      remaining: Math.max(0, freeUses - newCount),
+      current: newCount,
+      limit: freeUses,
+      plan: profile.plan || 'free'
     });
 
   } catch (error) {

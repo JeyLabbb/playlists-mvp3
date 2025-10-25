@@ -9,41 +9,20 @@ const simpleAuthOptions = {
 
 // Check if Vercel KV is available
 function hasKV() {
-  return process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
+  return !!(process.env.UPSTASH_REDIS_KV_REST_API_URL && process.env.UPSTASH_REDIS_KV_REST_API_TOKEN);
 }
 
 // Get user playlists from Vercel KV
 async function getFromKV(userEmail) {
   try {
     console.log('[USERPLAYLISTS] getFromKV: Fetching for user:', userEmail);
-    const response = await fetch(`${process.env.KV_REST_API_URL}/get/userplaylists:${encodeURIComponent(userEmail)}`, {
-      headers: {
-        'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      console.warn('[USERPLAYLISTS] getFromKV: KV GET failed:', response.status);
-      return null;
-    }
-
-    const data = await response.json();
-    console.log('[USERPLAYLISTS] getFromKV: Raw KV data:', data);
+    const kv = await import('@vercel/kv');
+    const key = `userplaylists:${userEmail}`;
+    const playlists = await kv.kv.get(key);
     
-    // Handle double-encoded JSON from KV
-    let parsed = data.result ? JSON.parse(data.result) : null;
-    console.log('[USERPLAYLISTS] getFromKV: First parse:', parsed);
-    
-    // If result has a 'value' property, it's double-encoded
-    if (parsed && typeof parsed === 'object' && parsed.value) {
-      console.log('[USERPLAYLISTS] getFromKV: Detected double encoding, parsing value');
-      parsed = JSON.parse(parsed.value);
-    }
-    
-    const playlists = Array.isArray(parsed) ? parsed : [];
-    console.log('[USERPLAYLISTS] getFromKV: Returning', playlists.length, 'playlists');
-    return playlists;
+    const playlistsArray = Array.isArray(playlists) ? playlists : [];
+    console.log('[USERPLAYLISTS] getFromKV: Returning', playlistsArray.length, 'playlists');
+    return playlistsArray;
   } catch (error) {
     console.warn('[USERPLAYLISTS] getFromKV: Error:', error);
     return null;
@@ -63,36 +42,61 @@ async function saveToKV(userEmail, playlist) {
     const updated = [playlist, ...existingArray].slice(0, 200); // Keep max 200 playlists
     console.log('[USERPLAYLISTS] saveToKV: Updated playlist count:', updated.length);
     
-    const kvUrl = `${process.env.KV_REST_API_URL}/set/userplaylists:${encodeURIComponent(userEmail)}`;
-    console.log('[USERPLAYLISTS] saveToKV: KV URL:', kvUrl);
+    const kv = await import('@vercel/kv');
+    const key = `userplaylists:${userEmail}`;
+    await kv.kv.set(key, updated);
     
-    const requestBody = {
-      value: JSON.stringify(updated)
-    };
-    console.log('[USERPLAYLISTS] saveToKV: Request body length:', JSON.stringify(requestBody).length);
-    
-    const response = await fetch(kvUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(requestBody)
-    });
-
-    console.log('[USERPLAYLISTS] saveToKV: Response status:', response.status);
-    const responseText = await response.text();
-    console.log('[USERPLAYLISTS] saveToKV: Response body:', responseText);
-
-    if (!response.ok) {
-      console.warn('[USERPLAYLISTS] KV SET failed:', response.status, responseText);
-      return false;
-    }
-
-    console.log('[USERPLAYLISTS] saveToKV: ✅ SUCCESS');
+    console.log('[USERPLAYLISTS] saveToKV: Successfully saved to KV');
     return true;
   } catch (error) {
-    console.warn('[USERPLAYLISTS] KV SET error:', error);
+    console.error('[USERPLAYLISTS] saveToKV: Error:', error);
+    return false;
+  }
+}
+
+// Update playlist in Vercel KV
+async function updateInKV(userEmail, playlistId, updates) {
+  try {
+    console.log('[USERPLAYLISTS] updateInKV: Updating playlist:', playlistId);
+    const existing = await getFromKV(userEmail);
+    const existingArray = Array.isArray(existing) ? existing : [];
+    
+    const updated = existingArray.map(playlist => {
+      if (playlist.playlistId === playlistId) {
+        return { ...playlist, ...updates, updatedAt: new Date().toISOString() };
+      }
+      return playlist;
+    });
+    
+    const kv = await import('@vercel/kv');
+    const key = `userplaylists:${userEmail}`;
+    await kv.kv.set(key, updated);
+    
+    console.log('[USERPLAYLISTS] updateInKV: Successfully updated in KV');
+    return true;
+  } catch (error) {
+    console.error('[USERPLAYLISTS] updateInKV: Error:', error);
+    return false;
+  }
+}
+
+// Delete playlist from Vercel KV
+async function deleteFromKV(userEmail, playlistId) {
+  try {
+    console.log('[USERPLAYLISTS] deleteFromKV: Deleting playlist:', playlistId);
+    const existing = await getFromKV(userEmail);
+    const existingArray = Array.isArray(existing) ? existing : [];
+    
+    const updated = existingArray.filter(playlist => playlist.playlistId !== playlistId);
+    
+    const kv = await import('@vercel/kv');
+    const key = `userplaylists:${userEmail}`;
+    await kv.kv.set(key, updated);
+    
+    console.log('[USERPLAYLISTS] deleteFromKV: Successfully deleted from KV');
+    return true;
+  } catch (error) {
+    console.error('[USERPLAYLISTS] deleteFromKV: Error:', error);
     return false;
   }
 }
@@ -102,38 +106,40 @@ export async function GET(request) {
   try {
     const session = await getServerSession(simpleAuthOptions);
     
-    console.log('[USERPLAYLISTS] ===== GET REQUEST =====');
     if (!session?.user?.email) {
-      console.log('[USERPLAYLISTS] GET: No session/email');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const userEmail = session.user.email;
-    console.log('[USERPLAYLISTS] GET: Fetching playlists for:', userEmail);
+    console.log('[USERPLAYLISTS] GET: Request from user:', userEmail);
+
+    let playlists = [];
 
     // Try Vercel KV first
+    console.log('[USERPLAYLISTS] Checking KV availability...');
+    console.log('[USERPLAYLISTS] UPSTASH_REDIS_KV_REST_API_URL:', process.env.UPSTASH_REDIS_KV_REST_API_URL ? 'SET' : 'NOT SET');
+    console.log('[USERPLAYLISTS] UPSTASH_REDIS_KV_REST_API_TOKEN:', process.env.UPSTASH_REDIS_KV_REST_API_TOKEN ? 'SET' : 'NOT SET');
+    
     if (hasKV()) {
-      console.log('[USERPLAYLISTS] GET: KV available, fetching...');
-      const playlists = await getFromKV(userEmail);
-      console.log('[USERPLAYLISTS] GET: KV returned:', playlists ? playlists.length : null, 'playlists');
-      
-      if (playlists !== null) {
-        console.log('[USERPLAYLISTS] GET: Responding with KV data');
-        return NextResponse.json({
-          success: true,
-          playlists: playlists,
-          source: 'kv'
-        });
+      try {
+        const kvPlaylists = await getFromKV(userEmail);
+        if (kvPlaylists) {
+          playlists = kvPlaylists;
+          console.log('[USERPLAYLISTS] GET: Retrieved', playlists.length, 'playlists from KV');
+        }
+      } catch (error) {
+        console.error('[USERPLAYLISTS] GET: KV error:', error);
       }
     }
 
-    // Fallback to localStorage (client-side)
-    console.log('[USERPLAYLISTS] GET: Falling back to localStorage');
+    // Sort by creation date (newest first)
+    playlists.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
     return NextResponse.json({
       success: true,
-      playlists: [],
-      fallback: true,
-      source: 'localStorage'
+      playlists: playlists,
+      total: playlists.length,
+      source: hasKV() ? 'kv' : 'localStorage'
     });
 
   } catch (error) {
@@ -142,125 +148,66 @@ export async function GET(request) {
   }
 }
 
-// Get user profile for author info
-async function getUserProfile(email, session) {
-  try {
-    // Generate username from session data
-    const baseUsername = session.user.name 
-      ? session.user.name.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 15)
-      : email.split('@')[0];
-    
-    return {
-      username: baseUsername,
-      displayName: session.user.name || email.split('@')[0],
-      image: session.user.image || null
-    };
-  } catch (error) {
-    console.warn('Error generating user profile:', error);
-    return {
-      username: email.split('@')[0],
-      displayName: email.split('@')[0],
-      image: null
-    };
-  }
-}
-
-// POST: Save user playlist
+// POST: Create new playlist
 export async function POST(request) {
   try {
-    console.log('[USERPLAYLISTS] ===== STARTING POST REQUEST =====');
     const session = await getServerSession(simpleAuthOptions);
     
     if (!session?.user?.email) {
-      console.log('[USERPLAYLISTS] ERROR: No session or email');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    console.log('[USERPLAYLISTS] Session found for user:', session.user.email);
-    const body = await request.json();
-    console.log('[USERPLAYLISTS] Request body:', {
-      userEmail: body.userEmail,
-      playlistId: body.playlistId,
-      name: body.name,
-      hasUrl: !!body.url,
-      tracks: body.tracks,
-      mode: body.mode,
-      public: body.public
-    });
+    const userEmail = session.user.email;
+    const playlistData = await request.json();
     
-    const { userEmail, playlistId, name, url, image, tracks, prompt, mode, public: isPublic } = body;
+    console.log('[USERPLAYLISTS] POST: Creating playlist for user:', userEmail);
 
-    // Validate required fields
-    if (!userEmail || !playlistId || !name || !url) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-    }
-
-    // Verify user email matches session
-    if (userEmail !== session.user.email) {
-      return NextResponse.json({ error: 'Email mismatch' }, { status: 403 });
-    }
-
-    // Get user profile for author info
-    const userProfile = await getUserProfile(session.user.email, session);
-
+    // Create playlist object
     const playlist = {
-      userEmail,
-      userName: session.user.name,
-      userImage: session.user.image,
-      username: userProfile.username,
-      playlistId,
-      name,
-      url,
-      image: image || null,
-      tracks: tracks || 0,
-      prompt: prompt || '',
-      mode: mode || null,
-      public: isPublic !== false, // Default true
-      createdAt: new Date().toISOString(),
+      playlistId: playlistData.playlistId || `playlist_${Date.now()}`,
+      prompt: playlistData.prompt || 'Playlist creada',
+      name: playlistData.name || playlistData.prompt || 'Mi Playlist',
+      url: playlistData.url || '#',
+      tracks: playlistData.tracks || 0,
       views: 0,
-      clicks: 0
+      clicks: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      public: playlistData.public !== false, // Default to public
+      username: session.user.name || userEmail.split('@')[0],
+      userEmail: userEmail,
+      userName: session.user.name || 'Usuario',
+      userImage: session.user.image || null
     };
 
-    // Try Vercel KV first
-    console.log('[USERPLAYLISTS] Checking KV availability...');
-    console.log('[USERPLAYLISTS] KV_REST_API_URL:', process.env.KV_REST_API_URL ? 'SET' : 'NOT SET');
-    console.log('[USERPLAYLISTS] KV_REST_API_TOKEN:', process.env.KV_REST_API_TOKEN ? 'SET' : 'NOT SET');
-    
+    // Save to KV if available
     if (hasKV()) {
-      console.log('[USERPLAYLISTS] ✅ KV available, attempting to save playlist...');
-      console.log('[USERPLAYLISTS] Playlist to save:', JSON.stringify(playlist, null, 2));
-      const saved = await saveToKV(userEmail, playlist);
-      console.log('[USERPLAYLISTS] KV save result:', saved);
-      if (saved) {
-        console.log('[USERPLAYLISTS] ✅✅✅ Playlist saved to KV successfully');
-        return NextResponse.json({
-          success: true,
-          saved: true,
-          source: 'kv'
-        });
-      } else {
-        console.log('[USERPLAYLISTS] ❌ Failed to save to KV, falling back to localStorage');
+      try {
+        const saved = await saveToKV(userEmail, playlist);
+        if (!saved) {
+          return NextResponse.json({ error: 'Failed to save playlist' }, { status: 500 });
+        }
+      } catch (error) {
+        console.error('[USERPLAYLISTS] POST: KV save error:', error);
+        return NextResponse.json({ error: 'Failed to save playlist' }, { status: 500 });
       }
-    } else {
-      console.log('[USERPLAYLISTS] ❌ KV not available (missing env vars)');
     }
 
-    // Fallback to localStorage (client-side)
     return NextResponse.json({
       success: true,
-      saved: false,
-      reason: 'fallback-localStorage',
-      playlist: playlist
+      playlist: playlist,
+      message: 'Playlist created successfully',
+      source: hasKV() ? 'kv' : 'localStorage'
     });
 
   } catch (error) {
-    console.error('Error saving user playlist:', error);
-    return NextResponse.json({ error: 'Failed to save playlist' }, { status: 500 });
+    console.error('[USERPLAYLISTS] POST: Error:', error);
+    return NextResponse.json({ error: 'Failed to create playlist' }, { status: 500 });
   }
 }
 
-// PATCH: Update playlist privacy
-export async function PATCH(request) {
+// PUT: Update playlist
+export async function PUT(request) {
   try {
     const session = await getServerSession(simpleAuthOptions);
     
@@ -268,85 +215,36 @@ export async function PATCH(request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { playlistId, public: isPublic } = body;
     const userEmail = session.user.email;
-
-    // Validate required fields
-    if (!playlistId || typeof isPublic !== 'boolean') {
-      return NextResponse.json({ error: 'Missing playlistId or public field' }, { status: 400 });
-    }
-
-    // Get existing playlists - try KV first, then fallback to localStorage
-    let existingPlaylists = [];
-    if (hasKV()) {
-      existingPlaylists = await getFromKV(userEmail) || [];
-    }
+    const { playlistId, ...updates } = await request.json();
     
-    // If no KV or no playlists found in KV, indicate localStorage fallback
-    if (!hasKV() || existingPlaylists.length === 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'Playlist not found',
-        reason: 'fallback-localStorage',
-        message: 'KV not available, update handled client-side'
-      });
-    }
-    
-    // Find and update the playlist
-    const playlistIndex = existingPlaylists.findIndex(p => p.playlistId === playlistId);
-    
-    if (playlistIndex === -1) {
-      return NextResponse.json({ error: 'Playlist not found' }, { status: 404 });
+    if (!playlistId) {
+      return NextResponse.json({ error: 'Playlist ID is required' }, { status: 400 });
     }
 
-    // Verify ownership
-    if (existingPlaylists[playlistIndex].userEmail !== userEmail) {
-      return NextResponse.json({ error: 'Not authorized to modify this playlist' }, { status: 403 });
-    }
+    console.log('[USERPLAYLISTS] PUT: Updating playlist:', playlistId);
 
-    // Update the playlist
-    existingPlaylists[playlistIndex].public = isPublic;
-    existingPlaylists[playlistIndex].updatedAt = new Date().toISOString();
-
-    // Try to save to KV
+    // Update in KV if available
     if (hasKV()) {
       try {
-        const response = await fetch(`${process.env.KV_REST_API_URL}/set/userplaylists:${encodeURIComponent(userEmail)}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            value: JSON.stringify(existingPlaylists)
-          })
-        });
-
-        if (response.ok) {
-          return NextResponse.json({
-            success: true,
-            playlist: existingPlaylists[playlistIndex],
-            saved: true,
-            source: 'kv'
-          });
+        const updated = await updateInKV(userEmail, playlistId, updates);
+        if (!updated) {
+          return NextResponse.json({ error: 'Failed to update playlist' }, { status: 500 });
         }
       } catch (error) {
-        console.warn('KV update failed:', error);
+        console.error('[USERPLAYLISTS] PUT: KV update error:', error);
+        return NextResponse.json({ error: 'Failed to update playlist' }, { status: 500 });
       }
     }
 
-    // Fallback to localStorage
     return NextResponse.json({
       success: true,
-      playlist: existingPlaylists[playlistIndex],
-      saved: false,
-      reason: 'fallback-localStorage',
-      source: 'localStorage'
+      message: 'Playlist updated successfully',
+      source: hasKV() ? 'kv' : 'localStorage'
     });
 
   } catch (error) {
-    console.error('Error updating playlist:', error);
+    console.error('[USERPLAYLISTS] PUT: Error:', error);
     return NextResponse.json({ error: 'Failed to update playlist' }, { status: 500 });
   }
 }
@@ -360,84 +258,37 @@ export async function DELETE(request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { playlistId } = body;
     const userEmail = session.user.email;
-
-    // Validate required fields
+    const { searchParams } = new URL(request.url);
+    const playlistId = searchParams.get('id');
+    
     if (!playlistId) {
-      return NextResponse.json({ error: 'Missing playlistId' }, { status: 400 });
+      return NextResponse.json({ error: 'Playlist ID is required' }, { status: 400 });
     }
 
-    // Get existing playlists - try KV first, then fallback to localStorage
-    let existingPlaylists = [];
-    if (hasKV()) {
-      existingPlaylists = await getFromKV(userEmail) || [];
-    }
-    
-    // If no KV or no playlists found in KV, indicate localStorage fallback
-    if (!hasKV() || existingPlaylists.length === 0) {
-      return NextResponse.json({
-        success: false,
-        error: 'Playlist not found',
-        reason: 'fallback-localStorage',
-        message: 'KV not available, delete handled client-side'
-      });
-    }
+    console.log('[USERPLAYLISTS] DELETE: Deleting playlist:', playlistId);
 
-    // Find the playlist to delete
-    const playlistIndex = existingPlaylists.findIndex(p => p.playlistId === playlistId);
-    
-    if (playlistIndex === -1) {
-      return NextResponse.json({ error: 'Playlist not found' }, { status: 404 });
-    }
-
-    // Verify ownership
-    if (existingPlaylists[playlistIndex].userEmail !== userEmail) {
-      return NextResponse.json({ error: 'Not authorized to delete this playlist' }, { status: 403 });
-    }
-
-    // Remove the playlist
-    const deletedPlaylist = existingPlaylists.splice(playlistIndex, 1)[0];
-
-    // Try to save to KV
+    // Delete from KV if available
     if (hasKV()) {
       try {
-        const response = await fetch(`${process.env.KV_REST_API_URL}/set/userplaylists:${encodeURIComponent(userEmail)}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${process.env.KV_REST_API_TOKEN}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            value: JSON.stringify(existingPlaylists)
-          })
-        });
-
-        if (response.ok) {
-          return NextResponse.json({
-            success: true,
-            deletedPlaylist: deletedPlaylist,
-            saved: true,
-            source: 'kv'
-          });
+        const deleted = await deleteFromKV(userEmail, playlistId);
+        if (!deleted) {
+          return NextResponse.json({ error: 'Failed to delete playlist' }, { status: 500 });
         }
-      } catch (kvError) {
-        console.warn('Failed to save to KV after delete:', kvError);
+      } catch (error) {
+        console.error('[USERPLAYLISTS] DELETE: KV delete error:', error);
+        return NextResponse.json({ error: 'Failed to delete playlist' }, { status: 500 });
       }
     }
 
-    // Fallback to localStorage
     return NextResponse.json({
       success: true,
-      deletedPlaylist: deletedPlaylist,
-      saved: false,
-      reason: 'fallback-localStorage',
-      source: 'localStorage'
+      message: 'Playlist deleted successfully',
+      source: hasKV() ? 'kv' : 'localStorage'
     });
 
   } catch (error) {
-    console.error('Error deleting playlist:', error);
+    console.error('[USERPLAYLISTS] DELETE: Error:', error);
     return NextResponse.json({ error: 'Failed to delete playlist' }, { status: 500 });
   }
 }
