@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     // Verificar variables de entorno
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     
     if (!supabaseUrl || !supabaseServiceKey) {
       console.warn('[CHART] Missing Supabase environment variables - using real data from debug endpoint');
