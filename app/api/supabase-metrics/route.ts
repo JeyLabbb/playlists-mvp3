@@ -1,5 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseAdmin, UsageEvent, Prompt } from '../../../lib/supabase/server';
+import { getSupabaseAdmin } from '../../../lib/supabase/server';
+
+// Define types locally
+interface UsageEvent {
+  user_email: string;
+  action: string;
+  meta: any;
+}
+
+interface Prompt {
+  user_email: string;
+  text: string;
+}
 
 export async function POST(request: NextRequest) {
   if (process.env.NODE_ENV === 'production' && !process.env.SUPABASE_ENABLED) {
