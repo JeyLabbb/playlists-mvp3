@@ -380,7 +380,7 @@ export default function PricingPage() {
 
         {/* Pricing Cards - Only show for non-whitelist users */}
         {!(REFERRALS_ENABLED && session?.user?.email && canInvite(session.user.email) && !isFounder) && (
-          <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+        <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           {/* Founder Pass */}
           <div 
             className="relative rounded-2xl p-8 transition-all duration-200 hover:scale-[1.02]"
