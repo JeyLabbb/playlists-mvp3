@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   try {
     console.log('[DEBUG] Checking authentication status...');
     
-    const session = await getServerSession(authOptions);
+    const session = await getServerSession(authOptions as any);
     
     if (!session) {
       return NextResponse.json({
