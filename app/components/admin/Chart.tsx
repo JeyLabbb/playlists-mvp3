@@ -63,6 +63,12 @@ export default function Chart({ data, title, color = '#3b82f6' }: ChartProps) {
       .sort((a, b) => a.date.localeCompare(b.date));
   };
 
+  const getWeekNumber = (date: Date): number => {
+    const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+    const pastDaysOfYear = (date.getTime() - firstDayOfYear.getTime()) / 86400000;
+    return Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+  };
+
   const formatDate = (dateStr: string, range: TimeRange): string => {
     const date = new Date(dateStr);
     
@@ -70,7 +76,8 @@ export default function Chart({ data, title, color = '#3b82f6' }: ChartProps) {
       case 'day':
         return date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' });
       case 'week':
-        return `Sem ${date.toLocaleDateString('es-ES', { week: 'numeric', month: '2-digit' })}`;
+        const weekNumber = getWeekNumber(date);
+        return `Sem ${weekNumber}`;
       case 'month':
         return date.toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
       case 'year':
