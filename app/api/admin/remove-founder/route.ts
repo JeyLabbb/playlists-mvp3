@@ -16,11 +16,11 @@ export async function POST(request: NextRequest) {
     
     // Get existing profile
     const profileKey = `userprofile:${email}`;
-    const existingProfile = await kv.get(profileKey) || {};
+    const existingProfile = await kv.get(profileKey) as Record<string, any> || {};
     
     // Remove founder status
     const updatedProfile = {
-      ...(existingProfile || {}),
+      ...existingProfile,
       email: email,
       plan: 'free', // Reset to free plan
       founderSince: null, // Remove founder date
