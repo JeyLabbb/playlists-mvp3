@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
-export async function POST(request: NextRequest) {
+export async function POST(request) {
   try {
     const { email } = await request.json();
     
