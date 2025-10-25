@@ -37,7 +37,7 @@ async function insertPrompt(userEmail: string, text: string, source: string = 'w
         user_email: userEmail,
         text: text,
         source: source
-      }])
+      }] as any)
       .select()
       .single();
     
@@ -106,7 +106,7 @@ async function insertUsageEvent(userEmail: string, action: string, meta: any = {
         user_id: userUUID,
         action: action,
         meta: meta
-      }])
+      }] as any)
       .select()
       .single();
     
@@ -140,7 +140,7 @@ async function insertPlaylist(userEmail: string, playlistName: string, prompt: s
         spotify_url: spotifyUrl,
         spotify_id: spotifyId,
         track_count: trackCount || 0
-      }])
+      }] as any)
       .select()
       .single();
     
@@ -176,7 +176,7 @@ async function insertPayment(userEmail: string, stripePaymentIntentId: string, s
         currency: 'eur',
         plan: plan,
         status: status
-      }])
+      }] as any)
       .select()
       .single();
     
