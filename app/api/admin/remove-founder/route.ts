@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     
     // Remove founder status
     const updatedProfile = {
-      ...existingProfile,
+      ...(existingProfile || {}),
       email: email,
       plan: 'free', // Reset to free plan
       founderSince: null, // Remove founder date
