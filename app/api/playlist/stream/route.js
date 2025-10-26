@@ -2072,29 +2072,35 @@ async function handleStreamingRequest(request) {
       try {
         // Direct KV operations instead of HTTP call
         const kv = await import('@vercel/kv');
-        const profileKey = `userprofile:${session.user.email}`;
+        const profileKey = `jey_user_profile:${session.user.email}`;
         const profile = await kv.kv.get(profileKey);
         
         const used = profile?.usage?.used || 0;
         const isFounder = profile?.plan === 'founder';
-        const limit = used >= 5 && !isFounder; // Only limit if not founder
         
-        if (limit) {
-          console.log(`[STREAM:${traceId}] Usage limit reached for user ${session.user.email}: ${used}/5`);
+        // Check if user has reached limit (only if not founder)
+        if (!isFounder && used >= 5) {
+          console.log(`[STREAM:${traceId}] ❌ USAGE LIMIT REACHED for user ${session.user.email}: ${used}/5`);
           return NextResponse.json({
             code: "LIMIT_REACHED",
             error: "Usage limit reached",
             message: "You have reached your usage limit. Please upgrade to continue generating playlists.",
             used: used,
-            remaining: Math.max(0, 5 - used)
+            remaining: 0
           }, { status: 403 });
         } else if (isFounder) {
-          console.log(`[STREAM:${traceId}] Founder user - unlimited access: ${used}/∞`);
+          console.log(`[STREAM:${traceId}] ✅ Founder user - unlimited access: ${used}/∞`);
         } else {
-          console.log(`[STREAM:${traceId}] Usage check passed: ${used}/5`);
+          console.log(`[STREAM:${traceId}] ✅ Usage check passed: ${used}/5`);
         }
       } catch (usageError) {
-        console.warn(`[STREAM:${traceId}] Error checking usage status:`, usageError);
+        console.error(`[STREAM:${traceId}] ❌ Error checking usage status:`, usageError);
+        // FAIL CLOSED: If we can't check usage, we should reject the request for safety
+        return NextResponse.json({
+          code: "USAGE_CHECK_FAILED",
+          error: "Failed to verify usage limits",
+          message: "Unable to verify your usage limits. Please try again later."
+        }, { status: 500 });
       }
     }
     
@@ -2216,7 +2222,7 @@ async function handleStreamingRequest(request) {
                   
                   // Direct KV operations instead of HTTP call
                   const kv = await import('@vercel/kv');
-                  const profileKey = `userprofile:${session.user.email}`;
+                  const profileKey = `jey_user_profile:${session.user.email}`;
                   const profile = await kv.kv.get(profileKey);
                   
                   let used = profile?.usage?.used || 0;
@@ -2355,7 +2361,7 @@ async function handleStreamingRequest(request) {
                     
                     // Direct KV operations instead of HTTP call
                     const kv = await import('@vercel/kv');
-                    const profileKey = `userprofile:${session.user.email}`;
+                    const profileKey = `jey_user_profile:${session.user.email}`;
                     const profile = await kv.kv.get(profileKey);
                     
                     let used = profile?.usage?.used || 0;
@@ -2735,7 +2741,7 @@ async function handleStreamingRequest(request) {
                 
                 // Direct KV operations instead of HTTP call
                 const kv = await import('@vercel/kv');
-                const profileKey = `userprofile:${session.user.email}`;
+                const profileKey = `jey_user_profile:${session.user.email}`;
                 const profile = await kv.kv.get(profileKey);
                 
                   let used = profile?.usage?.used || 0;
