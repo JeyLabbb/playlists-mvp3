@@ -53,18 +53,18 @@ export async function GET(request) {
 
     // Calculate usage status
     const now = new Date();
-    const windowStart = new Date(profile.usage?.windowStart || now);
-    const windowEnd = new Date(profile.usage?.windowEnd || new Date(now.getTime() + 24 * 60 * 60 * 1000));
     
-    const isInWindow = now >= windowStart && now <= windowEnd;
-    const currentCount = isInWindow ? (profile.usage?.count || 0) : 0;
+    // Use 'used' field (new format) or 'count' field (old format)
+    const currentCount = profile.usage?.used || profile.usage?.count || 0;
     
-    const freeUses = parseInt(process.env.FREE_USES) || 3;
+    const freeUses = parseInt(process.env.FREE_USES) || 5;
     const isFounder = profile.plan === 'founder';
     const isMonthly = profile.plan === 'monthly';
-    
-    const remainingUses = Math.max(0, freeUses - currentCount);
     const hasUnlimitedUses = isFounder || isMonthly;
+    
+    // Check if user has reached limit
+    const hasReachedLimit = !isFounder && !isMonthly && currentCount >= freeUses;
+    const remainingUses = hasUnlimitedUses ? 'unlimited' : Math.max(0, freeUses - currentCount);
     
     return NextResponse.json({
       success: true,
@@ -72,12 +72,14 @@ export async function GET(request) {
         current: currentCount,
         limit: freeUses,
         remaining: hasUnlimitedUses ? 'unlimited' : remainingUses,
-        windowStart: windowStart.toISOString(),
-        windowEnd: windowEnd.toISOString(),
-        isInWindow,
         hasUnlimitedUses,
         plan: profile.plan || 'free'
       },
+      // Legacy fields for backwards compatibility
+      limit: hasReachedLimit, // true if reached limit
+      remaining: remainingUses,
+      used: currentCount,
+      isFounder,
       profile: {
         email: profile.email,
         plan: profile.plan || 'free',
