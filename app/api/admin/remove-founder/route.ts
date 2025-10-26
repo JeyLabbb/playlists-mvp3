@@ -1,24 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { kv } from '@vercel/kv';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const { email } = await request.json();
-    
+
     if (!email) {
-      return NextResponse.json({
-        ok: false,
-        error: 'Email is required'
+      return NextResponse.json({ 
+        ok: false, 
+        error: 'Email is required' 
       }, { status: 400 });
     }
-    
-    console.log(`[ADMIN] Removing founder status for: ${email}`);
-    
-    // Get existing profile
-    const profileKey = `userprofile:${email}`;
+
+    console.log(`[REMOVE-FOUNDER] Removing Founder Pass from ${email}`);
+
+    const profileKey = `jey_user_profile:${email}`;
     const existingProfile = await kv.get(profileKey) as Record<string, any> || {};
     
-    // Remove founder status
     const updatedProfile = {
       ...existingProfile,
       email: email,
@@ -26,22 +27,23 @@ export async function POST(request: NextRequest) {
       founderSince: null, // Remove founder date
       updatedAt: new Date().toISOString()
     };
-    
+
     await kv.set(profileKey, updatedProfile);
-    
-    console.log(`[ADMIN] Founder status removed for: ${email}`, updatedProfile);
-    
+
+    console.log(`[REMOVE-FOUNDER] Successfully removed Founder Pass from ${email}`);
+
     return NextResponse.json({
       ok: true,
-      message: `Founder status removed for ${email}`,
+      message: `Founder Pass removed from ${email}`,
       profile: updatedProfile
     }, { status: 200 });
-    
-  } catch (error: any) {
-    console.error('[ADMIN] Error removing founder status:', error);
+
+  } catch (error) {
+    console.error('[REMOVE-FOUNDER] Error:', error);
     return NextResponse.json({
       ok: false,
-      error: error.message
+      error: 'Failed to remove Founder Pass',
+      details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }
 }
