@@ -94,8 +94,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
     try { 
       localStorage.setItem('ea_pending', '1'); 
     } catch {}
-    // Usar signIn de NextAuth
-    const baseUrl = process.env.NEXT_PUBLIC_NEXTAUTH_URL || 'http://127.0.0.1:3000';
+    // Usar login de Supabase
     login('/?from=oauth');
   };
 

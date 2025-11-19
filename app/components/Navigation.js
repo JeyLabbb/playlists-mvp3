@@ -32,6 +32,13 @@ export default function Navigation() {
       active: pathname === '/trending'
     },
     {
+      href: '/amigos',
+      label: 'Amigos',
+      subtitle: 'Comunidad social',
+      icon: '👥',
+      active: pathname === '/amigos'
+    },
+    {
       href: '/my',
       label: 'Mis Playlists',
       subtitle: 'Tus creaciones',

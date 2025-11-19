@@ -9,7 +9,6 @@ import PromptTips from "./components/PromptTips";
 import LoadingStatus from "./components/LoadingStatus";
 import FeedbackModal from "./components/FeedbackModal";
 import FeedbackGate from "./components/FeedbackGate";
-import RequestAccessModal from "./components/RequestAccessModal";
 import AnimatedList from "./components/AnimatedList";
 import FounderNudge from "./components/nudges/FounderNudge";
 import PaywallModal from "./components/paywall/PaywallModal";
@@ -115,47 +114,7 @@ export default function Home() {
   const [usageData, setUsageData] = useState(null);
   const [showUsageLimit, setShowUsageLimit] = useState(false);
   
-  // Request Access Modal
-  const [showRequestAccessModal, setShowRequestAccessModal] = useState(false);
-
-  // Listen for CardNav request-access event
-  useEffect(() => {
-    const handleRequestAccessEvent = () => {
-      setShowRequestAccessModal(true);
-    };
-    window.addEventListener('request-access-modal:open', handleRequestAccessEvent);
-    return () => {
-      window.removeEventListener('request-access-modal:open', handleRequestAccessEvent);
-    };
-  }, []);
-
-  // Check for OAuth callback error on mount
-  useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const error = urlParams.get('error');
-    if (error === 'OAuthCallback') {
-      setShowRequestAccessModal(true);
-    }
-  }, []);
-
-  // Show Early Access modal automatically if user is not logged in (but respect ea_snooze)
-  useEffect(() => {
-    // Función para leer cookie ea_snooze
-    const getEaSnoozeCookie = () => {
-      if (typeof window === 'undefined') return false;
-      const cookies = document.cookie.split(';');
-      const eaSnoozeCookie = cookies.find(cookie => 
-        cookie.trim().startsWith('ea_snooze=')
-      );
-      return eaSnoozeCookie?.trim().split('=')[1] === '1';
-    };
-
-    if (status === 'unauthenticated' && !getEaSnoozeCookie()) {
-      setShowRequestAccessModal(true);
-    } else if (status === 'authenticated') {
-      setShowRequestAccessModal(false);
-    }
-  }, [status]);
+  // Early Access modal removed - users should use login/register pages
 
   // Load usage data when user is authenticated
   useEffect(() => {
@@ -589,7 +548,7 @@ export default function Home() {
         return eaSnoozeCookie?.trim().split('=')[1] === '1';
       };
 
-      // Usar signIn de NextAuth
+      // Usar login de Supabase
       login('/?from=oauth');
       return;
     }
@@ -752,7 +711,7 @@ export default function Home() {
     
     if (!tracks.length) return;
     if (!session?.user) {
-      await signIn("spotify", { callbackUrl: `${window.location.origin}/?from=oauth` });
+      login('/?from=oauth');
       return;
     }
 
@@ -1510,11 +1469,6 @@ export default function Home() {
       {/* Feedback Gate */}
       <FeedbackGate currentPrompt={prompt} />
       
-      {/* Request Access Modal */}
-      <RequestAccessModal
-        open={showRequestAccessModal}
-        onClose={() => setShowRequestAccessModal(false)}
-      />
 
       {/* Paywall Modal */}
       <PaywallModal
