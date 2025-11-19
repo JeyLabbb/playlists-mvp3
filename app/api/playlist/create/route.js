@@ -1,11 +1,13 @@
-import { getToken } from "next-auth/jwt";
 import { NextResponse } from "next/server";
+import { getHubAccessToken } from "@/lib/spotify/hubAuth";
 
 export async function POST(req) {
-  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-  if (!token?.accessToken) {
+  const accessToken = await getHubAccessToken();
+  if (!accessToken) {
     return NextResponse.json({ error: "no-access-token" }, { status: 401 });
   }
+  
+  const token = { accessToken };
 
   const { name, description = "", uris = [], isPublic = false } = await req.json();
   if (!name || !Array.isArray(uris) || uris.length === 0) {

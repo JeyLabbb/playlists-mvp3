@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../../lib/auth/config';
+import { getPleiaServerUser } from '@/lib/auth/serverUser';
 
 export async function GET(request: NextRequest) {
   try {
     console.log('[DEBUG] Checking authentication status...');
     
-    const session = await getServerSession(authOptions as any) as any;
+    const user = await getPleiaServerUser();
     
-    if (!session) {
+    if (!user) {
       return NextResponse.json({
         ok: false,
         error: 'No session found',
@@ -17,21 +16,20 @@ export async function GET(request: NextRequest) {
     }
     
     console.log('[DEBUG] Session found:', {
-      email: session.user?.email,
-      hasAccessToken: !!session.accessToken,
-      tokenLength: session.accessToken?.length || 0
+      email: user.email,
+      name: user.name,
+      id: user.id
     });
     
     return NextResponse.json({
       ok: true,
       authenticated: true,
       user: {
-        email: session.user?.email,
-        name: session.user?.name,
-        image: session.user?.image
-      },
-      hasAccessToken: !!session.accessToken,
-      tokenPreview: session.accessToken ? `${session.accessToken.substring(0, 20)}...` : null
+        email: user.email,
+        name: user.name,
+        image: user.image,
+        id: user.id
+      }
     }, { status: 200 });
     
   } catch (error: any) {

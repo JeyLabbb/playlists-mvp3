@@ -6,8 +6,8 @@ export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../../../../lib/auth/config";
+import { getPleiaServerUser } from "@/lib/auth/serverUser";
+import { getHubAccessToken } from "@/lib/spotify/hubAuth";
 import { storeLastRun } from "../../../../lib/debug/utils";
 import logger from "../../../../lib/logger";
 
@@ -1485,7 +1485,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
                   let addedCount = 0;
                   for (const track of collaboratorTracks) {
                     if (!seenTrackIds.has(track.id) && allRadioTracks.length < remaining) {
-                      seenTrackIds.add(track.id);
+          seenTrackIds.add(track.id);
                       allRadioTracks.push(track);
                       addedCount++;
                     }
@@ -1578,7 +1578,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
             console.log(`[STREAM:${traceId}] ARTIST_STYLE: Final result: ${spotifyTracks.length}/${remaining} tracks`);
             console.log(`[STREAM:${traceId}] ARTIST_STYLE tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artists?.map(a => a.name) || [] })));
             
-          } else {
+                  } else {
             console.log(`[STREAM:${traceId}] ARTIST_STYLE: No top tracks found for "${artistName}", trying collaboration search`);
             // Try collaboration-based search instead of generic fallback
             const allArtistTracks = await getArtistAllTracks(accessToken, artistName);
@@ -1587,12 +1587,12 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
             if (collaborators.length > 0) {
               console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${collaborators.length} collaborators, searching their tracks`);
               spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, collaborators.slice(0, 10), remaining));
-            } else {
+              } else {
               console.log(`[STREAM:${traceId}] ARTIST_STYLE: No collaborators found, returning empty`);
               spotifyTracks = [];
             }
           }
-        } else {
+            } else {
           console.log(`[STREAM:${traceId}] ARTIST_STYLE: No priority artists, skipping`);
           spotifyTracks = [];
         }
@@ -2058,21 +2058,22 @@ async function handleStreamingRequest(request) {
     console.log(`[STREAM:${traceId}] Starting SSE streaming for: "${prompt}"`);
     
     // Get session and access token
-    const session = await getServerSession(authOptions);
-    if (!session?.accessToken) {
-      console.log(`[STREAM:${traceId}] No valid session found`);
+    const user = await getPleiaServerUser();
+    const accessToken = await getHubAccessToken();
+    
+    if (!accessToken) {
+      console.log(`[STREAM:${traceId}] No valid access token found`);
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
     
-    const accessToken = session.accessToken;
-    console.log(`[STREAM:${traceId}] Session found for user: ${session.user?.email || 'unknown'}`);
+    console.log(`[STREAM:${traceId}] Access token found for user: ${user?.email || 'unknown'}`);
 
     // Check usage limit before generating playlist
     if (session.user?.email) {
       try {
         // Direct KV operations instead of HTTP call
         const kv = await import('@vercel/kv');
-        const profileKey = `jey_user_profile:${session.user.email}`;
+        const profileKey = `jey_user_profile:${user?.email || 'unknown'}`;
         const profile = await kv.kv.get(profileKey);
         
         const used = profile?.usage?.used || 0;
@@ -2080,7 +2081,7 @@ async function handleStreamingRequest(request) {
         
         // Check if user has reached limit (only if not founder)
         if (!isFounder && used >= 5) {
-          console.log(`[STREAM:${traceId}] ❌ USAGE LIMIT REACHED for user ${session.user.email}: ${used}/5`);
+          console.log(`[STREAM:${traceId}] ❌ USAGE LIMIT REACHED for user ${user?.email || 'unknown'}: ${used}/5`);
           return NextResponse.json({
             code: "LIMIT_REACHED",
             error: "Usage limit reached",
@@ -2171,7 +2172,7 @@ async function handleStreamingRequest(request) {
                    
                    // Log prompt to Supabase
                    console.log(`[STREAM:${traceId}] ===== LOGGING PROMPT TO SUPABASE =====`);
-                   console.log(`[STREAM:${traceId}] Email: ${session.user.email}`);
+                   console.log(`[STREAM:${traceId}] Email: ${user?.email || 'unknown'}`);
                    console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
                    try {
                      const logResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
@@ -2179,7 +2180,7 @@ async function handleStreamingRequest(request) {
                        headers: { 'Content-Type': 'application/json' },
                        body: JSON.stringify({
                          type: 'prompt',
-                         payload: { email: session.user.email, prompt, source: 'web' }
+                         payload: { email: user?.email || 'unknown', prompt, source: 'web' }
                        })
                      });
                      if (logResponse.ok) {
@@ -2222,7 +2223,7 @@ async function handleStreamingRequest(request) {
                   
                   // Direct KV operations instead of HTTP call
                   const kv = await import('@vercel/kv');
-                  const profileKey = `jey_user_profile:${session.user.email}`;
+                  const profileKey = `jey_user_profile:${user?.email || 'unknown'}`;
                   const profile = await kv.kv.get(profileKey);
                   
                   let used = profile?.usage?.used || 0;
@@ -2233,8 +2234,8 @@ async function handleStreamingRequest(request) {
                     
        // Log metrics to Supabase for founder
        console.log(`[STREAM:${traceId}] ===== LOGGING METRICS FOR FOUNDER =====`);
-       console.log(`[STREAM:${traceId}] Email: ${session.user.email}`);
-       await logMetrics(session.user.email, 'generate_playlist', {
+       console.log(`[STREAM:${traceId}] Email: ${user?.email || 'unknown'}`);
+       await logMetrics(user?.email || 'unknown', 'generate_playlist', {
          prompt: prompt,
          trackCount: target_tracks,
          plan: 'founder',
@@ -2244,7 +2245,7 @@ async function handleStreamingRequest(request) {
        
       // Log playlist creation for founder
       console.log(`[STREAM:${traceId}] ===== LOGGING PLAYLIST CREATION FOR FOUNDER =====`);
-      await logPlaylist(session.user.email, playlist_name || `Playlist ${new Date().toISOString()}`, prompt, null, null, target_tracks);
+      await logPlaylist(user?.email || 'unknown', playlist_name || `Playlist ${new Date().toISOString()}`, prompt, null, null, target_tracks);
       console.log(`[STREAM:${traceId}] ===== PLAYLIST LOGGED FOR FOUNDER =====`);
                   } else if (used >= 5) {
                     console.log(`[STREAM:${traceId}] Usage limit already reached: ${used}/5`);
@@ -2263,9 +2264,9 @@ async function handleStreamingRequest(request) {
                     
        // Log metrics to Supabase
        console.log(`[STREAM:${traceId}] ===== LOGGING METRICS FOR USER =====`);
-       console.log(`[STREAM:${traceId}] Email: ${session.user.email}`);
+       console.log(`[STREAM:${traceId}] Email: ${user?.email || 'unknown'}`);
        console.log(`[STREAM:${traceId}] Used: ${used}/5`);
-       await logMetrics(session.user.email, 'generate_playlist', {
+       await logMetrics(user?.email || 'unknown', 'generate_playlist', {
          prompt: prompt,
          trackCount: target_tracks,
          plan: profile?.plan || 'free',
@@ -2275,7 +2276,7 @@ async function handleStreamingRequest(request) {
        
       // Log playlist creation
       console.log(`[STREAM:${traceId}] ===== LOGGING PLAYLIST CREATION =====`);
-      await logPlaylist(session.user.email, playlist_name || `Playlist ${new Date().toISOString()}`, prompt, null, null, target_tracks);
+      await logPlaylist(user?.email || 'unknown', playlist_name || `Playlist ${new Date().toISOString()}`, prompt, null, null, target_tracks);
       console.log(`[STREAM:${traceId}] ===== PLAYLIST LOGGED =====`);
                   }
                 } catch (consumeError) {
@@ -2361,7 +2362,7 @@ async function handleStreamingRequest(request) {
                     
                     // Direct KV operations instead of HTTP call
                     const kv = await import('@vercel/kv');
-                    const profileKey = `jey_user_profile:${session.user.email}`;
+                    const profileKey = `jey_user_profile:${user?.email || 'unknown'}`;
                     const profile = await kv.kv.get(profileKey);
                     
                     let used = profile?.usage?.used || 0;
@@ -2386,7 +2387,7 @@ async function handleStreamingRequest(request) {
                     }
 
                     // Log metrics to Supabase
-                    const metricsResult = await logMetrics(session.user.email, 'generate_playlist', {
+                    const metricsResult = await logMetrics(user?.email || 'unknown', 'generate_playlist', {
                       prompt: intent.prompt || '',
                       trackCount: target_tracks,
                       plan: profile?.plan || 'free',
@@ -2394,7 +2395,7 @@ async function handleStreamingRequest(request) {
                     });
                     
                     if (metricsResult.ok) {
-                      console.log(`[METRICS] Successfully logged playlist generation for ${session.user.email}`);
+                      console.log(`[METRICS] Successfully logged playlist generation for ${user?.email || 'unknown'}`);
                     }
                   } catch (consumeError) {
                     console.warn(`[STREAM:${traceId}] Error consuming usage:`, consumeError);
@@ -2478,12 +2479,12 @@ async function handleStreamingRequest(request) {
             console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks after dedup`);
             
             // Apply artist limit to avoid excessive repetition
-            // Dynamic cap: default 3; if there are priority artists or strong preference in prompt, raise to 5 (max)
-            const preferenceHint = /solo\b|favorit|me\s+gusta|prefier|preferenc|solo\s+de|solo\s+del/i.test(intent.prompt || '');
-            const dynamicCap = (intent.priority_artists && intent.priority_artists.length) || preferenceHint ? 5 : 3;
-            console.log(`[STREAM:${traceId}] Applying artist limits: ${allTracks.length} tracks before limiting (cap=${dynamicCap})`);
-            allTracks = limitTracksPerArtist(allTracks, dynamicCap);
-            console.log(`[STREAM:${traceId}] Artist limits applied: ${allTracks.length} tracks after limiting`);
+              // Dynamic cap: default 3; if there are priority artists or strong preference in prompt, raise to 5 (max)
+              const preferenceHint = /solo\b|favorit|me\s+gusta|prefier|preferenc|solo\s+de|solo\s+del/i.test(intent.prompt || '');
+              const dynamicCap = (intent.priority_artists && intent.priority_artists.length) || preferenceHint ? 5 : 3;
+              console.log(`[STREAM:${traceId}] Applying artist limits: ${allTracks.length} tracks before limiting (cap=${dynamicCap})`);
+              allTracks = limitTracksPerArtist(allTracks, dynamicCap);
+              console.log(`[STREAM:${traceId}] Artist limits applied: ${allTracks.length} tracks after limiting`);
             
              // If we removed too many tracks due to artist limits, compensate
              let missingTracks = target_tracks - allTracks.length;
@@ -2581,8 +2582,8 @@ async function handleStreamingRequest(request) {
                   console.log(`[STREAM:${traceId}] COMPENSATION: Added ${toAdd.length} compensation tracks (had ${dedupedCompensation.length} available)`);
                   
                   // Re-apply artist limits to new tracks
-                  allTracks = limitTracksPerArtist(allTracks, dynamicCap);
-                  console.log(`[STREAM:${traceId}] Final artist limits applied: ${allTracks.length} tracks`);
+                    allTracks = limitTracksPerArtist(allTracks, dynamicCap);
+                    console.log(`[STREAM:${traceId}] Final artist limits applied: ${allTracks.length} tracks`);
                   
                   // Final check: if still not enough tracks, try more aggressive collaboration search
                   const finalMissing = target_tracks - allTracks.length;
@@ -2706,30 +2707,30 @@ async function handleStreamingRequest(request) {
             }
             
                    // Send final result
-                   clearTimeout(timeout);
-                   clearInterval(heartbeatInterval);
-                   
-                   console.log(`[STREAM:${traceId}] ===== SENDING FINAL RESULT =====`);
+            clearTimeout(timeout);
+            clearInterval(heartbeatInterval);
+            
+            console.log(`[STREAM:${traceId}] ===== SENDING FINAL RESULT =====`);
                    console.log(`[STREAM:${traceId}] Final tracks count: ${allTracks.length}`);
                    console.log(`[STREAM:${traceId}] Final tracks sample:`, allTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artists?.map(a => a.name) || t.artistNames || [] })));
-                   
-                   try {
-                     controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
+            
+            try {
+              controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
                        tracks: allTracks,
                        totalSoFar: allTracks.length,
-                       partial: false,
+                partial: false,
                        duration: Date.now() - startTime
-                     })}\n\n`));
-                     
-                     console.log(`[STREAM:${traceId}] Final result sent, closing connection`);
-                     controller.close();
-                   } catch (error) {
-                     if (error.code === 'ERR_INVALID_STATE') {
-                       console.log(`[STREAM:${traceId}] Controller already closed, skipping final result`);
-                     } else {
-                       throw error;
-                     }
-                   }
+              })}\n\n`));
+              
+              console.log(`[STREAM:${traceId}] Final result sent, closing connection`);
+              controller.close();
+            } catch (error) {
+              if (error.code === 'ERR_INVALID_STATE') {
+                console.log(`[STREAM:${traceId}] Controller already closed, skipping final result`);
+              } else {
+                throw error;
+              }
+            }
             
           } catch (error) {
             console.error(`[STREAM:${traceId}] Processing error:`, error);
@@ -2741,7 +2742,7 @@ async function handleStreamingRequest(request) {
                 
                 // Direct KV operations instead of HTTP call
                 const kv = await import('@vercel/kv');
-                const profileKey = `jey_user_profile:${session.user.email}`;
+                const profileKey = `jey_user_profile:${user?.email || 'unknown'}`;
                 const profile = await kv.kv.get(profileKey);
                 
                   let used = profile?.usage?.used || 0;

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../../lib/auth/config';
+import { getPleiaServerUser } from '@/lib/auth/serverUser';
 
 // Helper function to check if KV is available
 function hasKV() {
@@ -23,13 +22,13 @@ async function getProfileFromKV(email) {
 // GET: Retrieve usage status
 export async function GET(request) {
   try {
-    const session = await getServerSession(authOptions);
+    const user = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const email = session.user.email;
+    const email = user.email;
     let profile = null;
 
     // Try Vercel KV first

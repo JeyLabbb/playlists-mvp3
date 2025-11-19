@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { useSession, signIn } from 'next-auth/react';
+import { usePleiaSession } from '../../lib/auth/usePleiaSession';
+import { useAuthActions } from '../../lib/auth/clientActions';
 import Link from 'next/link';
 import AnimatedList from '../components/AnimatedList';
 
 export default function MyPlaylistsPage() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = usePleiaSession();
+  const { login } = useAuthActions();
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -295,7 +297,7 @@ export default function MyPlaylistsPage() {
             </div>
             
             <button
-              onClick={() => signIn('spotify')}
+              onClick={() => login('/')}
               className="inline-flex items-center gap-3 bg-green-500 hover:bg-green-600 text-white font-semibold px-8 py-4 rounded-xl transition-colors duration-200 shadow-lg hover:shadow-xl"
             >
               <span className="text-xl">🎵</span>

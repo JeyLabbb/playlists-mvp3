@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { useSession, signIn, signOut } from 'next-auth/react';
+import { usePleiaSession } from '../../lib/auth/usePleiaSession';
+import { useAuthActions } from '../../lib/auth/clientActions';
 import ReferralModule from '../components/ReferralModule';
 import { useProfile } from '../../lib/useProfile';
 
 export default function ProfilePage() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = usePleiaSession();
+  const { login, logout } = useAuthActions();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -308,7 +310,7 @@ export default function ProfilePage() {
         }
         
         // Cerrar sesión y redirigir
-        await signOut({ callbackUrl: '/' });
+        await logout('/');
       } else {
         const data = await response.json();
         setError(data.error || 'Error al eliminar la cuenta');
@@ -340,7 +342,7 @@ export default function ProfilePage() {
             </div>
             
             <button
-              onClick={() => signIn('spotify')}
+              onClick={() => login('/')}
               className="inline-flex items-center gap-3 bg-green-500 hover:bg-green-600 text-white font-semibold px-8 py-4 rounded-xl transition-colors duration-200 shadow-lg hover:shadow-xl"
             >
               <span className="text-xl">🎵</span>

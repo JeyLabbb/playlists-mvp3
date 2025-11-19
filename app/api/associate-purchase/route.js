@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { stripe } from '../../../lib/stripe';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../lib/auth/config';
+import { getPleiaServerUser } from '../../../lib/auth/serverUser';
 
 export async function POST(request) {
   try {
@@ -11,14 +10,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Session ID is required' }, { status: 400 });
     }
 
-    // Get the current user session (NextAuth/Spotify)
-    const session = await getServerSession(authOptions);
+    // Get the current user session (Supabase)
+    const user = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
     }
 
-    console.log('[ASSOCIATE-PURCHASE] Associating purchase with user:', session.user.email);
+    console.log('[ASSOCIATE-PURCHASE] Associating purchase with user:', user.email);
     console.log('[ASSOCIATE-PURCHASE] Session ID:', sessionId);
 
     // Get session details from Stripe
@@ -31,7 +30,7 @@ export async function POST(request) {
     console.log('[ASSOCIATE-PURCHASE] Stripe session details:', {
       id: stripeSession.id,
       stripe_email: stripeSession.customer_details?.email,
-      user_email: session.user.email,
+      user_email: user.email,
       amount_total: stripeSession.amount_total,
       payment_status: stripeSession.payment_status
     });
@@ -48,7 +47,7 @@ export async function POST(request) {
       // Mark user as Founder using the CURRENT SESSION EMAIL (not Stripe email)
       try {
         const kv = await import('@vercel/kv');
-        const profileKey = `userprofile:${session.user.email}`; // Use session email, not Stripe email
+        const profileKey = `userprofile:${user.email}`; // Use session email, not Stripe email
         
         // Get existing profile
         const existingProfile = await kv.kv.get(profileKey) || {};
@@ -56,14 +55,14 @@ export async function POST(request) {
         // Update with Founder status
         const updatedProfile = {
           ...existingProfile,
-          email: session.user.email, // Use session email
+          email: user.email, // Use session email
           plan: 'founder',
           founderSince: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
         
         await kv.kv.set(profileKey, updatedProfile);
-        console.log('[ASSOCIATE-PURCHASE] User marked as Founder:', session.user.email, updatedProfile);
+        console.log('[ASSOCIATE-PURCHASE] User marked as Founder:', user.email, updatedProfile);
         
         // Send confirmation email to the SESSION EMAIL
         try {
@@ -72,7 +71,7 @@ export async function POST(request) {
           const amount = (stripeSession.amount_total / 100).toFixed(2);
           const date = new Date(stripeSession.created * 1000).toLocaleDateString('es-ES');
           
-          const emailSent = await sendConfirmationEmail(session.user.email, {
+          const emailSent = await sendConfirmationEmail(user.email, {
             planName,
             amount,
             date,
@@ -80,9 +79,9 @@ export async function POST(request) {
           });
           
           if (emailSent) {
-            console.log('[ASSOCIATE-PURCHASE] founder_confirmation sent', session.user.email);
+            console.log('[ASSOCIATE-PURCHASE] founder_confirmation sent', user.email);
           } else {
-            console.error('[ASSOCIATE-PURCHASE] Failed to send confirmation email to:', session.user.email);
+            console.error('[ASSOCIATE-PURCHASE] Failed to send confirmation email to:', user.email);
           }
         } catch (emailError) {
           console.error('[ASSOCIATE-PURCHASE] Error sending confirmation email:', emailError);
@@ -92,7 +91,7 @@ export async function POST(request) {
           success: true, 
           message: 'Purchase associated with user account',
           isFounder: true,
-          email: session.user.email, // Return session email
+          email: user.email, // Return session email
           stripe_email: stripeSession.customer_details?.email, // Also return Stripe email for reference
           profile: updatedProfile
         });
@@ -105,7 +104,7 @@ export async function POST(request) {
     return NextResponse.json({ 
       success: false, 
       message: 'Not a Founder Pass purchase',
-      email: session.user.email,
+      email: user.email,
       stripe_email: stripeSession.customer_details?.email,
       isFounderPass
     });

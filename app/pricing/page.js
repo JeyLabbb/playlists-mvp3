@@ -3,14 +3,14 @@
 import { useState, useEffect } from 'react';
 import { CHECKOUT_ENABLED, SHOW_MONTHLY } from '../../lib/flags';
 import { useProfile } from '../../lib/useProfile';
-import { useSession } from 'next-auth/react';
+import { usePleiaSession } from '../../lib/auth/usePleiaSession';
 import { REFERRALS_ENABLED, canInvite, generateReferralLink } from '../../lib/referrals';
 
 export default function PricingPage() {
   const [loading, setLoading] = useState(null);
   const [copied, setCopied] = useState(false);
   const [referralStats, setReferralStats] = useState(null);
-  const { data: session } = useSession();
+  const { data: session } = usePleiaSession();
   const { isFounder, plan } = useProfile();
 
   const copyReferralLink = async () => {

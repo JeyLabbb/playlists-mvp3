@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../../lib/auth/config';
+import { getPleiaServerUser } from '@/lib/auth/serverUser';
 import { REFERRALS_ENABLED, isFounderWhitelisted } from '../../../../lib/referrals';
 
 export async function POST(request) {
@@ -10,9 +9,9 @@ export async function POST(request) {
     }
 
     // Get current user session
-    const session = await getServerSession(authOptions);
+    const user = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
     }
 
@@ -22,7 +21,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Referral email is required' }, { status: 400 });
     }
 
-    const currentUserEmail = session.user.email.toLowerCase();
+    const currentUserEmail = user.email.toLowerCase();
     const referralEmail = refEmail.toLowerCase();
 
     console.log('[REF] Tracking referral:', { currentUserEmail, referralEmail });

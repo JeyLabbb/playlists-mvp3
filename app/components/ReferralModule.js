@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { usePleiaSession } from '../../lib/auth/usePleiaSession';
 import { REFERRALS_ENABLED, canInvite, generateReferralLink, REF_REQUIRED_COUNT } from '../../lib/referrals';
 
 export default function ReferralModule({ userEmail }) {
-  const { data: session, status } = useSession();
+  const { data: session, status } = usePleiaSession();
   const [referralStats, setReferralStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);

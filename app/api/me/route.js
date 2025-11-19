@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../lib/auth/config';
+import { getPleiaServerUser } from '@/lib/auth/serverUser';
 
 // Force no caching
 export const revalidate = 0;
@@ -8,9 +7,9 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
+    const user = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json({ 
         isFounder: false,
         plan: null,
@@ -21,10 +20,10 @@ export async function GET() {
 
     // Get profile from KV
     const kv = await import('@vercel/kv');
-    const profileKey = `jey_user_profile:${session.user.email}`;
+    const profileKey = `jey_user_profile:${user.email}`;
     const profile = await kv.kv.get(profileKey);
     
-    console.log('[ME] Profile data source:', { email: session.user.email, profileKey, profile });
+    console.log('[ME] Profile data source:', { email: user.email, profileKey, profile });
     
     const isFounder = profile?.plan === 'founder';
     
@@ -32,7 +31,7 @@ export async function GET() {
       isFounder,
       plan: profile?.plan || null,
       founderSince: profile?.founderSince || null,
-      email: session.user.email
+      email: user.email
     });
 
     // Force no caching

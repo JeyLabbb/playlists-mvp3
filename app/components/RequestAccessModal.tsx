@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { signIn, useSession } from 'next-auth/react';
+import { usePleiaSession } from '../../lib/auth/usePleiaSession';
+import { useAuthActions } from '../../lib/auth/clientActions';
 import { useRouter } from 'next/navigation';
 
 type Props = {
@@ -9,7 +10,8 @@ type Props = {
 };
 
 export default function RequestAccessModal({ open, onClose }: Props) {
-  const { status } = useSession();
+  const { status } = usePleiaSession();
+  const { login } = useAuthActions();
   const router = useRouter();
   
   const [fullName, setFullName] = useState('');
@@ -94,7 +96,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
     } catch {}
     // Usar signIn de NextAuth
     const baseUrl = process.env.NEXT_PUBLIC_NEXTAUTH_URL || 'http://127.0.0.1:3000';
-    await signIn('spotify', { callbackUrl: `${baseUrl}/?from=oauth` });
+    login('/?from=oauth');
   };
 
   if (!shouldOpen) return null;

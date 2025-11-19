@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../lib/auth/config';
+import { getPleiaServerUser } from '@/lib/auth/serverUser';
 
 // Check if KV is available
 function hasKV() {
@@ -100,11 +99,11 @@ export async function GET(request) {
       email = emailParam;
     } else {
       // Session-based query
-      session = await getServerSession(authOptions);
-      if (!session?.user?.email) {
+      const user = await getPleiaServerUser();
+      if (!user?.email) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
-      email = session.user.email;
+      email = user.email;
     }
 
     let profile = null;
@@ -121,9 +120,9 @@ export async function GET(request) {
       
       profile = {
         email,
-        username: generateUsername(session.user.name, email, existingUsernames),
-        displayName: session.user.name || email.split('@')[0],
-        image: session.user.image || null,
+        username: generateUsername(user?.name, email, existingUsernames),
+        displayName: user?.name || email.split('@')[0],
+        image: user?.image || null,
         bio: null,
         updatedAt: new Date().toISOString()
       };
@@ -157,13 +156,13 @@ export async function GET(request) {
 // POST/PATCH: Update user profile
 export async function POST(request) {
   try {
-    const session = await getServerSession(authOptions);
+    const user = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const email = session.user.email;
+    const email = user.email;
     const updates = await request.json();
     
     // Get existing profile

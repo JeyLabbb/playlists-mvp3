@@ -1,9 +1,9 @@
 "use client";
-import { useSession } from "next-auth/react";
+import { usePleiaSession } from "../../lib/auth/usePleiaSession";
 import { useEffect } from "react";
 
 export default function SessionWatcher() {
-  const { status } = useSession();
+  const { status } = usePleiaSession();
   
   useEffect(() => {
     if (status === 'authenticated') {

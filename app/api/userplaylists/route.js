@@ -1,11 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-
-// Simplified auth options to avoid import circular dependency
-const simpleAuthOptions = {
-  secret: process.env.NEXTAUTH_SECRET,
-  trustHost: true
-};
+import { getPleiaServerUser } from '@/lib/auth/serverUser';
 
 // Check if Vercel KV is available
 function hasKV() {
@@ -104,13 +98,13 @@ async function deleteFromKV(userEmail, playlistId) {
 // GET: Retrieve user playlists
 export async function GET(request) {
   try {
-    const session = await getServerSession(simpleAuthOptions);
+    const user = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userEmail = session.user.email;
+    const userEmail = user.email;
     console.log('[USERPLAYLISTS] GET: Request from user:', userEmail);
 
     let playlists = [];
@@ -151,13 +145,13 @@ export async function GET(request) {
 // POST: Create new playlist
 export async function POST(request) {
   try {
-    const session = await getServerSession(simpleAuthOptions);
+    const user = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userEmail = session.user.email;
+    const userEmail = user.email;
     const playlistData = await request.json();
     
     console.log('[USERPLAYLISTS] POST: Creating playlist for user:', userEmail);
@@ -174,10 +168,10 @@ export async function POST(request) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       public: playlistData.public !== false, // Default to public
-      username: session.user.name || userEmail.split('@')[0],
+      username: user?.name || userEmail.split('@')[0],
       userEmail: userEmail,
-      userName: session.user.name || 'Usuario',
-      userImage: session.user.image || null
+      userName: user?.name || 'Usuario',
+      userImage: user?.image || null
     };
 
     // Save to KV if available
@@ -209,13 +203,13 @@ export async function POST(request) {
 // PUT: Update playlist
 export async function PUT(request) {
   try {
-    const session = await getServerSession(simpleAuthOptions);
+    const user = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userEmail = session.user.email;
+    const userEmail = user.email;
     const { playlistId, ...updates } = await request.json();
     
     if (!playlistId) {
@@ -252,13 +246,13 @@ export async function PUT(request) {
 // DELETE: Delete playlist
 export async function DELETE(request) {
   try {
-    const session = await getServerSession(simpleAuthOptions);
+    const user = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userEmail = session.user.email;
+    const userEmail = user.email;
     const { searchParams } = new URL(request.url);
     const playlistId = searchParams.get('id');
     

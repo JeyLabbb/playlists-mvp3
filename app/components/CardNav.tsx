@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
 import { GoArrowUpRight } from "react-icons/go";
 import styles from "./CardNav.module.css";
-import { useSession, signIn } from "next-auth/react";
+import { usePleiaSession } from "../../lib/auth/usePleiaSession";
+import { useAuthActions } from "../../lib/auth/clientActions";
 import { useProfile } from "../../lib/useProfile";
 
 type NavLink = { label: string; href: string; ariaLabel?: string };
@@ -30,7 +31,8 @@ export default function CardNav({
               buttonBgColor = "var(--gradient-primary)",
               buttonTextColor = "var(--color-night)",
 }: Props) {
-  const { data: session } = useSession();
+  const { data: session } = usePleiaSession();
+  const { login } = useAuthActions();
   const router = useRouter();
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -172,11 +174,8 @@ export default function CardNav({
         return eaSnoozeCookie?.trim().split('=')[1] === '1';
       };
 
-      // Usar signIn de NextAuth
-      await signIn('spotify', { 
-        callbackUrl: '/',
-        redirect: true 
-      });
+      // Usar login de Supabase
+      login('/');
     }
   };
 

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getToken } from 'next-auth/jwt';
+import { getHubAccessToken } from '@/lib/spotify/hubAuth';
 
 export async function GET(request) {
   try {
@@ -27,7 +27,7 @@ export async function GET(request) {
     // Fetch playlist tracks from Spotify
     const response = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
       headers: {
-        'Authorization': `Bearer ${token.accessToken}`,
+        'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       }
     });

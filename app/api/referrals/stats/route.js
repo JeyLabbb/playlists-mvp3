@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../../lib/auth/config';
+import { getPleiaServerUser } from '@/lib/auth/serverUser';
 import { REFERRALS_ENABLED, canInvite } from '../../../../lib/referrals';
 
 export async function GET(request) {
@@ -10,13 +9,13 @@ export async function GET(request) {
     }
 
     // Get current user session
-    const session = await getServerSession(authOptions);
+    const user = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!user?.email) {
       return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
     }
 
-    const userEmail = session.user.email.toLowerCase();
+    const userEmail = user.email.toLowerCase();
 
     if (!canInvite(userEmail)) {
       return NextResponse.json({ error: 'User not authorized to invite' }, { status: 403 });

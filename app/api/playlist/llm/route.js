@@ -2,8 +2,8 @@
 // Clean orchestration for playlist generation with streaming to avoid timeouts
 
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "../../../../lib/auth/config";
+import { getPleiaServerUser } from "@/lib/auth/serverUser";
+import { getHubAccessToken } from "@/lib/spotify/hubAuth";
 import { storeLastRun } from "../../../../lib/debug/utils";
 
 // Clean imports from lib modules
@@ -97,19 +97,20 @@ export async function POST(request) {
     console.log(`[TRACE:${traceId}] Starting streaming playlist generation for: "${prompt}"`);
     
     // Get session and access token
-    const session = await getServerSession(authOptions);
-    if (!session?.accessToken) {
-      console.log(`[TRACE:${traceId}] No valid session found`);
+    const user = await getPleiaServerUser();
+    const accessToken = await getHubAccessToken();
+    
+    if (!accessToken) {
+      console.log(`[TRACE:${traceId}] No valid access token found`);
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
     
-    const accessToken = session.accessToken;
-    console.log(`[TRACE:${traceId}] Session found for user: ${session.user?.email || 'unknown'}`);
+    console.log(`[TRACE:${traceId}] Access token found for user: ${user?.email || 'unknown'}`);
 
     // Check usage limit before generating playlist
-    if (session.user?.email) {
+    if (user?.email) {
       try {
-        const usageResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/usage/status?email=${encodeURIComponent(session.user.email)}`, {
+        const usageResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/usage/status?email=${encodeURIComponent(user.email)}`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' }
         });
@@ -118,12 +119,12 @@ export async function POST(request) {
           const usageData = await usageResponse.json();
           // Check if user is founder by getting profile
           const kv = await import('@vercel/kv');
-          const profileKey = `userprofile:${session.user.email}`;
+          const profileKey = `userprofile:${user.email}`;
           const profile = await kv.kv.get(profileKey);
           const isFounder = profile?.plan === 'founder';
           
           if (usageData.limit && !isFounder) {
-            console.log(`[TRACE:${traceId}] Usage limit reached for user ${session.user.email}: ${usageData.used}/5`);
+            console.log(`[TRACE:${traceId}] Usage limit reached for user ${user.email}: ${usageData.used}/5`);
             return NextResponse.json({
               code: "LIMIT_REACHED",
               error: "Usage limit reached",

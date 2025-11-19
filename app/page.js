@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { signIn, useSession } from "next-auth/react";
+import { usePleiaSession } from "../lib/auth/usePleiaSession";
+import { useAuthActions } from "../lib/auth/clientActions";
 import { useLanguage } from "./contexts/LanguageContext";
 import EpicSection from "./components/EpicSection";
 import PromptTips from "./components/PromptTips";
@@ -16,7 +17,8 @@ import UsageLimitReached from "./components/UsageLimitReached";
 import { useProfile } from "../lib/useProfile";
 
 export default function Home() {
-  const { data: session, status } = useSession();
+  const { data: session, status } = usePleiaSession();
+  const { login } = useAuthActions();
   const { t, isLoading: translationsLoading } = useLanguage();
   const { isFounder, mutate: mutateProfile } = useProfile();
 
@@ -588,7 +590,7 @@ export default function Home() {
       };
 
       // Usar signIn de NextAuth
-      await signIn('spotify', { callbackUrl: `${window.location.origin}/?from=oauth` });
+      login('/?from=oauth');
       return;
     }
 

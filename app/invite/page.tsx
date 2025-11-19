@@ -2,13 +2,14 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { signIn } from 'next-auth/react';
+import { useAuthActions } from '../../lib/auth/clientActions';
 import Link from 'next/link';
 
 function InvitePageContent() {
   const searchParams = useSearchParams();
   const refEmail = searchParams.get('ref');
   const [loading, setLoading] = useState(false);
+  const { login } = useAuthActions();
 
   // Save referral to localStorage when component mounts
   useEffect(() => {
@@ -22,7 +23,7 @@ function InvitePageContent() {
     setLoading(true);
     // Include the referral in the callback URL so it can be processed after login
     const callbackUrl = refEmail ? `/?ref=${encodeURIComponent(refEmail)}` : '/';
-    signIn('spotify', { callbackUrl });
+    login(callbackUrl);
   };
 
   return (

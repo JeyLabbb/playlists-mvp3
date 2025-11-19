@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { CHECKOUT_ENABLED, SHOW_MONTHLY } from '../../../lib/flags';
 import { useProfile } from '../../../lib/useProfile';
-import { useSession } from 'next-auth/react';
+import { usePleiaSession } from '../../../lib/auth/usePleiaSession';
 import { REFERRALS_ENABLED, canInvite } from '../../../lib/referrals';
 
 export default function FounderNudge() {
@@ -11,7 +11,7 @@ export default function FounderNudge() {
   const [isDismissed, setIsDismissed] = useState(false);
   const [loading, setLoading] = useState(null);
   const [usageData, setUsageData] = useState(null);
-  const { data: session } = useSession();
+  const { data: session } = usePleiaSession();
   const { isFounder } = useProfile();
   
   // Check if user is in founder whitelist
