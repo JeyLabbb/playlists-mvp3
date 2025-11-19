@@ -9,10 +9,8 @@ export async function createSupabaseRouteClient() {
     throw new Error('Missing Supabase environment variables for route client');
   }
 
-  const cookieStore = await cookies();
-
   return createRouteHandlerClient({
-    cookies: () => cookieStore,
+    cookies: async () => await cookies(),
   });
 }
 
