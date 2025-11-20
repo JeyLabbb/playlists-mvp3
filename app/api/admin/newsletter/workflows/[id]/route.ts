@@ -21,13 +21,14 @@ const updateWorkflowSchema = z.object({
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
     if (!adminAccess.ok) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
+    const params = await context.params;
     const payload = updateWorkflowSchema.parse(await request.json());
     const supabase = await getNewsletterAdminClient();
 
@@ -76,13 +77,14 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
     if (!adminAccess.ok) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
+    const params = await context.params;
     const supabase = await getNewsletterAdminClient();
     await supabase.from('newsletter_workflows').delete().eq('id', params.id);
     return NextResponse.json({ success: true });
