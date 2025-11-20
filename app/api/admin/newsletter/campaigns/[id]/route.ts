@@ -6,56 +6,6 @@ import { getNewsletterAdminClient } from '@/lib/newsletter/server';
 const updateSchema = z.object({
   title: z.string().min(1).max(160).optional(),
   subject: z.string().min(1).max(160).optional(),
-});
-
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } },
-) {
-  try {
-    const adminAccess = await ensureAdminAccess(request);
-    if (!adminAccess.ok) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const payload = updateSchema.parse(await request.json());
-    const supabase = await getNewsletterAdminClient();
-
-    const updates: Record<string, any> = {};
-    if (typeof payload.title === 'string') updates.title = payload.title;
-    if (typeof payload.subject === 'string') updates.subject = payload.subject;
-
-    if (!Object.keys(updates).length) {
-      return NextResponse.json({ success: false, error: 'Nada que actualizar' }, { status: 400 });
-    }
-
-    const { data, error } = await supabase
-      .from('newsletter_campaigns')
-      .update(updates)
-      .eq('id', params.id)
-      .select('*')
-      .maybeSingle();
-
-    if (error) throw error;
-
-    return NextResponse.json({ success: true, campaign: data });
-  } catch (error: any) {
-    console.error('[NEWSLETTER] campaign PATCH error:', error);
-    return NextResponse.json(
-      { success: false, error: error.message || 'No se pudo actualizar la campaña' },
-      { status: 500 },
-    );
-  }
-}
-
-import { NextResponse } from 'next/server';
-import { z } from 'zod';
-import { ensureAdminAccess } from '@/lib/admin/session';
-import { getNewsletterAdminClient } from '@/lib/newsletter/server';
-
-const updateSchema = z.object({
-  title: z.string().min(1).max(160).optional(),
-  subject: z.string().min(1).max(160).optional(),
   preheader: z.string().max(200).optional(),
   body: z.string().min(1).optional(),
   primaryCta: z.object({ label: z.string(), url: z.string().url() }).optional(),
