@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getPleiaServerUser } from '@/lib/auth/serverUser';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../../lib/auth/config';
 
 // Helper function to check if KV is available
 function hasKV() {
@@ -35,13 +36,13 @@ async function saveProfileToKV(email, profile) {
 // POST: Consume usage
 export async function POST(request) {
   try {
-    const user = await getPleiaServerUser();
+    const session = await getServerSession(authOptions);
     
-    if (!user?.email) {
+    if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const email = user.email;
+    const email = session.user.email;
     const { amount = 1 } = await request.json();
     
     let profile = null;

@@ -1,7 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { usePleiaSession } from '../../lib/auth/usePleiaSession';
-import { useAuthActions } from '../../lib/auth/clientActions';
+import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
 type Props = {
@@ -10,8 +9,7 @@ type Props = {
 };
 
 export default function RequestAccessModal({ open, onClose }: Props) {
-  const { status } = usePleiaSession();
-  const { login } = useAuthActions();
+  const { status } = useSession();
   const router = useRouter();
   
   const [fullName, setFullName] = useState('');
@@ -23,15 +21,30 @@ export default function RequestAccessModal({ open, onClose }: Props) {
   // Polling de sesión para cerrar modal cuando se autentica
   useEffect(() => {
     if (status === 'authenticated') {
+      try {
+        localStorage.setItem('ea_done', '1');
+        localStorage.removeItem('ea_pending');
+      } catch {}
       // Oculta modal y limpia query de callback
       router.replace('/');
     }
   }, [status, router]);
 
-  // Solo mostrar si no está autenticado
+  // Función para leer cookie ea_snooze
+  const getEaSnoozeCookie = () => {
+    if (typeof window === 'undefined') return false;
+    const cookies = document.cookie.split(';');
+    const eaSnoozeCookie = cookies.find(cookie => 
+      cookie.trim().startsWith('ea_snooze=')
+    );
+    return eaSnoozeCookie?.trim().split('=')[1] === '1';
+  };
+
+  // Solo mostrar si no está autenticado y no hay cookie ea_snooze
   const shouldOpen = 
     typeof window !== 'undefined' &&
     status !== 'authenticated' &&
+    !getEaSnoozeCookie() &&
     open;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -76,8 +89,12 @@ export default function RequestAccessModal({ open, onClose }: Props) {
   };
 
   const handleAlreadyRequested = async () => {
-    // Usar login de Supabase
-    login('/?from=oauth');
+    try { 
+      localStorage.setItem('ea_pending', '1'); 
+    } catch {}
+    // Usar signIn de NextAuth
+    const baseUrl = process.env.NEXT_PUBLIC_NEXTAUTH_URL || 'http://127.0.0.1:3000';
+    await signIn('spotify', { callbackUrl: `${baseUrl}/?from=oauth` });
   };
 
   if (!shouldOpen) return null;
@@ -88,9 +105,9 @@ export default function RequestAccessModal({ open, onClose }: Props) {
         <div className="relative rounded-2xl border p-5" style={{ background: 'var(--color-slate)', borderColor: 'rgba(255, 255, 255, 0.1)' }}>
           <div className="flex items-start justify-between mb-6">
             <div>
-              <h3 className="text-xl font-semibold text-white">Iniciar sesión</h3>
+              <h3 className="text-xl font-semibold text-white">Solicitar acceso al Early Access</h3>
               <p className="mt-1 text-sm text-gray-text-secondary">
-                Inicia sesión para acceder a todas las funcionalidades.
+                Para entrar con Spotify necesitamos activar tu email primero.
               </p>
             </div>
           </div>
@@ -125,7 +142,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
 
               <div>
                 <label className="block text-sm font-medium text-white mb-2">
-                  Email
+                  Email de tu cuenta de Spotify
                 </label>
                 <input
                   type="email"
@@ -137,7 +154,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
                   required
                 />
                 <p className="mt-1 text-xs text-gray-text-secondary">
-                  Usa el email con el que quieres registrarte.
+                  Usa el mismo email de tu cuenta de Spotify.
                 </p>
               </div>
 
@@ -183,7 +200,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
                 </p>
                 
                 <p className="text-xs text-gray-text-secondary text-center mt-3 px-2">
-                  Si no vuelves automáticamente, regresa a esta página y pulsa de nuevo Iniciar sesión; te reconocerá y entrarás directo.
+                  Si Spotify te pide un código, complétalo. Si no vuelves automáticamente, regresa a esta página y pulsa de nuevo Iniciar sesión; te reconocerá y entrarás directo.
                 </p>
                 
                 <button

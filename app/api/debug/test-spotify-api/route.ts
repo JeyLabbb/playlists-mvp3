@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getHubAccessToken } from '@/lib/spotify/hubAuth';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../../lib/auth/config';
 
 export async function POST(request: NextRequest) {
   try {
@@ -7,13 +8,15 @@ export async function POST(request: NextRequest) {
     
     console.log(`[DEBUG] Testing Spotify API: ${testType}`);
     
-    const accessToken = await getHubAccessToken();
-    if (!accessToken) {
+    const session = await getServerSession(authOptions as any) as any;
+    if (!session?.accessToken) {
       return NextResponse.json({
         ok: false,
         error: 'No Spotify access token found'
       }, { status: 401 });
     }
+    
+    const accessToken = session.accessToken;
     console.log(`[DEBUG] Access token found: ${accessToken.substring(0, 20)}...`);
     
     let testResult;

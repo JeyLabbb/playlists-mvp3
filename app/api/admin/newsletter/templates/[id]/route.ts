@@ -15,7 +15,7 @@ const updateSchema = z.object({
 
 export async function PATCH(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -24,10 +24,9 @@ export async function PATCH(
     }
     const supabase = await getNewsletterAdminClient();
     const payload = updateSchema.parse(await request.json());
-    const { id } = await params;
 
     if (payload.isDefault) {
-      await supabase.from('newsletter_templates').update({ is_default: false }).neq('id', id);
+      await supabase.from('newsletter_templates').update({ is_default: false }).neq('id', params.id);
     }
 
     const updates: Record<string, any> = {};
@@ -46,7 +45,7 @@ export async function PATCH(
     const { data, error } = await supabase
       .from('newsletter_templates')
       .update(updates)
-      .eq('id', id)
+      .eq('id', params.id)
       .select('*')
       .single();
     if (error) throw error;
@@ -63,7 +62,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -71,8 +70,7 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
     const supabase = await getNewsletterAdminClient();
-    const { id } = await params;
-    const { error } = await supabase.from('newsletter_templates').delete().eq('id', id);
+    const { error } = await supabase.from('newsletter_templates').delete().eq('id', params.id);
     if (error) throw error;
     return NextResponse.json({ success: true });
   } catch (error: any) {

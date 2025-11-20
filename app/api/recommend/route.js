@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getHubAccessToken } from "@/lib/spotify/hubAuth";
+import { getToken } from "next-auth/jwt";
 
 function dedupeById(list) {
   const seen = new Set();
@@ -91,8 +91,8 @@ async function fillWithRecommendations({ have, need, accessToken, seeds }) {
 
 async function handler(req) {
   try {
-    const accessToken = await getHubAccessToken();
-    if (!accessToken) {
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    if (!token?.accessToken) {
       return NextResponse.json({ error: "no-access-token" }, { status: 401 });
     }
 
@@ -122,7 +122,7 @@ async function handler(req) {
       if (found.length >= count) break;
       const t = await searchOneTrack(
         { track: c.track, artist: c.artist },
-        accessToken
+        token.accessToken
       );
       if (t) {
         found.push(t);
@@ -135,7 +135,7 @@ async function handler(req) {
       const extra = await fillWithRecommendations({
         have: tracks,
         need: count - tracks.length,
-        accessToken: accessToken,
+        accessToken: token.accessToken,
         seeds,
       });
       tracks = dedupeById([...tracks, ...extra]).slice(0, count);

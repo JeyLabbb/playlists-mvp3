@@ -2,32 +2,54 @@
 
 import { useState, useEffect } from 'react';
 import { usePleiaSession } from '../../lib/auth/usePleiaSession';
+import { useProfile } from '../../lib/useProfile';
 import { REFERRALS_ENABLED, canInvite, generateReferralLink, REF_REQUIRED_COUNT } from '../../lib/referrals';
 
 export default function ReferralModule({ userEmail }) {
   const { data: session, status } = usePleiaSession();
+  const { isEarlyFounderCandidate } = useProfile();
   const [referralStats, setReferralStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  
+  // Detectar si es móvil (donde Web Share API funciona mejor)
+  useEffect(() => {
+    const checkMobile = () => {
+      const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || 
+                            (typeof window !== 'undefined' && window.innerWidth < 768);
+      setIsMobile(isMobileDevice);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
-    if (status === 'loading') {
-      return; // Wait for session to load
+    if (status !== 'authenticated') {
+      setReferralStats(null);
+      setLoading(false);
+      return;
     }
-    
-    if (canInvite(userEmail)) {
+
+    if (canInvite(userEmail, { isEarlyCandidate: isEarlyFounderCandidate })) {
       loadReferralStats();
-      // Refresh stats every 10 seconds
       const interval = setInterval(loadReferralStats, 10000);
       return () => clearInterval(interval);
-    } else {
-      setLoading(false);
     }
-  }, [userEmail, status]);
+
+    setLoading(false);
+  }, [userEmail, status, isEarlyFounderCandidate]);
 
   const loadReferralStats = async () => {
     try {
-      const response = await fetch('/api/referrals/stats');
+      const response = await fetch('/api/referrals/stats', { credentials: 'include' });
+      if (response.status === 401) {
+        setReferralStats(null);
+        return;
+      }
+
       if (response.ok) {
         const stats = await response.json();
         console.log('[REFERRAL] Stats received:', stats);
@@ -53,7 +75,46 @@ export default function ReferralModule({ userEmail }) {
     }
   };
 
-  if (!REFERRALS_ENABLED || !canInvite(userEmail)) {
+  const shareReferralLink = async () => {
+    const link = generateReferralLink(userEmail);
+    const shareText = 'Prueba esta IA que te hace playlists en Spotify! 🎵';
+    
+    try {
+      // Verificar que navigator.share existe y es una función
+      if (typeof navigator !== 'undefined' && navigator.share && typeof navigator.share === 'function') {
+        // Usar solo text y url, sin title (más compatible)
+        const shareData = {
+          text: shareText,
+          url: link,
+        };
+        
+        // Intentar compartir sin usar canShare (puede causar problemas en Safari)
+        await navigator.share(shareData);
+        console.log('[REFERRAL] Link shared successfully');
+        return;
+      }
+    } catch (error) {
+      // Si el usuario cancela el share, no hacer nada
+      if (error.name === 'AbortError') {
+        return;
+      }
+      // Si hay otro error, continuar al fallback
+      console.warn('[REFERRAL] Share failed, using fallback:', error);
+    }
+    
+    // Fallback: copiar al portapapeles con el mensaje
+    try {
+      const fullText = `${shareText}\n\n${link}`;
+      await navigator.clipboard.writeText(fullText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      console.log('[REFERRAL] Copied to clipboard with message');
+    } catch (clipboardError) {
+      console.error('[REFERRAL] Error copying to clipboard:', clipboardError);
+    }
+  };
+
+  if (!REFERRALS_ENABLED || !canInvite(userEmail, { isEarlyCandidate: isEarlyFounderCandidate })) {
     return null;
   }
 
@@ -84,36 +145,47 @@ export default function ReferralModule({ userEmail }) {
     ? Math.min((referralStats.qualifiedReferrals / REF_REQUIRED_COUNT) * 100, 100)
     : 0;
 
+  const GOLD = '#f6c744';
+  const GOLD_DARK = '#7f5f1f';
+  const GOLD_SOFT = 'rgba(246, 197, 68, 0.15)';
+
   return (
-    <div className="bg-gradient-to-br from-orange-900/20 to-yellow-900/20 border border-orange-500/30 rounded-lg p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <svg className="w-6 h-6" fill="currentColor" style={{ color: '#FF8C00' }} viewBox="0 0 20 20">
+    <div className="rounded-lg p-6 border" style={{
+      background: 'linear-gradient(135deg, rgba(61,38,0,0.35), rgba(246,197,68,0.12))',
+      borderColor: 'rgba(246, 197, 68, 0.35)',
+      boxShadow: '0 0 32px rgba(246,197,68,0.15)'
+    }}>
+      <div className="flex items-center gap-2 mb-1">
+        <svg className="w-6 h-6" fill="currentColor" style={{ color: GOLD }} viewBox="0 0 20 20">
           <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <h3 className="text-lg font-semibold" style={{ color: '#FF8C00' }}>
+        <h3 className="text-lg font-semibold" style={{ color: GOLD }}>
           Invitar amigos
         </h3>
       </div>
       
-      <p className="text-gray-300 text-sm mb-4">
-        Invita a 3 amigos y desbloquea <strong>Founder de por vida</strong> gratis.
+      <p className="text-xs uppercase tracking-[0.18em] mb-2" style={{ color: 'rgba(255, 241, 207, 0.75)' }}>
+        Por ser de los primeros 1000 en crear cuenta PLEIA
+      </p>
+      <p className="text-sm mb-4" style={{ color: 'rgba(255, 241, 207, 0.9)' }}>
+        Invita a 3 amigos y desbloquea <strong>Founder de por vida</strong> gratis (o compra el pass por 5€).
       </p>
 
       {/* Progress Bar */}
       <div className="mb-4">
         <div className="flex justify-between items-center mb-2">
-          <span className="text-sm text-gray-400">
+          <span className="text-sm" style={{ color: 'rgba(255, 241, 207, 0.7)' }}>
             Progreso: {referralStats?.qualifiedReferrals || 0} / {REF_REQUIRED_COUNT}
           </span>
-          <span className="text-sm font-semibold" style={{ color: '#FF8C00' }}>
+          <span className="text-sm font-semibold" style={{ color: GOLD }}>
             {Math.round(progressPercentage)}%
           </span>
         </div>
-        <div className="w-full bg-gray-700 rounded-full h-2">
+        <div className="w-full rounded-full h-2" style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}>
           <div 
             className="h-2 rounded-full transition-all duration-300"
             style={{ 
-              backgroundColor: '#FF8C00',
+              background: `linear-gradient(90deg, ${GOLD_DARK}, ${GOLD})`,
               width: `${progressPercentage}%`
             }}
           ></div>
@@ -122,7 +194,7 @@ export default function ReferralModule({ userEmail }) {
 
       {/* Referral Link */}
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-300 mb-2">
+        <label className="block text-sm font-medium mb-2" style={{ color: 'rgba(255, 241, 207, 0.85)' }}>
           Tu enlace de invitación:
         </label>
         <div className="flex gap-2">
@@ -130,14 +202,45 @@ export default function ReferralModule({ userEmail }) {
             type="text"
             value={generateReferralLink(userEmail)}
             readOnly
-            className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm"
+            className="flex-1 px-3 py-2 rounded-lg text-sm"
+            style={{
+              backgroundColor: 'rgba(12, 16, 24, 0.65)',
+              border: '1px solid rgba(246, 197, 68, 0.25)',
+              color: '#fff',
+              boxShadow: 'inset 0 0 12px rgba(246,197,68,0.12)'
+            }}
           />
           <button
             onClick={copyReferralLink}
-            className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors text-sm"
+            className="px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+            style={{
+              background: copied
+                ? 'rgba(246, 197, 68, 0.15)'
+                : `linear-gradient(135deg, ${GOLD_DARK}, ${GOLD})`,
+              border: `1px solid ${GOLD}`,
+              color: copied ? GOLD : '#0B1018',
+              boxShadow: copied ? '0 0 18px rgba(246,197,68,0.25)' : '0 12px 24px rgba(246,197,68,0.25)'
+            }}
           >
-            {copied ? '✓' : 'Copiar'}
+            {copied ? '✓ Copiado' : 'Copiar'}
           </button>
+          {isMobile && (
+            <button
+              onClick={shareReferralLink}
+              className="px-3 py-2 rounded-lg font-medium text-sm transition-colors flex items-center justify-center"
+              style={{
+                background: `linear-gradient(135deg, ${GOLD_DARK}, ${GOLD})`,
+                border: `1px solid ${GOLD}`,
+                color: '#0B1018',
+                boxShadow: '0 12px 24px rgba(246,197,68,0.25)'
+              }}
+              title="Compartir en WhatsApp, Instagram, etc."
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
@@ -145,23 +248,23 @@ export default function ReferralModule({ userEmail }) {
       {referralStats && (
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div className="text-center">
-            <div className="text-2xl font-bold" style={{ color: '#FF8C00' }}>
+            <div className="text-2xl font-bold" style={{ color: GOLD }}>
               {referralStats.totalReferrals}
             </div>
-            <div className="text-gray-400">Total invitados</div>
+            <div style={{ color: 'rgba(255, 241, 207, 0.6)' }}>Total invitados</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold" style={{ color: '#36E2B4' }}>
               {referralStats.qualifiedReferrals}
             </div>
-            <div className="text-gray-400">Cualificados</div>
+            <div style={{ color: 'rgba(255, 241, 207, 0.6)' }}>Cualificados</div>
           </div>
         </div>
       )}
 
       {/* Status Message */}
-      <div className="mt-4 p-3 rounded-lg" style={{ backgroundColor: 'rgba(255, 140, 0, 0.1)' }}>
-        <p className="text-sm" style={{ color: '#FF8C00' }}>
+      <div className="mt-4 p-3 rounded-lg" style={{ backgroundColor: GOLD_SOFT, border: '1px solid rgba(246,197,68,0.25)' }}>
+        <p className="text-sm font-medium" style={{ color: GOLD }}>
           {referralStats?.qualifiedReferrals >= REF_REQUIRED_COUNT 
             ? '🎉 ¡Felicidades! Ya tienes acceso de Founder de por vida.'
             : `Faltan ${REF_REQUIRED_COUNT - (referralStats?.qualifiedReferrals || 0)} invitados para desbloquear Founder de por vida.`

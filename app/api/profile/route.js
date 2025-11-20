@@ -1,9 +1,30 @@
 import { NextResponse } from 'next/server';
+import { HUB_MODE } from '@/lib/features';
 import { getPleiaServerUser } from '@/lib/auth/serverUser';
+import { createSupabaseRouteClient } from '@/lib/supabase/routeClient';
+import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { normalizeUsername } from '@/lib/social/usernameCache';
+
+const memoryStoreKey = Symbol.for('pleia.profile.store');
+const globalScope = globalThis;
+if (!globalScope[memoryStoreKey]) {
+  globalScope[memoryStoreKey] = new Map();
+}
+const memoryStore = globalScope[memoryStoreKey];
 
 // Check if KV is available
 function hasKV() {
-  return !!(process.env.UPSTASH_REDIS_KV_REST_API_URL && process.env.UPSTASH_REDIS_KV_REST_API_TOKEN);
+  const url = process.env.UPSTASH_REDIS_KV_REST_API_URL || process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_KV_REST_API_TOKEN || process.env.KV_REST_API_TOKEN;
+
+  if (!process.env.UPSTASH_REDIS_KV_REST_API_URL && process.env.KV_REST_API_URL) {
+    process.env.UPSTASH_REDIS_KV_REST_API_URL = process.env.KV_REST_API_URL;
+  }
+  if (!process.env.UPSTASH_REDIS_KV_REST_API_TOKEN && process.env.KV_REST_API_TOKEN) {
+    process.env.UPSTASH_REDIS_KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN;
+  }
+
+  return !!(url && token);
 }
 
 // Generate unique username
@@ -36,6 +57,76 @@ function generateUsername(name, email, existingUsernames) {
   return username;
 }
 
+function sanitizeUsername(username) {
+  return (username || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '')
+    .substring(0, 30);
+}
+
+async function getUsernameOwner(username) {
+  if (!username) return null;
+
+  if (hasKV()) {
+    try {
+      const kv = await import('@vercel/kv');
+      return await kv.kv.get(`username_index:${username}`);
+    } catch (error) {
+      console.warn('[PROFILE] KV username lookup failed:', error);
+      return null;
+    }
+  }
+
+  for (const [email, profile] of memoryStore.entries()) {
+    if (profile?.username === username) {
+      return email;
+    }
+  }
+
+  return null;
+}
+
+async function updateUsernameIndex(email, newUsername, previousUsername) {
+  if (!newUsername) return;
+
+  if (hasKV()) {
+    try {
+      const kv = await import('@vercel/kv');
+      const pipeline = kv.kv.pipeline();
+
+      if (previousUsername && previousUsername !== newUsername) {
+        pipeline.del(`username_index:${previousUsername}`);
+      }
+
+      pipeline.set(`username_index:${newUsername}`, email);
+      await pipeline.exec();
+    } catch (error) {
+      console.warn('[PROFILE] Failed to update username index:', error);
+    }
+  }
+}
+
+async function generateUniqueUsername(displayName, email) {
+  const baseSlug = sanitizeUsername(
+    displayName ||
+    email.split('@')[0]
+  );
+
+  let candidate = baseSlug || `pleia-${Math.random().toString(36).slice(2, 6)}`;
+
+  let attempt = 0;
+  while (attempt < 6) {
+    const owner = await getUsernameOwner(candidate);
+    if (!owner || owner === email) {
+      return candidate;
+    }
+    attempt += 1;
+    candidate = `${baseSlug}-${attempt + 1}`;
+  }
+
+  return `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
 // Get user profile from KV
 async function getProfileFromKV(email) {
   try {
@@ -62,27 +153,17 @@ async function saveProfileToKV(email, profile) {
   }
 }
 
-// Get all user profiles to check username uniqueness
-async function getAllProfilesForUsernameCheck() {
-  try {
-    const kv = await import('@vercel/kv');
-    const keys = await kv.kv.keys('jey_user_profile:*');
-    const profiles = [];
-    
-    for (const key of keys) {
-      try {
-        const profile = await kv.kv.get(key);
-        if (profile) profiles.push(profile);
-      } catch (err) {
-        console.warn('Error getting profile for key:', key, err);
-      }
-    }
-    
-    return profiles;
-  } catch (error) {
-    console.warn('KV GET all profiles error:', error);
-    return [];
-  }
+function getProfileFromMemory(email) {
+  return memoryStore.get(email) || null;
+}
+
+function saveProfileToMemory(email, profile) {
+  memoryStore.set(email, profile);
+  return true;
+}
+
+function deleteProfileFromMemory(email) {
+  memoryStore.delete(email);
 }
 
 // GET: Retrieve user profile
@@ -91,19 +172,17 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const emailParam = searchParams.get('email');
     
-    let session = null;
+    let pleiaUser = null;
     let email = null;
     
     if (emailParam) {
-      // Direct email query (for internal API calls)
       email = emailParam;
     } else {
-      // Session-based query
-      const user = await getPleiaServerUser();
-      if (!user?.email) {
+      pleiaUser = await getPleiaServerUser();
+      if (!pleiaUser?.email) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
-      email = user.email;
+      email = pleiaUser.email;
     }
 
     let profile = null;
@@ -111,40 +190,68 @@ export async function GET(request) {
     // Try Vercel KV first
     if (hasKV()) {
       profile = await getProfileFromKV(email);
+      if (profile?.username) {
+        const owner = await getUsernameOwner(profile.username);
+        if (!owner) {
+          await updateUsernameIndex(email, profile.username, null);
+        }
+      }
+    } else {
+      profile = getProfileFromMemory(email);
     }
 
-    // If no profile exists, create one (only for session-based queries)
+    // If no profile exists, create one (only for authenticated queries)
     if (!profile && !emailParam) {
-      const allProfiles = hasKV() ? await getAllProfilesForUsernameCheck() : [];
-      const existingUsernames = allProfiles.map(p => p.username).filter(Boolean);
-      
+      const displayName =
+        pleiaUser?.name ||
+        email.split('@')[0];
+
+      const username = await generateUniqueUsername(displayName, email);
+
       profile = {
         email,
-        username: generateUsername(user?.name, email, existingUsernames),
-        displayName: user?.name || email.split('@')[0],
-        image: user?.image || null,
+        username,
+        displayName,
+        image: pleiaUser?.image || null,
         bio: null,
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        newsletterOptIn: false,
+        acceptedTermsAt: null,
       };
 
-      // Try to save to KV if available
       if (hasKV()) {
-        await saveProfileToKV(email, profile);
+        const saved = await saveProfileToKV(email, profile);
+        if (saved) {
+          await updateUsernameIndex(email, username, null);
+        }
       } else {
-        // If no KV, indicate fallback to localStorage
-        return NextResponse.json({
-          success: true,
-          profile: profile,
-          reason: 'fallback-localStorage',
-          source: 'localStorage'
-        });
+        saveProfileToMemory(email, profile);
+      }
+
+      if (pleiaUser?.id) {
+        try {
+          const supabase = await createSupabaseRouteClient();
+          await supabase
+            .from('users')
+            .update({
+              username: normalizeUsername(username) || username,
+            })
+            .eq('id', pleiaUser.id);
+        } catch (syncError) {
+          console.warn('[PROFILE] Failed to save initial username to users table:', syncError);
+        }
       }
     }
 
+    const normalizedProfile = {
+      ...profile,
+      newsletterOptIn: !!profile?.newsletterOptIn,
+    };
+
     return NextResponse.json({
       success: true,
-      profile: profile,
-      source: hasKV() ? 'kv' : 'localStorage'
+      profile: normalizedProfile,
+      source: hasKV() ? 'kv' : 'memory'
     });
 
   } catch (error) {
@@ -156,65 +263,186 @@ export async function GET(request) {
 // POST/PATCH: Update user profile
 export async function POST(request) {
   try {
-    const user = await getPleiaServerUser();
-    
-    if (!user?.email) {
+    let userEmail = null;
+    let userName = null;
+
+    const pleiaUser = await getPleiaServerUser();
+    if (!pleiaUser?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    userEmail = pleiaUser.email;
+    userName = pleiaUser.name || pleiaUser.email;
 
-    const email = user.email;
     const updates = await request.json();
+    const mode = updates?.mode;
+    const requestedUsername = updates?.username;
+
+    if (mode === 'check-username') {
+      const candidate = sanitizeUsername(requestedUsername || '');
+      const owner = await getUsernameOwner(candidate);
+      const available = !candidate || !owner || owner === userEmail;
+
+      return NextResponse.json({
+        success: true,
+        available,
+        username: candidate,
+        owner: owner || null,
+        mode: 'check-username',
+        source: hasKV() ? 'kv' : 'memory'
+      });
+    }
+
+    delete updates.mode;
     
     // Get existing profile
     let profile = null;
     if (hasKV()) {
-      profile = await getProfileFromKV(email);
+      profile = await getProfileFromKV(userEmail);
+    } else {
+      profile = getProfileFromMemory(userEmail);
     }
     
     if (!profile) {
-      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+      const username = await generateUniqueUsername(userName, userEmail);
+      profile = {
+        email: userEmail,
+        username,
+        displayName: userName,
+        image: null,
+        bio: "",
+        plan: HUB_MODE ? "hub" : "free",
+        founderSince: null,
+        updatedAt: new Date().toISOString()
+      };
     }
 
-    // Check username uniqueness if username is being updated
-    if (updates.username && updates.username !== profile.username) {
-      const allProfiles = hasKV() ? await getAllProfilesForUsernameCheck() : [];
-      const existingUsernames = allProfiles
-        .filter(p => p.email !== email) // Exclude current user
-        .map(p => p.username)
-        .filter(Boolean);
-      
-      if (existingUsernames.includes(updates.username)) {
-        return NextResponse.json({ 
-          error: 'Username already taken',
-          available: false 
+    if (requestedUsername && requestedUsername !== profile.username) {
+      const candidate = sanitizeUsername(requestedUsername);
+
+      if (!candidate) {
+        return NextResponse.json({
+          error: 'Nombre de usuario no válido',
+          available: false
         }, { status: 400 });
       }
+
+      const owner = await getUsernameOwner(candidate);
+      if (owner && owner !== userEmail) {
+        return NextResponse.json({
+          error: 'Nombre de usuario ya está en uso',
+          available: false
+        }, { status: 200 });
+      }
+
+      updates.username = candidate;
     }
 
     // Update profile
     const updatedProfile = {
       ...profile,
       ...updates,
-      email, // Ensure email doesn't change
+      email: userEmail, // Ensure email doesn't change
+      displayName: updates.displayName || profile.displayName || userName,
+      newsletterOptIn:
+        typeof updates.newsletterOptIn === 'boolean'
+          ? updates.newsletterOptIn
+          : !!profile.newsletterOptIn,
       updatedAt: new Date().toISOString()
     };
 
     // Save updated profile
     if (hasKV()) {
-      const saved = await saveProfileToKV(email, updatedProfile);
+      const saved = await saveProfileToKV(userEmail, updatedProfile);
       if (!saved) {
         return NextResponse.json({ error: 'Failed to save profile' }, { status: 500 });
+      }
+      await updateUsernameIndex(userEmail, updatedProfile.username, profile?.username || null);
+    } else {
+      saveProfileToMemory(userEmail, updatedProfile);
+    }
+
+    // 🚨 CRITICAL: Sincronizar username a la tabla users de Supabase
+    if (pleiaUser?.id && updatedProfile.username) {
+      try {
+        const supabase = await createSupabaseRouteClient();
+        const adminSupabase = getSupabaseAdmin();
+        
+        // Verificar que la columna username existe antes de actualizar
+        if (adminSupabase) {
+          const { error: checkError } = await adminSupabase
+            .from('users')
+            .select('username')
+            .limit(1);
+          
+          if (!checkError || checkError.code !== '42703') {
+            // La columna existe, proceder con la actualización
+            const normalizedUsername = normalizeUsername(updatedProfile.username) || updatedProfile.username;
+            const { data: updateData, error: updateError } = await supabase
+              .from('users')
+              .update({ username: normalizedUsername })
+              .eq('id', pleiaUser.id)
+              .select('username')
+              .maybeSingle();
+            
+            if (updateError) {
+              console.error('[PROFILE] Failed to sync username to users table:', updateError);
+            } else {
+              console.log('[PROFILE] ✅ Username synced to users table:', {
+                userId: pleiaUser.id,
+                username: normalizedUsername,
+                updated: !!updateData,
+              });
+            }
+          } else {
+            console.warn('[PROFILE] ⚠️ username column does not exist in users table');
+          }
+        }
+      } catch (syncError) {
+        console.warn('[PROFILE] Failed to sync username to users table:', syncError);
       }
     }
 
     return NextResponse.json({
       success: true,
       profile: updatedProfile,
-      source: hasKV() ? 'kv' : 'localStorage'
+      source: hasKV() ? 'kv' : 'memory'
     });
 
   } catch (error) {
     console.error('Error updating profile:', error);
     return NextResponse.json({ error: 'Failed to update profile' }, { status: 500 });
+  }
+}
+
+export async function DELETE() {
+  try {
+    let userEmail = null;
+
+    const pleiaUser = await getPleiaServerUser();
+    if (!pleiaUser?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    userEmail = pleiaUser.email;
+
+    let existingProfile = null;
+    if (hasKV()) {
+      existingProfile = await getProfileFromKV(userEmail);
+      try {
+        const kv = await import('@vercel/kv');
+        await kv.kv.del(`jey_user_profile:${userEmail}`);
+        if (existingProfile?.username) {
+          await kv.kv.del(`username_index:${existingProfile.username}`);
+        }
+      } catch (err) {
+        console.warn('KV DELETE profile error:', err);
+      }
+    } else {
+      deleteProfileFromMemory(userEmail);
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting profile:', error);
+    return NextResponse.json({ error: 'Failed to delete profile' }, { status: 500 });
   }
 }

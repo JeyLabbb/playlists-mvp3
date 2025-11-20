@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { usePleiaSession } from "../lib/auth/usePleiaSession";
-import { useAuthActions } from "../lib/auth/clientActions";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 import { useLanguage } from "./contexts/LanguageContext";
 import EpicSection from "./components/EpicSection";
 import PromptTips from "./components/PromptTips";
@@ -10,17 +10,96 @@ import LoadingStatus from "./components/LoadingStatus";
 import FeedbackModal from "./components/FeedbackModal";
 import FeedbackGate from "./components/FeedbackGate";
 import AnimatedList from "./components/AnimatedList";
-import FounderNudge from "./components/nudges/FounderNudge";
-import PaywallModal from "./components/paywall/PaywallModal";
-import PaywallHost from "./PaywallHost";
+import { REFERRALS_ENABLED, canInvite } from "../lib/referrals";
 import UsageLimitReached from "./components/UsageLimitReached";
 import { useProfile } from "../lib/useProfile";
+import { usePleiaSession } from "../lib/auth/usePleiaSession";
+import { useAuthActions } from "../lib/auth/clientActions";
+import { PUBLIC_HUB_MODE } from "../lib/features";
+import { useUsageStatus } from "../lib/hooks/useUsageStatus";
+
+const DEFAULT_USAGE_DATA = {
+  usage: {
+    current: 0,
+    limit: 5,
+    remaining: 5,
+    hasUnlimitedUses: false,
+    plan: 'free',
+    windowDays: null,
+  },
+  used: 0,
+  remaining: 5,
+  unlimited: false,
+  plan: 'free',
+  limitPerWindow: 5,
+  source: 'fallback',
+  resetAt: null,
+  termsAccepted: true,
+};
+
+const REMINDER_LOCAL_STORAGE_KEY = 'pleia_usage_reminder_seen';
+const INITIAL_REMINDER_DELAY_MS = 6000;
+const PAYWALL_REMINDER_INTERVAL_MS = 30 * 60 * 1000;
+
+
+function isUnlimitedUsage(data) {
+  if (!data) return false;
+  if (data.unlimited) return true;
+  if (data.usage?.hasUnlimitedUses) return true;
+  if (typeof data.remaining === 'string' && data.remaining === 'unlimited') return true;
+  return false;
+}
+
+function extractRemaining(data) {
+  if (!data) return DEFAULT_USAGE_DATA.remaining;
+  const remaining =
+    typeof data.remaining !== 'undefined'
+      ? data.remaining
+      : typeof data.usage?.remaining !== 'undefined'
+        ? data.usage.remaining
+        : DEFAULT_USAGE_DATA.remaining;
+
+  if (typeof remaining === 'number') {
+    return Math.max(0, remaining);
+  }
+  if (remaining === 'unlimited' && data.plan !== 'free' && data.plan !== 'founder' && data.plan !== 'premium') {
+    return DEFAULT_USAGE_DATA.remaining;
+  }
+  return remaining;
+}
+
+function extractUsed(data) {
+  if (!data) return DEFAULT_USAGE_DATA.used;
+  if (typeof data.used !== 'undefined') return data.used;
+  if (typeof data.usage?.current !== 'undefined') return data.usage.current;
+  return DEFAULT_USAGE_DATA.used;
+}
 
 export default function Home() {
-  const { data: session, status } = usePleiaSession();
-  const { login } = useAuthActions();
+  const { data: sessionData, status } = usePleiaSession();
+  const sessionUser = sessionData?.user || null;
+  const { login, logout } = useAuthActions();
+  const router = useRouter();
+  const HUB_MODE = PUBLIC_HUB_MODE;
   const { t, isLoading: translationsLoading } = useLanguage();
-  const { isFounder, mutate: mutateProfile } = useProfile();
+  const {
+    isFounder,
+    mutate: mutateProfile,
+    loading: profileLoading,
+    data: profileData,
+    ready: profileReadyFlag,
+  } = useProfile();
+
+  const usageDisabled = HUB_MODE || status !== "authenticated";
+  const {
+    data: usageStatusData,
+    isLoading: usageStatusLoading,
+    isValidating: usageValidating,
+    refresh: refreshUsage,
+  } = useUsageStatus({
+    disabled: usageDisabled,
+    refreshInterval: usageDisabled ? 0 : 30000,
+  });
 
   // Refresh profile when returning from checkout success
   useEffect(() => {
@@ -36,7 +115,7 @@ export default function Home() {
   // Process referral after login
   useEffect(() => {
     const processReferral = async () => {
-      if (status === 'authenticated' && session?.user?.email) {
+      if (status === 'authenticated' && sessionUser?.email) {
         // Check URL params first
         const urlParams = new URLSearchParams(window.location.search);
         const refFromUrl = urlParams.get('ref');
@@ -60,6 +139,25 @@ export default function Home() {
             if (response.ok) {
               const result = await response.json();
               console.log('[HOME] Referral tracked successfully:', result);
+              
+              // 🚨 CRITICAL: Si el usuario actual alcanzó 3/3 y fue actualizado a founder, mostrar mensaje
+              // Verificar si el usuario actual es el referrer que alcanzó el límite
+              // result.referredBy es el email del referrer, y si coincide con el usuario actual, es él quien alcanzó 3/3
+              const isCurrentUserReferrer = result.referredBy && 
+                                            sessionUser?.email && 
+                                            result.referredBy.toLowerCase() === sessionUser.email.toLowerCase();
+              
+              if (result.upgradedToFounder && result.reachedLimit && isCurrentUserReferrer) {
+                console.log('[HOME] 🎉 Current user reached 3/3 referidos and was upgraded to founder!');
+                // Mostrar mensaje de felicidades después de un pequeño delay
+                setTimeout(() => {
+                  alert('🎉 ¡Felicidades! Ya tienes acceso de Founder de por vida.');
+                  // Refrescar el perfil para que se actualice el plan
+                  mutateProfile();
+                  refreshUsage();
+                }, 1000);
+              }
+              
               // Clean up
               localStorage.removeItem('pleia-referral');
               // Clean URL
@@ -75,7 +173,7 @@ export default function Home() {
     };
 
     processReferral();
-  }, [status, session?.user?.email]);
+  }, [status, sessionUser?.email]);
 
   const [prompt, setPrompt] = useState("");
   const [count, setCount] = useState(50);
@@ -89,6 +187,7 @@ export default function Home() {
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState("");
   const progTimer = useRef(null);
+  const paywallTimerRef = useRef(null);
 
   // Playlist creation options
   const [playlistName] = useState(""); // Keep for compatibility but use customPlaylistName
@@ -96,6 +195,11 @@ export default function Home() {
   const [isCreated, setIsCreated] = useState(false);
   const [spotifyUrl, setSpotifyUrl] = useState(null);
   const [createError, setCreateError] = useState(null);
+  const [playlistMeta, setPlaylistMeta] = useState(null);
+  const [pageLoading, setPageLoading] = useState(false);
+  const [copyStatus, setCopyStatus] = useState(null);
+  const [copySpotifyStatus, setCopySpotifyStatus] = useState(null);
+  const [isGenerationComplete, setIsGenerationComplete] = useState(false);
   
   // FIXPACK: Definir isPublic para evitar ReferenceError
   const isPublic = true; // Por defecto siempre público
@@ -112,30 +216,304 @@ export default function Home() {
   
   // Paywall Modal
   const [showPaywallModal, setShowPaywallModal] = useState(false);
-  const [usageData, setUsageData] = useState(null);
-  const [showUsageLimit, setShowUsageLimit] = useState(false);
-  
-  // Early Access modal removed - users should use login/register pages
-
-  // Load usage data when user is authenticated
+  const [usageData, setUsageData] = useState(DEFAULT_USAGE_DATA);
   useEffect(() => {
-    if (status === 'authenticated' && session?.user) {
-      const loadUsageData = async () => {
-        try {
-          const response = await fetch('/api/usage/status');
-          if (response.ok) {
-            const data = await response.json();
-            setUsageData(data);
-            console.log('[PAGE] Usage data loaded:', data);
-          }
-        } catch (error) {
-          console.error('[PAGE] Error loading usage data:', error);
-        }
-      };
-      
-      loadUsageData();
+    const onUsageRefresh = () => {
+      refreshUsage();
+    };
+    window.addEventListener('usage-paywall-refresh', onUsageRefresh);
+    return () => window.removeEventListener('usage-paywall-refresh', onUsageRefresh);
+  }, [refreshUsage]);
+  const [showUsageLimit, setShowUsageLimit] = useState(false);
+  const [hasDismissedPaywall, setHasDismissedPaywall] = useState(false);
+  const lastUsageSnapshotRef = useRef({ remaining: extractRemaining(DEFAULT_USAGE_DATA), used: extractUsed(DEFAULT_USAGE_DATA) });
+  const lastUsageStateRef = useRef(DEFAULT_USAGE_DATA);
+  const [usageLoading, setUsageLoading] = useState(true);
+
+  const clearPaywallTimer = useCallback(() => {
+    if (paywallTimerRef.current) {
+      clearTimeout(paywallTimerRef.current);
+      paywallTimerRef.current = null;
     }
-  }, [status, session]);
+  }, []);
+
+  const effectiveUsage = useMemo(() => usageData ?? DEFAULT_USAGE_DATA, [usageData]);
+
+  const canAccessAdvantage = useMemo(() => {
+    if (!REFERRALS_ENABLED) return false;
+    // 🚨 CRITICAL: Si isEarlyFounderCandidate es true, advantage SIEMPRE debe ser true
+    const isEarlyCandidate = !!profileData?.isEarlyFounderCandidate;
+    if (isEarlyCandidate) {
+      console.log('[PAYWALL] ✅ isEarlyFounderCandidate is true in useMemo, returning true');
+      return true;
+    }
+    
+    // Solo calcular usando canInvite si NO es early candidate
+    const email = sessionUser?.email;
+    if (!email || !REFERRALS_ENABLED) return false;
+
+    try {
+      return canInvite(email, { isEarlyCandidate: false });
+    } catch (error) {
+      console.warn('[PAYWALL] Failed to evaluate referral advantage:', error);
+      return false;
+    }
+  }, [sessionUser?.email, profileData?.isEarlyFounderCandidate]);
+
+  const profileReady = useMemo(() => {
+    if (status !== 'authenticated') return true;
+    return !!profileReadyFlag && !!profileData;
+  }, [status, profileReadyFlag, profileData]);
+
+  useEffect(() => {
+    if (usageDisabled) {
+      setUsageData(DEFAULT_USAGE_DATA);
+      setUsageLoading(false);
+      return;
+    }
+    if (usageStatusData) {
+      setUsageData(usageStatusData);
+      setUsageLoading(false);
+    } else if (!usageStatusLoading) {
+      setUsageLoading(false);
+    }
+  }, [usageDisabled, usageStatusData, usageStatusLoading]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (status !== 'authenticated') return;
+    if (usageDisabled) return;
+    if (!usageStatusData) return;
+
+    const redirectTarget = `${window.location.pathname}${window.location.search || ''}`;
+
+    if (usageStatusData.needsAccount) {
+      router.replace(`/onboarding/create?redirect=${encodeURIComponent(redirectTarget)}`);
+      return;
+    }
+
+    if (usageStatusData.termsAccepted === false) {
+      router.replace(`/onboarding/create?redirect=${encodeURIComponent(redirectTarget)}`);
+    }
+  }, [status, usageDisabled, usageStatusData, router]);
+
+  useEffect(() => {
+    if (!usageData) return;
+    lastUsageSnapshotRef.current = {
+      remaining: extractRemaining(usageData),
+      used: extractUsed(usageData),
+    };
+    lastUsageStateRef.current = usageData;
+  }, [usageData]);
+
+  useEffect(() => {
+    if (usageDisabled) {
+      setUsageLoading(false);
+    } else {
+      setUsageLoading(usageStatusLoading || usageValidating);
+    }
+  }, [usageDisabled, usageStatusLoading, usageValidating]);
+
+  const isFounderAccount = profileReady && !!profileData?.isFounder;
+
+  const showPaywall = useCallback(
+    (usageState) => {
+      if (!profileReady) return;
+      if (status !== 'authenticated') return;
+
+      const state = usageState ?? effectiveUsage;
+      if (state && state.termsAccepted === false) return;
+      if (isFounderAccount || isUnlimitedUsage(state) || state?.isFounder) return;
+      if (hasDismissedPaywall) return;
+
+      // 🚨 CRITICAL: Si isEarlyFounderCandidate es true, advantage SIEMPRE debe ser true
+      // Esto es la regla más importante: los primeros 1000 usuarios SIEMPRE tienen ventaja
+      const isEarlyCandidate = !!profileData?.isEarlyFounderCandidate;
+      let calculatedAdvantage = false;
+      
+      if (isEarlyCandidate) {
+        // 🚨 CRITICAL: Si es early candidate, SIEMPRE tiene ventaja
+        calculatedAdvantage = true;
+        console.log('[PAYWALL] ✅ isEarlyFounderCandidate is true, forcing advantage = true');
+      } else if (REFERRALS_ENABLED && sessionUser?.email) {
+        // Solo calcular usando canInvite si NO es early candidate
+        try {
+          calculatedAdvantage = canInvite(sessionUser.email, { isEarlyCandidate: false });
+        } catch (error) {
+          console.warn('[PAYWALL] Failed to recalculate advantage before showing:', error);
+          calculatedAdvantage = canAccessAdvantage; // Fallback al valor del useMemo
+        }
+      } else {
+        calculatedAdvantage = canAccessAdvantage; // Fallback al valor del useMemo
+      }
+      
+      setShowPaywallModal(true);
+
+      if (typeof window !== 'undefined') {
+        // 🚨 CRITICAL: Pasar la estructura EXACTA que PaywallModal espera
+        // Debe coincidir con la estructura que devuelve useUsageStatus
+        const detail = {
+          usage: {
+            current: state?.usage?.current ?? state?.used ?? 0,
+            limit: state?.usage?.limit ?? state?.limitPerWindow ?? DEFAULT_USAGE_DATA.usage.limit,
+            remaining: state?.usage?.remaining ?? state?.remaining ?? (state?.usage?.limit ?? DEFAULT_USAGE_DATA.usage.limit),
+            hasUnlimitedUses: state?.usage?.hasUnlimitedUses ?? state?.unlimited ?? false,
+            plan: state?.usage?.plan ?? state?.plan ?? 'free',
+            maxUses: state?.usage?.maxUses ?? state?.usage?.limit ?? state?.limitPerWindow ?? DEFAULT_USAGE_DATA.usage.limit,
+            lastPromptAt: state?.usage?.lastPromptAt ?? state?.counters?.last_prompt_at ?? null,
+          },
+          used: state?.usage?.current ?? state?.used ?? 0,
+          remaining: state?.usage?.remaining ?? state?.remaining ?? (state?.usage?.limit ?? DEFAULT_USAGE_DATA.usage.limit),
+          unlimited: state?.unlimited ?? state?.usage?.hasUnlimitedUses ?? false,
+          plan: state?.plan || state?.usage?.plan || 'free',
+          limitPerWindow: state?.usage?.limit ?? state?.limitPerWindow ?? DEFAULT_USAGE_DATA.usage.limit,
+          isFounder: isFounderAccount || state?.isFounder === true || state?.usage?.isFounder === true,
+          canAccessAdvantage: calculatedAdvantage, // 🚨 CRITICAL: Pasar canAccessAdvantage calculado aquí (SIEMPRE)
+          advantage: calculatedAdvantage, // También como 'advantage' para compatibilidad (SIEMPRE)
+          isEarlyFounderCandidate: profileData?.isEarlyFounderCandidate ?? false, // 🚨 CRITICAL: Pasar flag directamente
+          profilePending: false,
+        };
+
+        const showFn = window.__showPaywall;
+        if (typeof showFn === 'function') {
+          showFn(detail);
+        }
+        window.dispatchEvent(new CustomEvent('paywall:show', { detail }));
+      }
+    },
+    [status, effectiveUsage, isFounderAccount, canAccessAdvantage, hasDismissedPaywall, profileReady, profileData?.isEarlyFounderCandidate, sessionUser?.email],
+  );
+
+  const hidePaywall = useCallback(
+    (options = {}) => {
+      setShowPaywallModal(false);
+      if (typeof window !== 'undefined') {
+        const hideFn = window.__hidePaywall;
+        if (typeof hideFn === 'function') {
+          hideFn(options);
+        }
+        window.dispatchEvent(new CustomEvent('paywall:hide', { detail: options }));
+      }
+    },
+    [],
+  );
+
+  const shouldShowPaywallReminder = useCallback(() => {
+    if (HUB_MODE) return false;
+    if (status !== 'authenticated') return false;
+    if (!profileReady) return false;
+    if (isFounderAccount) return false;
+    if (isUnlimitedUsage(effectiveUsage)) return false;
+    if (effectiveUsage?.termsAccepted === false) return false;
+    return true;
+  }, [HUB_MODE, status, profileReady, isFounderAccount, effectiveUsage]);
+
+  const schedulePaywallReminder = useCallback(
+    function schedulePaywallReminder(delay = PAYWALL_REMINDER_INTERVAL_MS) {
+      if (typeof window === 'undefined') return;
+      if (!shouldShowPaywallReminder()) return;
+
+      clearPaywallTimer();
+      paywallTimerRef.current = window.setTimeout(() => {
+        paywallTimerRef.current = null;
+        if (!shouldShowPaywallReminder()) {
+          return;
+        }
+        setHasDismissedPaywall(false);
+        showPaywall();
+        schedulePaywallReminder(PAYWALL_REMINDER_INTERVAL_MS);
+      }, delay);
+    },
+    [clearPaywallTimer, shouldShowPaywallReminder, showPaywall],
+  );
+
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    if (profileReady) return;
+    hidePaywall({ reason: 'profile-pending' });
+    setShowPaywallModal(false);
+  }, [status, profileReady, hidePaywall]);
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      setHasDismissedPaywall(false);
+      setUsageData(DEFAULT_USAGE_DATA);
+      hidePaywall({ reason: 'signed-out' });
+      clearPaywallTimer();
+    }
+  }, [status, hidePaywall, clearPaywallTimer]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const handlePaywallDismiss = () => {
+      setHasDismissedPaywall(true);
+      setShowPaywallModal(false);
+      clearPaywallTimer();
+      schedulePaywallReminder(PAYWALL_REMINDER_INTERVAL_MS);
+    };
+
+    window.addEventListener('paywall:dismissed', handlePaywallDismiss);
+    return () => {
+      window.removeEventListener('paywall:dismissed', handlePaywallDismiss);
+    };
+  }, [clearPaywallTimer, schedulePaywallReminder]);
+
+  useEffect(() => {
+    return () => {
+      if (paywallTimerRef.current) {
+        clearTimeout(paywallTimerRef.current);
+        paywallTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!shouldShowPaywallReminder()) {
+      clearPaywallTimer();
+      return;
+    }
+
+    if (paywallTimerRef.current) {
+      return;
+    }
+
+    let delay = PAYWALL_REMINDER_INTERVAL_MS;
+    if (typeof window !== 'undefined') {
+      const reminderKey = `${REMINDER_LOCAL_STORAGE_KEY}:${sessionUser?.email || 'anonymous'}`;
+      const hasSeenReminder = window.localStorage.getItem(reminderKey);
+      if (!hasSeenReminder) {
+        delay = INITIAL_REMINDER_DELAY_MS;
+        window.localStorage.setItem(reminderKey, 'true');
+      }
+    }
+
+    schedulePaywallReminder(delay);
+  }, [
+    shouldShowPaywallReminder,
+    schedulePaywallReminder,
+    clearPaywallTimer,
+    sessionUser?.email,
+  ]);
+
+  useEffect(() => {
+    if (HUB_MODE) return;
+    if (!profileReady) return;
+
+    const handler = () => {
+      setUsageLoading(true);
+      refreshUsage()
+        .catch((error) => {
+          console.error('[PAGE] Error refreshing usage data (event):', error);
+        })
+        .finally(() => {
+          setUsageLoading(false);
+        });
+    };
+
+    window.addEventListener('usage-paywall-refresh', handler);
+    return () => window.removeEventListener('usage-paywall-refresh', handler);
+  }, [HUB_MODE, profileReady, refreshUsage]);
 
   // Example prompts
   const examplePrompts = [
@@ -292,7 +670,7 @@ export default function Home() {
       raw_prompt: p
     };
     if (mode === "festival") intent.festival = parseFestivalFromPrompt(p);
-    // heurística sencilla: si el prompt contiene “sin X” exclúyelo
+    // heurística sencilla: si el prompt contiene "sin X" exclúyelo
     const neg = [];
     const m = p.match(/sin\s+([^\.,;]+)/i);
     if (m && m[1]) neg.push(m[1].trim());
@@ -306,6 +684,60 @@ export default function Home() {
       let allTracks = [];
       let eventSource;
       let usageConsumed = false; // Track if we've consumed a usage
+      let completed = false;
+      let nearCompletionTimer = null;
+      const NEAR_THRESHOLD = 5;
+      const NEAR_TIMEOUT_MS = 5000;
+
+      const finalizeGeneration = (payload = {}) => {
+        if (completed) return;
+        completed = true;
+
+        if (nearCompletionTimer) {
+          clearTimeout(nearCompletionTimer);
+          nearCompletionTimer = null;
+        }
+
+        const target = payload.target ?? wanted;
+        if (Array.isArray(payload.tracks) && payload.tracks.length > 0) {
+          allTracks = payload.tracks.slice(0, target ?? payload.tracks.length);
+        } else if (target && allTracks.length > target) {
+          allTracks = allTracks.slice(0, target);
+        }
+
+        setTracks([...allTracks]);
+        setPlaylistMeta(payload.playlist || null);
+        if (HUB_MODE) {
+          setIsCreated(true);
+        }
+
+        finishProgress();
+        setIsGenerationComplete(true);
+
+        const computedTotal = Math.min(
+          payload.totalSoFar ?? allTracks.length,
+          target ?? allTracks.length
+        );
+        const targetDisplay = target ?? allTracks.length;
+
+        if (payload.partial) {
+          setStatusText(`✅ Playlist generated (${computedTotal}/${targetDisplay} tracks) - ${payload.reason || 'partial completion'}`);
+        } else {
+          setStatusText(`✅ ${t('progress.completed')} - ${computedTotal}/${targetDisplay} tracks generated successfully!`);
+        }
+
+        if (eventSource) {
+          eventSource.close();
+        }
+
+        resolve({
+          tracks: allTracks,
+          totalSoFar: computedTotal,
+          partial: !!payload.partial,
+          reason: payload.reason || 'completed',
+          playlist: payload.playlist || null
+        });
+      };
       
       try {
         // Create EventSource with query parameters (EventSource doesn't support POST)
@@ -321,13 +753,23 @@ export default function Home() {
         
         // Handle different event types
         eventSource.addEventListener('LLM_START', (event) => {
-          const data = JSON.parse(event.data);
-          bumpPhase(data.message || 'Processing LLM tracks...', 30);
-          setStatusText(`🎵 ${data.message || 'Processing LLM tracks...'}`);
+          try {
+            const data = JSON.parse(event.data);
+            bumpPhase(data.message || 'Processing LLM tracks...', 30);
+            setStatusText(`🎵 ${data.message || 'Processing LLM tracks...'}`);
+          } catch (parseError) {
+            console.error('[SSE] Failed to parse LLM_START data:', parseError, 'Raw data:', event.data);
+          }
         });
         
         eventSource.addEventListener('LLM_CHUNK', async (event) => {
-          const data = JSON.parse(event.data);
+          let data;
+          try {
+            data = JSON.parse(event.data);
+          } catch (parseError) {
+            console.error('[SSE] Failed to parse LLM_CHUNK data:', parseError, 'Raw data:', event.data);
+            return;
+          }
           
           if (data.trimmed) {
             // Handle trim message
@@ -337,54 +779,105 @@ export default function Home() {
           
           // Consume usage when first track appears (before rendering)
           if (!usageConsumed && data.tracks && data.tracks.length > 0) {
-            console.log('[USAGE] First track appeared, updating usage data from server');
+            console.log('[USAGE] First track appeared, refreshing usage counters');
             usageConsumed = true;
-            
+            setUsageLoading(true);
             try {
-              // Get updated usage data from server (server already consumed it)
-              const statusResponse = await fetch('/api/usage/status');
-              if (statusResponse.ok) {
-                const statusData = await statusResponse.json();
-                console.log('[USAGE] Updated usage data:', statusData);
-                
-                // Update usage data and notify popup
-                setUsageData(statusData);
-                window.dispatchEvent(new CustomEvent('usageUpdated', { 
-                  detail: { usageData: statusData } 
-                }));
-              } else {
-                console.error('[USAGE] Failed to get updated usage status:', statusResponse.status);
+              const latestUsage = await refreshUsage();
+              if (latestUsage) {
+                setUsageData(latestUsage);
               }
             } catch (error) {
-              console.error('[USAGE] Error getting updated usage status:', error);
+              console.error('[USAGE] Error refreshing usage after first track:', error);
+            } finally {
+              setUsageLoading(false);
             }
           }
           
           allTracks = [...allTracks, ...data.tracks];
+
+          const target = data.target ?? wanted;
+          if (target && allTracks.length >= target) {
+            allTracks = allTracks.slice(0, target);
+            finalizeGeneration({
+              ...data,
+              tracks: [...allTracks],
+              totalSoFar: Math.min(data.totalSoFar ?? allTracks.length, target),
+              target,
+              partial: false,
+            });
+            return;
+          }
+
           setTracks([...allTracks]);
           
           const progress = data.progress || Math.round((data.totalSoFar / data.target) * 100);
           const phaseProgress = Math.min(30 + (progress * 0.3), 60); // 30-60% for LLM phase
           bumpPhase(data.message || `🎵 Found ${data.totalSoFar}/${data.target} tracks`, phaseProgress);
           setStatusText(`🎵 ${data.message || `Found ${data.totalSoFar}/${data.target} tracks (${progress}%)`}`);
+
+          if (target && allTracks.length >= Math.max(1, target - NEAR_THRESHOLD) && allTracks.length < target) {
+            if (nearCompletionTimer) clearTimeout(nearCompletionTimer);
+            nearCompletionTimer = setTimeout(() => {
+              finalizeGeneration({
+                ...data,
+                tracks: [...allTracks],
+                totalSoFar: allTracks.length,
+                target,
+                partial: true,
+                reason: 'near-target',
+              });
+            }, NEAR_TIMEOUT_MS);
+          } else if (nearCompletionTimer) {
+            clearTimeout(nearCompletionTimer);
+            nearCompletionTimer = null;
+          }
         });
         
         eventSource.addEventListener('LLM_DONE', (event) => {
-          const data = JSON.parse(event.data);
-          bumpPhase('🎵 LLM phase complete', 60);
-          setStatusText(`🎵 LLM phase complete: ${data.totalSoFar}/${data.target} tracks`);
+          try {
+            const data = JSON.parse(event.data);
+            bumpPhase('🎵 LLM phase complete', 60);
+            setStatusText(`🎵 LLM phase complete: ${data.totalSoFar}/${data.target} tracks`);
+          } catch (parseError) {
+            console.error('[SSE] Failed to parse LLM_DONE data:', parseError, 'Raw data:', event.data);
+          }
         });
         
         eventSource.addEventListener('SPOTIFY_START', (event) => {
-          const data = JSON.parse(event.data);
-          const attempt = data.attempt ? ` (Attempt ${data.attempt})` : '';
-          bumpPhase(`🎧 ${data.message || 'Getting Spotify recommendations...'}${attempt}`, 70);
-          setStatusText(`🎧 ${data.message || 'Getting Spotify recommendations...'}${attempt}`);
+          try {
+            const data = JSON.parse(event.data);
+            const attempt = data.attempt ? ` (Attempt ${data.attempt})` : '';
+            bumpPhase(`🎧 ${data.message || 'Getting Spotify recommendations...'}${attempt}`, 70);
+            setStatusText(`🎧 ${data.message || 'Getting Spotify recommendations...'}${attempt}`);
+          } catch (parseError) {
+            console.error('[SSE] Failed to parse SPOTIFY_START data:', parseError, 'Raw data:', event.data);
+          }
         });
         
         eventSource.addEventListener('SPOTIFY_CHUNK', (event) => {
-          const data = JSON.parse(event.data);
+          let data;
+          try {
+            data = JSON.parse(event.data);
+          } catch (parseError) {
+            console.error('[SSE] Failed to parse SPOTIFY_CHUNK data:', parseError, 'Raw data:', event.data);
+            return;
+          }
           allTracks = [...allTracks, ...data.tracks];
+
+          const target = data.target ?? wanted;
+          if (target && allTracks.length >= target) {
+            allTracks = allTracks.slice(0, target);
+            finalizeGeneration({
+              ...data,
+              tracks: [...allTracks],
+              totalSoFar: Math.min(data.totalSoFar ?? allTracks.length, target),
+              target,
+              partial: false,
+            });
+            return;
+          }
+
           setTracks([...allTracks]);
           
           const progress = data.progress || Math.round((data.totalSoFar / data.target) * 100);
@@ -394,54 +887,103 @@ export default function Home() {
           
           bumpPhase(`🎧 ${data.message || `Found ${data.totalSoFar}/${data.target} tracks`}${attempt}`, phaseProgress);
           setStatusText(`🎧 ${data.message || `Found ${data.totalSoFar}/${data.target} tracks (${progress}%)`}${attempt}${final}`);
+
+          if (target && allTracks.length >= Math.max(1, target - NEAR_THRESHOLD) && allTracks.length < target) {
+            if (nearCompletionTimer) clearTimeout(nearCompletionTimer);
+            nearCompletionTimer = setTimeout(() => {
+              finalizeGeneration({
+                ...data,
+                tracks: [...allTracks],
+                totalSoFar: allTracks.length,
+                target,
+                partial: true,
+                reason: 'near-target',
+              });
+            }, NEAR_TIMEOUT_MS);
+          } else if (nearCompletionTimer) {
+            clearTimeout(nearCompletionTimer);
+            nearCompletionTimer = null;
+          }
         });
         
         eventSource.addEventListener('SPOTIFY_DONE', (event) => {
-          const data = JSON.parse(event.data);
-          const attempt = data.attempt ? ` (Attempt ${data.attempt})` : '';
-          bumpPhase('🎧 Spotify phase complete', 90);
-          setStatusText(`🎧 Spotify phase complete${attempt}: ${data.totalSoFar}/${data.target} tracks`);
+          try {
+            const data = JSON.parse(event.data);
+            const attempt = data.attempt ? ` (Attempt ${data.attempt})` : '';
+            bumpPhase('🎧 Spotify phase complete', 90);
+            setStatusText(`🎧 Spotify phase complete${attempt}: ${data.totalSoFar}/${data.target} tracks`);
+          } catch (parseError) {
+            console.error('[SSE] Failed to parse SPOTIFY_DONE data:', parseError, 'Raw data:', event.data);
+          }
         });
         
         eventSource.addEventListener('DONE', (event) => {
-          const data = JSON.parse(event.data);
+          let data;
+          try {
+            data = JSON.parse(event.data);
+          } catch (parseError) {
+            console.error('[SSE] Failed to parse DONE data:', parseError, 'Raw data:', event.data);
+            return;
+          }
           
           console.log('[FRONTEND] DONE event received:', data);
           console.log('[FRONTEND] Current allTracks length:', allTracks.length);
           console.log('[FRONTEND] Data tracks length:', data.tracks?.length || 0);
           
-          // Use the final tracks from the server, but keep accumulated tracks if server tracks are empty
-          if (data.tracks && data.tracks.length > 0) {
-            allTracks = data.tracks;
-            console.log('[FRONTEND] Using server tracks:', allTracks.length);
-          } else {
-            console.log('[FRONTEND] Using accumulated tracks:', allTracks.length);
-          }
-          
-          setTracks([...allTracks]); // Force React update
-          
-          console.log('[FRONTEND] Final allTracks length:', allTracks.length);
-          console.log('[FRONTEND] Final tracks sample:', allTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artistNames })));
-          
-          finishProgress();
-          
-          if (data.partial) {
-            setStatusText(`✅ Playlist generated (${data.totalSoFar}/${data.target} tracks) - ${data.reason || 'partial completion'}`);
-          } else {
-            setStatusText(`✅ ${t('progress.completed')} - ${data.totalSoFar}/${data.target} tracks generated successfully!`);
-          }
-          
-          eventSource.close();
-          resolve({
-            tracks: allTracks,
-            totalSoFar: data.totalSoFar,
-            partial: data.partial || false,
-            reason: data.reason || 'completed'
-          });
+          finalizeGeneration(data);
         });
         
-        eventSource.addEventListener('ERROR', (event) => {
-          const data = JSON.parse(event.data);
+        eventSource.addEventListener('ERROR', async (event) => {
+          let data;
+          try {
+            data = JSON.parse(event.data);
+          } catch (parseError) {
+            console.error('[SSE] Failed to parse ERROR data:', parseError, 'Raw data:', event.data);
+            setError('Error processing playlist generation');
+            resetProgress();
+            reject(new Error('Failed to parse error response'));
+            return;
+          }
+          if (data.code === 'TERMS_NOT_ACCEPTED') {
+            eventSource.close();
+            const redirectTarget = `${window.location.pathname}${window.location.search || ''}`;
+            router.push(`/onboarding/create?redirect=${encodeURIComponent(redirectTarget)}`);
+            setError('Debes aceptar los términos y condiciones para continuar.');
+            resetProgress();
+            reject(new Error('TERMS_NOT_ACCEPTED'));
+            return;
+          }
+          if (data.code === 'LIMIT_REACHED') {
+            eventSource.close();
+            if (nearCompletionTimer) {
+              clearTimeout(nearCompletionTimer);
+            }
+            completed = true;
+            setTracks([]);
+            setStatusText('🚫 Has llegado al límite gratuito');
+            setError(null);
+            setIsGenerationComplete(false);
+            setShowUsageLimit(true);
+            resetProgress();
+
+            let latestUsage = null;
+            try {
+              setUsageLoading(true);
+              latestUsage = await refreshUsage();
+              if (latestUsage) {
+                setUsageData(latestUsage);
+              }
+            } catch (refreshError) {
+              console.error('[USAGE] Failed to refresh after limit reached:', refreshError);
+            } finally {
+              setUsageLoading(false);
+            }
+
+            setHasDismissedPaywall(false);
+            showPaywall(latestUsage || usageData || DEFAULT_USAGE_DATA);
+            resolve({ code: 'LIMIT_REACHED' });
+            return;
+          }
           setError(data.error || 'Failed to generate playlist');
           setTracks(allTracks);
           resetProgress();
@@ -455,15 +997,28 @@ export default function Home() {
         });
         
         // Handle connection errors
+        let errorHandled = false;
         eventSource.onerror = (error) => {
+          // Solo mostrar error una vez para evitar spam
+          if (errorHandled) {
+            console.warn('[SSE] Connection error (already handled, ignoring duplicate)');
+            return;
+          }
+          errorHandled = true;
+          
           console.error('[SSE] Connection error:', error);
-          setError('Connection lost. Falling back to regular generation...');
           
-          // Fallback to regular endpoint
-          eventSource.close();
+          // Solo hacer fallback si realmente hay un error de conexión
+          // No hacer fallback si el EventSource está en estado CONNECTING (puede ser normal)
+          if (eventSource.readyState === EventSource.CLOSED) {
+            console.log('[SSE] Connection closed, falling back to regular generation...');
+            setError('Connection lost. Falling back to regular generation...');
+            
+            // Fallback to regular endpoint
+            eventSource.close();
           
-          // Retry with regular endpoint
-          fetch('/api/playlist/llm', {
+            // Retry with regular endpoint
+            fetch('/api/playlist/llm', {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             cache: "no-store",
@@ -474,11 +1029,41 @@ export default function Home() {
             }),
           })
           .then(res => res.json())
-          .then(data => {
+          .then(async data => {
+          if (data?.code === 'TERMS_NOT_ACCEPTED') {
+            const redirectTarget = `${window.location.pathname}${window.location.search || ''}`;
+            router.push(`/onboarding/create?redirect=${encodeURIComponent(redirectTarget)}`);
+            setError('Debes aceptar los términos y condiciones para continuar.');
+            resetProgress();
+            reject(new Error('TERMS_NOT_ACCEPTED'));
+            return;
+          }
+            if (data?.code === 'LIMIT_REACHED') {
+              setTracks([]);
+              setStatusText('🚫 Has llegado al límite gratuito');
+              setError(null);
+              setShowUsageLimit(true);
+              resetProgress();
+              let latestUsage = null;
+              try {
+                setUsageLoading(true);
+                latestUsage = await refreshUsage();
+                if (latestUsage) setUsageData(latestUsage);
+              } catch (refreshError) {
+                console.error('[USAGE] Failed to refresh after limit reached (fallback):', refreshError);
+              } finally {
+                setUsageLoading(false);
+              }
+              setHasDismissedPaywall(false);
+              showPaywall(latestUsage || usageData || DEFAULT_USAGE_DATA);
+              resolve({ code: 'LIMIT_REACHED' });
+              return;
+            }
             if (data.tracks) {
               setTracks(data.tracks);
               finishProgress();
               setStatusText(`${t('progress.completed')} (${data.count || data.tracks.length}/${wanted})`);
+              setIsGenerationComplete(true);
               resolve(data);
             } else {
               setError(data.error || 'Failed to generate playlist');
@@ -491,6 +1076,7 @@ export default function Home() {
             resetProgress();
             reject(err);
           });
+          }
         };
         
       } catch (error) {
@@ -509,11 +1095,41 @@ export default function Home() {
           }),
         })
         .then(res => res.json())
-        .then(data => {
+        .then(async data => {
+          if (data?.code === 'TERMS_NOT_ACCEPTED') {
+            const redirectTarget = `${window.location.pathname}${window.location.search || ''}`;
+            router.push(`/onboarding/terms?redirect=${encodeURIComponent(redirectTarget)}`);
+            setError('Debes aceptar los términos y condiciones para continuar.');
+            resetProgress();
+            reject(new Error('TERMS_NOT_ACCEPTED'));
+            return;
+          }
+          if (data?.code === 'LIMIT_REACHED') {
+            setTracks([]);
+            setStatusText('🚫 Has llegado al límite gratuito');
+            setError(null);
+            setShowUsageLimit(true);
+            resetProgress();
+            let latestUsage = null;
+            try {
+              setUsageLoading(true);
+              latestUsage = await refreshUsage();
+              if (latestUsage) setUsageData(latestUsage);
+            } catch (refreshError) {
+              console.error('[USAGE] Failed to refresh after limit reached (fallback setup):', refreshError);
+            } finally {
+              setUsageLoading(false);
+            }
+            setHasDismissedPaywall(false);
+            showPaywall(latestUsage || usageData || DEFAULT_USAGE_DATA);
+            resolve({ code: 'LIMIT_REACHED' });
+            return;
+          }
           if (data.tracks) {
             setTracks(data.tracks);
             finishProgress();
             setStatusText(`${t('progress.completed')} (${data.count || data.tracks.length}/${wanted})`);
+              setIsGenerationComplete(true);
             resolve(data);
           } else {
             setError(data.error || 'Failed to generate playlist');
@@ -537,43 +1153,82 @@ export default function Home() {
       return;
     }
     
-    // Si no hay sesión, redirigir a login
-    if (!session?.user) {
-      login('/?from=oauth');
+    // Si no hay sesión, mostrar modal de login con show_dialog=true
+    if (!sessionUser) {
+      // Función para leer cookie ea_snooze
+      const getEaSnoozeCookie = () => {
+        if (typeof window === 'undefined') return false;
+        const cookies = document.cookie.split(';');
+        const eaSnoozeCookie = cookies.find(cookie => 
+          cookie.trim().startsWith('ea_snooze=')
+        );
+        return eaSnoozeCookie?.trim().split('=')[1] === '1';
+      };
+
+      if (HUB_MODE) {
+        const redirectTarget = `${window.location.pathname}${window.location.search || ''}`;
+        router.push(`/login?redirect=${encodeURIComponent(redirectTarget)}`);
+      } else {
+        const redirectTarget = `${window.location.pathname}${window.location.search || ''}`;
+        login(redirectTarget);
+      }
       return;
     }
 
-    // Check usage limit before generating (but don't consume yet)
-    try {
-      console.log('[USAGE] Checking usage before generation');
-      const response = await fetch('/api/usage/status');
-      if (response.ok) {
-        const data = await response.json();
-        console.log('[USAGE] Usage status response:', data);
-        
-        // If no remaining uses AND user is not a founder, show paywall
-        if ((data.limit || data.remaining === 0) && !isFounder) {
-          console.log('[USAGE] No remaining uses and not founder, showing paywall');
-          setUsageData(data);
-          setShowPaywallModal(true);
-          setError('¡Te has quedado sin usos gratis! Adquiere un plan Founder o Pro para tener playlists ilimitadas.');
+    setIsGenerationComplete(false);
+    setPlaylistMeta(null);
+    setCopyStatus(null);
+    setPageLoading(false);
+
+    // Check usage limit before generating (but don't consume yet) - legacy mode only
+    if (!HUB_MODE) {
+      try {
+        console.log('[USAGE] Checking usage before generation');
+        setUsageLoading(true);
+        const refreshed = await refreshUsage();
+        const snapshot = refreshed || usageStatusData || usageData || DEFAULT_USAGE_DATA;
+        setUsageData(snapshot);
+
+        const unlimited = isUnlimitedUsage(snapshot) || isFounderAccount;
+        let remainingCount = Infinity;
+        if (!unlimited) {
+          const rawRemaining = snapshot?.usage?.remaining ?? snapshot?.remaining ?? 0;
+          if (typeof rawRemaining === 'number') {
+            remainingCount = rawRemaining;
+          } else if (typeof rawRemaining === 'string') {
+            const normalized = rawRemaining.toLowerCase();
+            remainingCount = normalized === 'unlimited' || normalized === '∞' ? Infinity : parseInt(rawRemaining, 10);
+          } else {
+            remainingCount = 0;
+          }
+        }
+
+        const termsAccepted = snapshot?.termsAccepted ?? true;
+        if (!termsAccepted) {
+          const redirectTarget = `${window.location.pathname}${window.location.search || ''}`;
+          router.push(`/onboarding/create?redirect=${encodeURIComponent(redirectTarget)}`);
+          setError('Debes aceptar los términos y condiciones para continuar.');
           return;
         }
-        
-        // If user is founder, proceed regardless of usage limit
-        if (isFounder) {
-          console.log('[USAGE] User is founder, proceeding with unlimited access');
+
+        if (!unlimited && (Number.isNaN(remainingCount) || remainingCount <= 0)) {
+          console.log('[USAGE] No remaining uses, showing paywall');
+          showPaywall(snapshot);
+          setError('Se agotaron tus playlists gratuitas. Consigue acceso ilimitado con el Founder Pass.');
+          return;
         }
-        
-        // If we have remaining uses, proceed with generation
-        console.log('[USAGE] Remaining uses:', data.remaining, '- proceeding with generation');
-      } else {
-        console.error('[USAGE] Failed to check usage:', response.status);
+
+        if (unlimited) {
+          console.log('[USAGE] User has unlimited access, proceeding with generation');
+        } else {
+          console.log('[USAGE] Remaining uses:', remainingCount, '- proceeding with generation');
+        }
+      } catch (error) {
+        console.error('[USAGE] Error checking usage:', error);
         // Continue anyway if check fails
+      } finally {
+        setUsageLoading(false);
       }
-    } catch (error) {
-      console.error('[USAGE] Error checking usage:', error);
-      // Continue anyway if check fails
     }
 
     // Asegurar número y límites 1–200
@@ -625,10 +1280,10 @@ export default function Home() {
       // Step 2: Generate playlist
       // Use streaming in production, fallback to regular endpoint
       const isProduction = process.env.NODE_ENV === 'production';
-      const endpoint = session?.user ? "/api/playlist/llm" : "/api/playlist/demo";
+      const endpoint = sessionUser ? "/api/playlist/llm" : "/api/playlist/demo";
       
       // Use streaming SSE for both mobile and desktop - SAME LOGIC
-      if (session?.user) {
+      if (sessionUser) {
         // Both mobile and desktop use streaming - EXACTLY THE SAME
         await generatePlaylistWithStreaming(prompt, wanted, customPlaylistName);
       } else {
@@ -652,9 +1307,13 @@ export default function Home() {
           
           // PROMPT 9: Handle standardized NO_SESSION error
           if (playlistData?.code === 'NO_SESSION' || playlistRes.status === 401) {
-            setError("Por favor inicia sesión para generar playlists. Haz clic en 'Iniciar sesión' arriba.");
+            setError("Please sign in with Spotify to generate playlists. Click the 'Connect with Spotify' button above.");
           } else if (playlistData?.needsAuth) {
-            setError("Por favor inicia sesión para generar playlists. Haz clic en 'Iniciar sesión' arriba.");
+            setError("Please sign in with Spotify to generate playlists. Click the 'Connect with Spotify' button above.");
+          } else if (playlistData?.code === 'TERMS_NOT_ACCEPTED' || playlistRes.status === 403) {
+            const redirectTarget = `${window.location.pathname}${window.location.search || ''}`;
+            router.push(`/onboarding/create?redirect=${encodeURIComponent(redirectTarget)}`);
+            setError('Debes aceptar los términos y condiciones para continuar.');
           } else if (playlistData?.code === 'LIMIT_REACHED') {
             setShowUsageLimit(true);
             setTracks([]);
@@ -674,6 +1333,7 @@ export default function Home() {
         setTracks(playlistData?.tracks || []);
         finishProgress();
         setStatusText(`${t('progress.completed')} (${(playlistData?.count ?? (playlistData?.tracks?.length || 0))}/${intent.target_tracks})`);
+        setIsGenerationComplete(true);
         
         // Redirect to Spotify playlist if created
         if (playlistData?.spotify_playlist_url) {
@@ -695,13 +1355,23 @@ export default function Home() {
 
   // Create playlist in Spotify
   async function handleCreate() {
+    if (HUB_MODE) {
+      console.log('[CLIENT] handleCreate ignored in hub mode');
+      return;
+    }
     console.log('[CLIENT] ===== handleCreate CALLED =====');
     console.log('[CLIENT] Tracks count:', tracks?.length || 0);
-    console.log('[CLIENT] Session:', session?.user?.email || 'NO SESSION');
+    console.log('[CLIENT] Session:', sessionUser?.email || 'NO SESSION');
     
     if (!tracks.length) return;
-    if (!session?.user) {
-      login('/?from=oauth');
+    if (!sessionUser) {
+      if (HUB_MODE) {
+        const redirectTarget = `${window.location.pathname}${window.location.search || ''}`;
+        router.push(`/login?redirect=${encodeURIComponent(redirectTarget)}`);
+      } else {
+        const redirectTarget = `${window.location.pathname}${window.location.search || ''}`;
+        login(redirectTarget);
+      }
       return;
     }
 
@@ -710,8 +1380,12 @@ export default function Home() {
       setIsCreated(false);
       setCreateError(null);
       
-      const baseName = customPlaylistName.trim() || safeDefaultName(prompt);
-      const nameWithBrand = baseName.endsWith(" · by JeyLabbb") ? baseName : baseName + " · by JeyLabbb";
+      const baseName = (customPlaylistName && customPlaylistName.trim().length > 0)
+        ? customPlaylistName.trim()
+        : safeDefaultName(prompt);
+      const nameWithBrand = baseName.toLowerCase().endsWith(' by pleia')
+        ? baseName
+        : `${baseName} by PLEIA`;
       
       console.log(`[UI] playlistName base=${baseName} finalSent=${nameWithBrand}`);
 
@@ -760,7 +1434,7 @@ export default function Home() {
       
       // PROMPT 9: Handle standardized NO_SESSION error
       if (res.status === 401 || data?.code === 'NO_SESSION') {
-        throw new Error("Por favor inicia sesión para crear playlists. Haz clic en 'Iniciar sesión' arriba.");
+        throw new Error("Please sign in with Spotify to create playlists. Click the 'Connect with Spotify' button above.");
       }
       
       if (!res.ok || !data?.ok) throw new Error(data?.error || data?.message || 'Failed to create playlist');
@@ -782,7 +1456,7 @@ export default function Home() {
       console.log('[CLIENT] ===== ABOUT TO SAVE PLAYLIST =====');
       console.log('[CLIENT] playlistId:', data.playlistId);
       console.log('[CLIENT] playlistUrl:', playlistUrl);
-      console.log('[CLIENT] session.user.email:', session?.user?.email);
+      console.log('[CLIENT] sessionUser.email:', sessionUser?.email);
       
       // Register playlist in trending
       try {
@@ -808,7 +1482,7 @@ export default function Home() {
       try {
         console.log('[CLIENT] Saving playlist to user collection...');
         const userPlaylistData = {
-          userEmail: session.user.email,
+          userEmail: sessionUser?.email || '',
           playlistId: data.playlistId,
           name: data?.name || nameWithBrand,
           url: playlistUrl,
@@ -833,7 +1507,7 @@ export default function Home() {
         
         // If server couldn't save (no KV), save to localStorage
         if (!userPlaylistResult.saved && userPlaylistResult.reason === 'fallback-localStorage') {
-          const localKey = `jey_user_playlists:${session.user.email}`;
+          const localKey = `jey_user_playlists:${sessionUser?.email || ''}`;
           const existingPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
           const updatedPlaylists = [userPlaylistData, ...existingPlaylists].slice(0, 200);
           localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
@@ -882,6 +1556,40 @@ export default function Home() {
       setIsCreating(false);
     }
   }
+
+  const handleCopyPlaylistUrl = async () => {
+    if (!playlistMeta?.url) {
+      toast.error('Publica la playlist antes de copiar el enlace');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(playlistMeta.url);
+      setCopyStatus('copied');
+      setTimeout(() => setCopyStatus(null), 2000);
+      toast.success('Enlace copiado. Recuerda que la playlist está en la cuenta PLEIAHub.');
+    } catch (error) {
+      console.error('[CLIENT] Error copying playlist URL:', error);
+      setCopyStatus('error');
+      toast.error('No se pudo copiar el enlace.');
+    }
+  };
+
+  const handleCopySpotifyUrl = async () => {
+    if (!spotifyUrl) {
+      toast.error('Crea primero la playlist en tu cuenta.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(spotifyUrl);
+      setCopySpotifyStatus('copied');
+      setTimeout(() => setCopySpotifyStatus(null), 2000);
+      toast.success('Enlace copiado al portapapeles');
+    } catch (error) {
+      console.error('[CLIENT] Error copying Spotify URL:', error);
+      setCopySpotifyStatus('error');
+      toast.error('No se pudo copiar el enlace.');
+    }
+  };
 
   // Handle refine playlist
   const handleRefine = async () => {
@@ -955,6 +1663,17 @@ export default function Home() {
   //     </div>
   //   );
   // }
+
+  if (status === 'authenticated' && !profileReady) {
+    return (
+      <div className="min-h-screen bg-[#070A10] text-white flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="w-12 h-12 mx-auto border-2 border-white/20 border-t-white/70 rounded-full animate-spin" />
+          <p className="text-sm text-white/60">Preparando tu plan Founder…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--color-night)' }}>
@@ -1143,28 +1862,27 @@ export default function Home() {
           )}
 
           {/* Playlist Creation Card */}
-          {tracks.length > 0 && (
+          {tracks.length > 0 && !HUB_MODE && isGenerationComplete && (
             <div className="spotify-card">
               <h3 className="text-xl font-semibold text-white mb-6">
-                {t('playlist.createTitle')} ({tracks.length} tracks)
+                Tu playlist está lista • {tracks.length} pistas
               </h3>
-              
-              <div className="flex gap-4 items-center flex-wrap mb-6 mobile-flex-col md:flex-row">
-                <div className="flex-1 min-w-[200px] w-full">
-                  <label className="block text-sm text-white mb-2">
-                    {t('playlist.nameLabel')}
-                  </label>
+
+              <div className="space-y-4">
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-4">
+                    <p className="text-sm font-medium text-white mb-2">
+                      ✏️ 1. Ponle nombre a tu playlist
+                  </p>
                   <input
                     type="text"
                     value={customPlaylistName}
                     onChange={(e) => {
                       const value = e.target.value;
-                      // Basic validation to prevent issues
-                      if (value.length <= 100) { // Reasonable limit for playlist names
+                      if (value.length <= 100) {
                         setCustomPlaylistName(value);
                       }
                     }}
-                    placeholder="Dejar vacío para nombre generado por IA"
+                    placeholder="Ej. Playlist PLEIA de estudio"
                     className="w-full p-4 rounded-xl border-2 transition-all duration-200"
                     style={{
                       background: 'var(--color-slate)',
@@ -1178,108 +1896,263 @@ export default function Home() {
                     }}
                   />
                 </div>
-                
-                <div className="mobile-button-group md:flex-row">
-                  {!isCreated ? (
-                    <div className="w-full md:min-w-[180px]">
-                      <button
-                        onClick={handleCreate}
-                        disabled={isCreating}
-                        className="primary w-full px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                        style={{
-                          background: 'var(--color-accent-mixed)',
-                          color: 'var(--color-night)',
-                          fontFamily: 'var(--font-family-body)'
-                        }}
-                      >
-                        {/* Spotify Logo */}
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"/>
-                        </svg>
-                        {isCreating ? t('playlist.creating') : t('playlist.createButton')}
-                      </button>
-                      {/* "Funciona con Spotify" leyenda */}
-                      <p 
-                        className="text-xs text-center mt-2 opacity-70"
-                        style={{ color: 'var(--color-mist)' }}
-                      >
-                        Funciona con Spotify
-                      </p>
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-4 flex flex-col md:flex-row md:items-center gap-4">
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">🎧</span>
+                      <p className="text-sm font-semibold text-white">2. Guardar en PLEIA HUB</p>
                     </div>
-                  ) : (
+                    <div className="pl-8 text-xs text-gray-text-secondary space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-wide">Paso 1</span>
+                        <span>Se crea en la cuenta oficial de PLEIA HUB.</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-sky-300 uppercase tracking-wide">Paso 2</span>
+                        <span>En <strong className="text-white">“Copia enlace”</strong> lo duplicas; en <strong className="text-white">“TuneMyMusic”</strong> lo pegas y lo llevas a tu Spotify.</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleCreate}
+                    disabled={isCreating || isCreated}
+                    className="primary w-full md:w-auto px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    style={{
+                      background: isCreated ? 'var(--color-slate)' : 'var(--color-accent-mixed)',
+                      color: isCreated ? 'var(--color-mist)' : 'var(--color-night)',
+                      fontFamily: 'var(--font-family-body)'
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"/>
+                    </svg>
+                    {isCreated ? 'Playlist creada' : (isCreating ? t('playlist.creating') : t('playlist.createButton'))}
+                  </button>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-white">🔗 3. Copia el enlace</p>
+                    <p className="text-xs text-gray-text-secondary mt-1">
+                      Pégalo en el paso 4 y ya tienes la playlist en tu Spotify (o compártelo con quien quieras).
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-start md:items-end gap-2 w-full md:w-auto">
                     <button
-                      disabled={true}
-                      className="primary w-full md:min-w-[180px] px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={handleCopySpotifyUrl}
+                      className="secondary w-full md:w-auto px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={!spotifyUrl}
                       style={{
-                        background: 'var(--color-slate)',
-                        color: 'var(--color-mist)',
-                        fontFamily: 'var(--font-family-body)'
+                        background: 'transparent',
+                        color: 'rgba(199, 208, 218, 0.85)',
+                        border: '1px solid rgba(199, 208, 218, 0.3)',
+                        fontFamily: 'var(--font-body)'
                       }}
                     >
-                      Playlist creada exitosamente
+                      📋 Copiar enlace
                     </button>
-                  )}
-                  
-                  {spotifyUrl && (
-                    <button
-                      onClick={() => window.open(spotifyUrl, '_blank')}
-                      className="secondary w-full md:min-w-[200px] px-6 py-3 rounded-xl font-medium"
-                      style={{
-                        background: 'linear-gradient(135deg, #47C8D1, #5B8CFF)',
-                        color: '#0B0F12',
-                        border: 'none',
-                        fontFamily: 'var(--font-body)',
-                        fontWeight: '600',
-                        boxShadow: '0 4px 12px rgba(71, 200, 209, 0.3)'
-                      }}
-                    >
-                      🎵 Open in Spotify
-                    </button>
-                  )}
+                    {copySpotifyStatus === 'copied' && (
+                      <span className="text-xs text-emerald-300">Enlace copiado al portapapeles</span>
+                    )}
+                    {copySpotifyStatus === 'error' && (
+                      <span className="text-xs text-red-300">No se pudo copiar. Inténtalo de nuevo.</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-white">🚀 4. TuneMyMusic</p>
+                    <p className="text-xs text-gray-text-secondary mt-1">
+                      Abre TuneMyMusic, pega el enlace y transfórmala en tu playlist personal en menos de 30 segundos.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!spotifyUrl) return;
+                      const tuneUrl = `https://www.tunemymusic.com/transfer?source=spotify&target=spotify&url=${encodeURIComponent(spotifyUrl)}`;
+                      window.open(tuneUrl, '_blank');
+                    }}
+                    className="secondary w-full md:w-auto px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!spotifyUrl}
+                    style={{
+                      background: 'linear-gradient(135deg, #47C8D1, #5B8CFF)',
+                      color: '#0B0F12',
+                      border: 'none',
+                      fontFamily: 'var(--font-body)',
+                      fontWeight: '600',
+                      boxShadow: '0 4px 12px rgba(71, 200, 209, 0.3)'
+                    }}
+                  >
+                    🚀 Abrir TuneMyMusic
+                  </button>
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Control Buttons */}
-              <div className="flex gap-3 items-center flex-wrap mobile-button-group md:flex-row">
-                <button
-                  onClick={handleRefine}
-                  disabled={refining}
-                  className="secondary w-full md:min-w-[120px] px-4 py-2 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{
-                    background: 'transparent',
-                    color: 'rgba(199, 208, 218, 0.3)',
-                    border: '1px solid rgba(199, 208, 218, 0.2)',
-                    fontFamily: 'var(--font-body)',
-                    opacity: '0.4'
-                  }}
-                >
-                  {refining ? 'Refining...' : '🎛️ Refine'}
-                </button>
-                
-                <button
-                  onClick={handleAddMore}
-                  disabled={addingMore || tracks.length >= 200}
-                  className="secondary w-full md:min-w-[100px] px-4 py-2 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{
-                    background: 'transparent',
-                    color: 'rgba(199, 208, 218, 0.3)',
-                    border: '1px solid rgba(199, 208, 218, 0.2)',
-                    fontFamily: 'var(--font-body)',
-                    opacity: '0.4'
-                  }}
-                >
-                  {addingMore ? 'Adding...' : '+5 Tracks'}
-                </button>
-                
-                <div className="text-sm text-gray-text-secondary text-center w-full md:w-auto">
-                  {tracks.length}/200 tracks
+          {tracks.length > 0 && HUB_MODE && isGenerationComplete && (
+            <div className="spotify-card">
+              {playlistMeta?.error && (
+                <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                  {playlistMeta.error}
+                </div>
+              )}
+
+              <h3 className="text-xl font-semibold text-white mb-2">
+                Ya tienes tu playlist ✨
+              </h3>
+              <p className="text-sm text-gray-text-secondary mb-4">
+                Generada por PLEIA Hub. Sigue estos pasos para llevarla a tu Spotify en segundos.
+              </p>
+              <div className="space-y-3 md:space-y-4">
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-white">✏️ 1. Ponle nombre a tu playlist</p>
+                    <p className="text-xs text-gray-text-secondary mt-1">
+                      Déjalo vacío para usar tu prompt como nombre.
+                    </p>
+                  </div>
+                  <input
+                    type="text"
+                    value={customPlaylistName}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value.length <= 100) {
+                        setCustomPlaylistName(value);
+                      }
+                    }}
+                    placeholder="Usaremos tu prompt si lo dejas en blanco"
+                    className="w-full md:max-w-xs p-3 rounded-xl border border-white/10 bg-white/[0.04] text-sm"
+                    style={{
+                      color: 'var(--color-cloud)',
+                      fontFamily: 'var(--font-body)',
+                      lineHeight: '1.4'
+                    }}
+                  />
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-white">🎧 2. Pulsa &quot;Publicar y abrir en Spotify&quot;</p>
+                    <p className="text-xs text-gray-text-secondary mt-1">
+                      Se abrirá en la cuenta PLEIAHub con tu título + &quot;by PLEIA&quot;. Revisa que todo esté ok.
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (pageLoading) return;
+                      try {
+                        setPageLoading(true);
+                        const baseName = (customPlaylistName && customPlaylistName.trim().length > 0)
+                          ? customPlaylistName.trim()
+                          : (playlistMeta?.name || prompt || 'Playlist PLEIA').trim();
+                        const formattedName = baseName.toLowerCase().endsWith(' by pleia')
+                          ? baseName
+                          : `${baseName} by PLEIA`;
+                        const publishResponse = await fetch('/api/hub/publish', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            name: formattedName,
+                            description: prompt || '',
+                            tracks: tracks,
+                          }),
+                        });
+
+                        if (!publishResponse.ok) {
+                          const data = await publishResponse.json();
+                          toast.error(data.error || 'No se pudo publicar la playlist');
+                          return;
+                        }
+
+                        const data = await publishResponse.json();
+                        setPlaylistMeta(data.playlist);
+                        toast.success('Playlist publicada en la cuenta PLEIAHub.');
+                        window.open(data.playlist.url, '_blank');
+                      } catch (error) {
+                        console.error('[HUB] Publish error:', error);
+                        toast.error('No se pudo publicar la playlist');
+                      } finally {
+                        setPageLoading(false);
+                      }
+                    }}
+                    className="primary w-full md:w-auto px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={pageLoading}
+                    style={{
+                      background: 'var(--color-accent-mixed)',
+                      color: 'var(--color-night)',
+                      fontFamily: 'var(--font-family-body)'
+                    }}
+                  >
+                    {pageLoading ? 'Publicando...' : '🎧 Publicar y abrir en Spotify'}
+                  </button>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-white">🔗 3. Copia el enlace desde aquí</p>
+                    <p className="text-xs text-gray-text-secondary mt-1">
+                      Vuelve a esta ventana y copia la playlist publicada para usarla en TuneMyMusic.
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-start md:items-end gap-2 w-full md:w-auto">
+                    <button
+                      onClick={handleCopyPlaylistUrl}
+                      className="secondary w-full md:w-auto px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={!playlistMeta?.url}
+                      style={{
+                        background: 'transparent',
+                        color: 'rgba(199, 208, 218, 0.85)',
+                        border: '1px solid rgba(199, 208, 218, 0.3)',
+                        fontFamily: 'var(--font-body)'
+                      }}
+                    >
+                      📋 Copiar enlace
+                    </button>
+                    {copyStatus === 'copied' && (
+                      <span className="text-xs text-emerald-300">Enlace copiado al portapapeles</span>
+                    )}
+                    {copyStatus === 'error' && (
+                      <span className="text-xs text-red-300">No se pudo copiar. Inténtalo de nuevo.</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-white">🚀 4. Llévala a tu Spotify con TuneMyMusic</p>
+                    <p className="text-xs text-gray-text-secondary mt-1">
+                      Inicia sesión con tu cuenta de Spotify y confirma la transferencia para editarla desde tu perfil.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!playlistMeta?.url) return;
+                      const tuneUrl = `https://www.tunemymusic.com/transfer?source=spotify&target=spotify&url=${encodeURIComponent(playlistMeta.url)}`;
+                      window.open(tuneUrl, '_blank');
+                    }}
+                    className="secondary w-full md:w-auto px-6 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!playlistMeta?.url}
+                    style={{
+                      background: 'linear-gradient(135deg, #47C8D1, #5B8CFF)',
+                      color: '#0B0F12',
+                      border: 'none',
+                      fontFamily: 'var(--font-body)',
+                      fontWeight: '600',
+                      boxShadow: '0 4px 12px rgba(71, 200, 209, 0.3)'
+                    }}
+                  >
+                    🚀 Llevar a mi Spotify (TuneMyMusic)
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
           {/* Results Card */}
-          {showUsageLimit ? (
+          {!HUB_MODE && showUsageLimit ? (
             <UsageLimitReached onViewPlans={handleViewPlans} />
           ) : tracks.length > 0 && (
             <div className="spotify-card">
@@ -1459,23 +2332,6 @@ export default function Home() {
       {/* Feedback Gate */}
       <FeedbackGate currentPrompt={prompt} />
       
-
-      {/* Paywall Modal */}
-      <PaywallModal
-        isOpen={showPaywallModal}
-        onClose={() => setShowPaywallModal(false)}
-        remaining={usageData?.remaining || 0}
-        onBuyFounder={() => {
-          // This will be handled by the modal itself
-          setShowPaywallModal(false);
-        }}
-      />
-
-      {/* Founder Nudge */}
-      <FounderNudge />
-
-      {/* Paywall Host - New system */}
-      <PaywallHost />
 
     </div>
   );

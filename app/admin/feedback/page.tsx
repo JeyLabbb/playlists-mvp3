@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePleiaSession } from "../../../lib/auth/usePleiaSession";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 
 interface FeedbackEntry {
@@ -20,7 +20,7 @@ interface FeedbackEntry {
 }
 
 export default function AdminFeedbackPage() {
-  const { data: session, status } = usePleiaSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const [feedback, setFeedback] = useState<FeedbackEntry[]>([]);
   const [loading, setLoading] = useState(true);

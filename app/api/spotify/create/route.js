@@ -1,8 +1,9 @@
 // web/app/api/spotify/create/route.js
 // Clean playlist creation with robust validation
 
+import { getServerSession } from 'next-auth';
 import { NextResponse } from 'next/server';
-import { getHubAccessToken } from '@/lib/spotify/hubAuth';
+import { authOptions } from '../../../../lib/auth/config';
 
 export async function POST(req) {
   const traceId = crypto.randomUUID();
@@ -73,12 +74,13 @@ export async function POST(req) {
     
     console.log(`[TRACE:${traceId}] Creating playlist: "${safeName}"`);
     
-    // Get access token
-    const token = await getHubAccessToken();
+    // Get session and access token
+    const session = await getServerSession(authOptions);
+    const token = session?.accessToken || session?.user?.accessToken;
     
     // Validations
     if (!token) {
-      console.log(`[TRACE:${traceId}] No valid access token found`);
+      console.log(`[TRACE:${traceId}] No valid session found`);
       return NextResponse.json({ ok: false, message: 'Missing Spotify access token' }, { status: 401 });
     }
     

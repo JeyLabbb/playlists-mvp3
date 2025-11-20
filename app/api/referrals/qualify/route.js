@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
+import { REFERRALS_ENABLED } from '@/lib/referrals';
 import { getPleiaServerUser } from '@/lib/auth/serverUser';
-import { REFERRALS_ENABLED, REF_REQUIRED_COUNT } from '../../../../lib/referrals';
 
 export async function POST(request) {
   try {
@@ -8,15 +8,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Referrals not enabled' }, { status: 403 });
     }
 
-    // Get current user session
-    const user = await getPleiaServerUser();
+    const pleiaUser = await getPleiaServerUser();
     
-    if (!user?.email) {
+    if (!pleiaUser?.email) {
       return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
     }
 
-    const currentUserEmail = user.email.toLowerCase();
-    console.log('[REF] Qualifying referral for user:', currentUserEmail);
+    const currentUserEmail = pleiaUser.email.toLowerCase();
+    console.log('[REF] Updating playlist count for user:', currentUserEmail);
 
     // Get current user profile
     const kv = await import('@vercel/kv');
@@ -36,67 +35,19 @@ export async function POST(request) {
     await kv.kv.set(profileKey, updatedProfile);
     console.log('[REF] User playlist count updated:', { currentUserEmail, hasCreatedPlaylist });
 
-    // Check if this is the first playlist and user has a referrer
-    if (hasCreatedPlaylist === 1 && currentProfile.referredBy) {
-      const referrerEmail = currentProfile.referredBy.toLowerCase();
-      console.log('[REF] First playlist created, qualifying referrer:', referrerEmail);
-
-      // Get referrer profile
-      const referrerProfileKey = `userprofile:${referrerEmail}`;
-      const referrerProfile = await kv.kv.get(referrerProfileKey) || {};
-
-      // Update referrer stats
-      const referredQualifiedCount = (referrerProfile.referredQualifiedCount || 0) + 1;
-      const referrals = referrerProfile.referrals || [];
-      
-      // Add current user to referrals list if not already there
-      if (!referrals.includes(currentUserEmail)) {
-        referrals.push(currentUserEmail);
-      }
-
-      const updatedReferrerProfile = {
-        ...referrerProfile,
-        email: referrerEmail,
-        referrals,
-        referredQualifiedCount,
-        updatedAt: new Date().toISOString()
-      };
-
-      // Check if referrer should be upgraded to founder
-      let upgradedToFounder = false;
-      if (referredQualifiedCount >= REF_REQUIRED_COUNT && referrerProfile.plan !== 'founder') {
-        updatedReferrerProfile.plan = 'founder';
-        updatedReferrerProfile.founderSince = new Date().toISOString();
-        upgradedToFounder = true;
-        console.log('[REF] Referrer upgraded to founder:', referrerEmail);
-      }
-
-      await kv.kv.set(referrerProfileKey, updatedReferrerProfile);
-      console.log('[REF] Referrer stats updated:', { 
-        referrerEmail, 
-        referredQualifiedCount, 
-        upgradedToFounder 
-      });
-
-      return NextResponse.json({ 
-        success: true, 
-        message: 'Referral qualified successfully',
-        qualified: true,
-        referrerUpgraded: upgradedToFounder,
-        referrerEmail,
-        qualifiedCount: referredQualifiedCount
-      });
-    }
+    // 🚨 CRITICAL: Ya no contamos al crear la primera playlist
+    // Ahora contamos cuando se crea la cuenta (en /api/referrals/track)
+    // Este endpoint solo actualiza el contador de playlists del usuario
+    // El contador del referrer y el upgrade a founder se manejan en /api/referrals/track
 
     return NextResponse.json({ 
       success: true, 
       message: 'Playlist count updated',
-      qualified: false,
       hasCreatedPlaylist
     });
 
   } catch (error) {
-    console.error('[REF] Error qualifying referral:', error);
-    return NextResponse.json({ error: 'Failed to qualify referral' }, { status: 500 });
+    console.error('[REF] Error updating playlist count:', error);
+    return NextResponse.json({ error: 'Failed to update playlist count' }, { status: 500 });
   }
 }

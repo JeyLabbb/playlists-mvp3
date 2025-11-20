@@ -1,18 +1,17 @@
 import { NextResponse } from 'next/server';
-import { getHubAccessToken } from '@/lib/spotify/hubAuth';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../../lib/auth/config';
 
 export async function POST(request) {
   try {
-    const accessToken = await getHubAccessToken();
+    const session = await getServerSession(authOptions);
     
-    if (!accessToken) {
+    if (!session?.accessToken) {
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
       );
     }
-    
-    const session = { accessToken };
     
     const { 
       currentTracks, 

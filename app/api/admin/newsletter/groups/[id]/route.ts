@@ -12,7 +12,7 @@ const updateGroupSchema = z.object({
 
 export async function PATCH(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -21,7 +21,6 @@ export async function PATCH(
     }
     const payload = updateGroupSchema.parse(await request.json());
     const supabase = await getNewsletterAdminClient();
-    const { id } = await params;
 
     const updates: Record<string, any> = {};
     if (payload.name) updates.name = payload.name;
@@ -36,7 +35,7 @@ export async function PATCH(
     const { data, error } = await supabase
       .from('newsletter_groups')
       .update(updates)
-      .eq('id', id)
+      .eq('id', params.id)
       .select('*')
       .single();
     if (error) throw error;
@@ -53,7 +52,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -61,8 +60,7 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
     const supabase = await getNewsletterAdminClient();
-    const { id } = await params;
-    const { error } = await supabase.from('newsletter_groups').delete().eq('id', id);
+    const { error } = await supabase.from('newsletter_groups').delete().eq('id', params.id);
     if (error) throw error;
     return NextResponse.json({ success: true });
   } catch (error: any) {

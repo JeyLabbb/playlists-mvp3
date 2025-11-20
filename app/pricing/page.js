@@ -10,8 +10,24 @@ export default function PricingPage() {
   const [loading, setLoading] = useState(null);
   const [copied, setCopied] = useState(false);
   const [referralStats, setReferralStats] = useState(null);
+  const [isMobile, setIsMobile] = useState(false);
   const { data: session } = usePleiaSession();
-  const { isFounder, plan } = useProfile();
+  const { isFounder, plan, isEarlyFounderCandidate, ready: profileReady } = useProfile();
+  const isFounderAccount = profileReady && isFounder;
+  const currentPlan = profileReady ? plan : null;
+  
+  // Detectar si es móvil (donde Web Share API funciona mejor)
+  useEffect(() => {
+    const checkMobile = () => {
+      const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || 
+                            (typeof window !== 'undefined' && window.innerWidth < 768);
+      setIsMobile(isMobileDevice);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const copyReferralLink = async () => {
     const link = generateReferralLink(session?.user?.email);
@@ -24,10 +40,58 @@ export default function PricingPage() {
     }
   };
 
+  const shareReferralLink = async () => {
+    const link = generateReferralLink(session?.user?.email);
+    const shareText = 'Prueba esta IA que te hace playlists en Spotify! 🎵';
+    
+    try {
+      // Verificar que navigator.share existe y es una función
+      if (typeof navigator !== 'undefined' && navigator.share && typeof navigator.share === 'function') {
+        // Usar solo text y url, sin title (más compatible)
+        const shareData = {
+          text: shareText,
+          url: link,
+        };
+        
+        // Intentar compartir sin usar canShare (puede causar problemas en Safari)
+        await navigator.share(shareData);
+        console.log('[REFERRAL] Link shared successfully');
+        return;
+      }
+    } catch (error) {
+      // Si el usuario cancela el share, no hacer nada
+      if (error.name === 'AbortError') {
+        return;
+      }
+      // Si hay otro error, continuar al fallback
+      console.warn('[REFERRAL] Share failed, using fallback:', error);
+    }
+    
+    // Fallback: copiar al portapapeles con el mensaje
+    try {
+      const fullText = `${shareText}\n\n${link}`;
+      await navigator.clipboard.writeText(fullText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      console.log('[REFERRAL] Copied to clipboard with message');
+    } catch (clipboardError) {
+      console.error('[REFERRAL] Error copying to clipboard:', clipboardError);
+    }
+  };
+
   // Load referral stats for whitelist users
   useEffect(() => {
+    if (!profileReady) {
+      return;
+    }
+
     const loadReferralStats = async () => {
-      if (REFERRALS_ENABLED && session?.user?.email && canInvite(session.user.email) && !isFounder) {
+      if (
+        REFERRALS_ENABLED &&
+        session?.user?.email &&
+        canInvite(session.user.email, { isEarlyCandidate: isEarlyFounderCandidate }) &&
+        !isFounderAccount
+      ) {
         try {
           const response = await fetch('/api/referrals/stats');
           if (response.ok) {
@@ -41,7 +105,7 @@ export default function PricingPage() {
     };
 
     loadReferralStats();
-  }, [session?.user?.email, isFounder]);
+  }, [session?.user?.email, isFounderAccount, profileReady, isEarlyFounderCandidate]);
 
   const handleSubscribe = async (plan) => {
     if (!CHECKOUT_ENABLED) {
@@ -107,7 +171,7 @@ export default function PricingPage() {
           </p>
           
           {/* Current Plan */}
-          {isFounder && (
+          {isFounderAccount && (
             <div 
               className="inline-flex items-center gap-3 px-6 py-3 rounded-full"
               style={{
@@ -159,8 +223,8 @@ export default function PricingPage() {
           )}
         </div>
 
-        {/* Founder Newsletter Special Section */}
-        {REFERRALS_ENABLED && session?.user?.email && canInvite(session.user.email) && !isFounder && (
+        {/* Founder Advantage Section (early users): izquierda ventaja, derecha Founder 5€, abajo monthly */}
+        {REFERRALS_ENABLED && session?.user?.email && canInvite(session.user.email, { isEarlyCandidate: isEarlyFounderCandidate }) && !isFounderAccount && (
           <div className="mb-12 max-w-4xl mx-auto">
             <div 
               className="rounded-2xl p-8 border-2"
@@ -171,18 +235,18 @@ export default function PricingPage() {
             >
               <div className="text-center mb-6">
                 <div className="flex items-center justify-center gap-3 mb-4">
-                  <svg className="w-8 h-8" fill="currentColor" style={{ color: '#FF8C00' }} viewBox="0 0 20 20">
+                  <svg className="w-8 h-8" fill="currentColor" style={{ color: '#f6c744' }} viewBox="0 0 20 20">
                     <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <h2 
                     className="text-2xl font-bold"
                     style={{ 
-                      color: '#FF8C00',
+                      color: '#f6c744',
                       fontFamily: 'Space Grotesk, sans-serif',
                       fontWeight: 700
                     }}
                   >
-                    ¡Eres parte de la Newsletter Founder!
+                    ¡Eres de los primeros 1000 en PLEIA!
                   </h2>
                 </div>
                 <p 
@@ -193,8 +257,8 @@ export default function PricingPage() {
                     opacity: 0.9
                   }}
                 >
-                  Tienes una <strong>ventaja especial</strong>: puedes conseguir Founder de por vida 
-                  <strong> gratis</strong> invitando a 3 amigos.
+                  Por ser de los <strong>primeros 1000 usuarios</strong> puedes conseguir Founder de por vida 
+                  <strong> gratis</strong> invitando a 3 amigos (o comprar el pass directo por 5€).
                 </p>
               </div>
 
@@ -296,6 +360,17 @@ export default function PricingPage() {
                       >
                         {copied ? '✓' : 'Copiar'}
                       </button>
+                      {isMobile && (
+                        <button
+                          onClick={shareReferralLink}
+                          className="px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center"
+                          title="Compartir en WhatsApp, Instagram, etc."
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -378,20 +453,20 @@ export default function PricingPage() {
           </div>
         )}
 
-        {/* Pricing Cards - Only show for non-whitelist users */}
-        {!(REFERRALS_ENABLED && session?.user?.email && canInvite(session.user.email) && !isFounder) && (
+        {/* Pricing Cards - Only show para usuarios sin ventaja early */}
+        {!(REFERRALS_ENABLED && session?.user?.email && canInvite(session.user.email, { isEarlyCandidate: isEarlyFounderCandidate }) && !isFounderAccount) && (
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           {/* Founder Pass */}
           <div 
             className="relative rounded-2xl p-8 transition-all duration-200 hover:scale-[1.02]"
             style={{ 
               backgroundColor: '#0F141B',
-              border: isFounder ? '2px solid #FF8C00' : '1px solid rgba(54, 226, 180, 0.2)',
-              boxShadow: isFounder ? '0 4px 20px rgba(255, 140, 0, 0.2)' : '0 4px 20px rgba(54, 226, 180, 0.1)'
+              border: isFounderAccount ? '2px solid #FF8C00' : '1px solid rgba(54, 226, 180, 0.2)',
+              boxShadow: isFounderAccount ? '0 4px 20px rgba(255, 140, 0, 0.2)' : '0 4px 20px rgba(54, 226, 180, 0.1)'
             }}
           >
             {/* Selected Badge */}
-            {isFounder && (
+            {isFounderAccount && (
               <div 
                 className="absolute -top-3 left-1/2 transform -translate-x-1/2 px-4 py-1 rounded-full"
                 style={{
@@ -541,22 +616,22 @@ export default function PricingPage() {
               </ul>
 
               <button
-                onClick={() => !isFounder && handleSubscribe('founder')}
-                disabled={isFounder || !CHECKOUT_ENABLED || loading === 'founder'}
+                onClick={() => !isFounderAccount && handleSubscribe('founder')}
+                disabled={isFounderAccount || !CHECKOUT_ENABLED || loading === 'founder'}
                 className={`w-full py-3 px-6 rounded-lg font-semibold transition-all duration-200 ${
-                  isFounder 
+                  isFounderAccount 
                     ? 'cursor-default' 
                     : CHECKOUT_ENABLED
                       ? 'hover:shadow-lg hover:scale-[1.02]'
                       : 'opacity-50 cursor-not-allowed'
                 }`}
                 style={{
-                  backgroundColor: isFounder 
+                  backgroundColor: isFounderAccount 
                     ? '#FF8C00' 
                     : CHECKOUT_ENABLED 
                       ? '#36E2B4' 
                       : 'rgba(255, 255, 255, 0.1)',
-                  color: isFounder 
+                  color: isFounderAccount 
                     ? '#0B0F14' 
                     : CHECKOUT_ENABLED 
                       ? '#0B0F14' 
@@ -574,7 +649,7 @@ export default function PricingPage() {
                     ></div>
                     Procesando...
                   </div>
-                ) : isFounder ? (
+                ) : isFounderAccount ? (
                   '✓ Ya tienes este plan'
                 ) : CHECKOUT_ENABLED ? (
                   'Comprar ahora'
@@ -775,7 +850,7 @@ export default function PricingPage() {
         )}
 
         {/* Pro Plan Section - Only for founder whitelist */}
-        {REFERRALS_ENABLED && session?.user?.email && canInvite(session.user.email) && !isFounder && (
+        {REFERRALS_ENABLED && session?.user?.email && canInvite(session.user.email) && !isFounderAccount && (
           <div className="max-w-2xl mx-auto mb-12">
             <div 
               className="rounded-2xl p-8"

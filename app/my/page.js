@@ -1,14 +1,39 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { usePleiaSession } from '../../lib/auth/usePleiaSession';
+import { PUBLIC_HUB_MODE } from '../../lib/features';
+import { useUsageStatus } from '../../lib/hooks/useUsageStatus';
 import { useAuthActions } from '../../lib/auth/clientActions';
 import Link from 'next/link';
 import AnimatedList from '../components/AnimatedList';
 
 export default function MyPlaylistsPage() {
-  const { data: session, status } = usePleiaSession();
+  const router = useRouter();
+  const HUB_MODE = PUBLIC_HUB_MODE;
+  const { data: sessionData, status } = usePleiaSession();
+  const sessionUser = sessionData?.user || null;
   const { login } = useAuthActions();
+  const userEmail = sessionUser?.email || "";
+  const usageDisabled = HUB_MODE || status !== 'authenticated';
+  const {
+    data: usageState,
+    current: usageCurrent,
+    remaining: usageRemaining,
+    maxUses: usageMax,
+    unlimited: usageUnlimited,
+    isLoading: usageLoading,
+    refresh: refreshUsage,
+  } = useUsageStatus({
+    disabled: usageDisabled,
+    refreshInterval: usageDisabled ? 0 : 45000,
+  });
+  const refreshUsageRef = useRef(refreshUsage);
+  useEffect(() => {
+    refreshUsageRef.current = refreshUsage;
+  }, [refreshUsage]);
+
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -21,16 +46,25 @@ export default function MyPlaylistsPage() {
   const fetchUserPlaylists = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('[MY-PLAYLISTS] Fetching playlists for:', session?.user?.email);
-      const response = await fetch('/api/userplaylists');
+      console.log('[MY-PLAYLISTS] Fetching playlists for:', userEmail);
+      const response = await fetch('/api/userplaylists', { credentials: 'include' });
       const data = await response.json();
       console.log('[MY-PLAYLISTS] API response:', data);
+
+      if (response.status === 401) {
+        console.warn('[MY-PLAYLISTS] Unauthorized response, redirecting to login');
+        setLoading(false);
+        setPlaylists([]);
+        setError(null);
+        login('/my');
+        return;
+      }
       
       if (data.success) {
         if (data.fallback) {
           // Load from localStorage
           console.log('[MY-PLAYLISTS] Using localStorage fallback');
-          const localKey = `jey_user_playlists:${session.user.email}`;
+          const localKey = `jey_user_playlists:${userEmail}`;
           const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
           console.log('[MY-PLAYLISTS] Loaded from localStorage:', localPlaylists.length, 'playlists');
           setPlaylists(Array.isArray(localPlaylists) ? localPlaylists : []);
@@ -50,15 +84,51 @@ export default function MyPlaylistsPage() {
     } finally {
       setLoading(false);
     }
-  }, [session?.user?.email]);
+  }, [userEmail, login]);
 
   useEffect(() => {
-    if (session?.user?.email) {
+    if (userEmail) {
       fetchUserPlaylists();
     } else if (status === 'unauthenticated') {
       setLoading(false);
     }
-  }, [session, status, fetchUserPlaylists]);
+  }, [userEmail, status, fetchUserPlaylists]);
+
+  useEffect(() => {
+    if (!usageDisabled) {
+      refreshUsageRef.current?.();
+    }
+  }, [usageDisabled]);
+
+  const resolvedCurrent =
+    typeof usageCurrent === 'number'
+      ? usageCurrent
+      : typeof usageState?.usage?.current === 'number'
+        ? usageState.usage.current
+        : typeof usageState?.used === 'number'
+          ? usageState.used
+          : 0;
+
+  const resolvedRemaining = usageUnlimited
+    ? '∞'
+    : typeof usageRemaining === 'number'
+      ? usageRemaining
+      : typeof usageState?.usage?.remaining === 'number'
+        ? usageState.usage.remaining
+        : typeof usageState?.remaining === 'number'
+          ? usageState.remaining
+          : undefined;
+
+  const resolvedMax =
+    usageUnlimited
+      ? null
+      : typeof usageMax === 'number'
+        ? usageMax
+        : typeof usageState?.usage?.limit === 'number'
+          ? usageState.usage.limit
+          : typeof usageState?.limitPerWindow === 'number'
+            ? usageState.limitPerWindow
+            : null;
 
   // Cerrar menú al hacer clic fuera
   useEffect(() => {
@@ -91,7 +161,8 @@ export default function MyPlaylistsPage() {
       // Fetch playlist tracks
       const response = await fetch(`/api/spotify/playlist-tracks?id=${playlistId}`, {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
       });
       
       if (response.ok) {
@@ -149,7 +220,8 @@ export default function MyPlaylistsPage() {
         body: JSON.stringify({
           playlistId: playlistId,
           public: newPublic
-        })
+        }),
+        credentials: 'include',
       });
       
       const result = await response.json();
@@ -164,7 +236,7 @@ export default function MyPlaylistsPage() {
         
         // If fallback to localStorage, update there too
         if (result.reason === 'fallback-localStorage') {
-          const localKey = `jey_user_playlists:${session.user.email}`;
+          const localKey = `jey_user_playlists:${userEmail}`;
           const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
           const updatedPlaylists = localPlaylists.map(playlist =>
             playlist.playlistId === playlistId 
@@ -187,7 +259,7 @@ export default function MyPlaylistsPage() {
         ));
         
         // Update localStorage
-        const localKey = `jey_user_playlists:${session.user.email}`;
+        const localKey = `jey_user_playlists:${userEmail}`;
         const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
         const updatedPlaylists = localPlaylists.map(playlist =>
           playlist.playlistId === playlistId 
@@ -238,7 +310,7 @@ export default function MyPlaylistsPage() {
         setPlaylists(prev => (Array.isArray(prev) ? prev : []).filter(playlist => playlist.playlistId !== playlistId));
         
         // Update localStorage
-        const localKey = `jey_user_playlists:${session.user.email}`;
+        const localKey = `jey_user_playlists:${userEmail}`;
         const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
         const updatedPlaylists = localPlaylists.filter(playlist => playlist.playlistId !== playlistId);
         localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
@@ -252,7 +324,7 @@ export default function MyPlaylistsPage() {
         setPlaylists(prev => (Array.isArray(prev) ? prev : []).filter(playlist => playlist.playlistId !== playlistId));
         
         // Update localStorage
-        const localKey = `jey_user_playlists:${session.user.email}`;
+        const localKey = `jey_user_playlists:${userEmail}`;
         const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
         const updatedPlaylists = localPlaylists.filter(playlist => playlist.playlistId !== playlistId);
         localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
@@ -279,6 +351,10 @@ export default function MyPlaylistsPage() {
     }
   };
 
+  const handleLoginClick = () => {
+    login('/my');
+  };
+
   // Not authenticated
   if (status === 'unauthenticated') {
     return (
@@ -297,11 +373,11 @@ export default function MyPlaylistsPage() {
             </div>
             
             <button
-              onClick={() => login('/')}
+              onClick={handleLoginClick}
               className="inline-flex items-center gap-3 bg-green-500 hover:bg-green-600 text-white font-semibold px-8 py-4 rounded-xl transition-colors duration-200 shadow-lg hover:shadow-xl"
             >
               <span className="text-xl">🎵</span>
-              <span>Iniciar sesión</span>
+              <span>Conectar con Spotify</span>
             </button>
           </div>
         </div>
@@ -401,6 +477,52 @@ export default function MyPlaylistsPage() {
               {playlists.length} playlist{playlists.length !== 1 ? 's' : ''} creada{playlists.length !== 1 ? 's' : ''}
             </p>
           </div>
+
+          {status === 'authenticated' && !usageDisabled && (
+            <div className="mt-6 bg-gray-900/60 border border-gray-700 rounded-2xl p-4 sm:p-6 text-left">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-gray-500">Uso gratuito</p>
+                  <h2 className="text-lg sm:text-xl font-semibold text-white flex items-center gap-2">
+                    {usageUnlimited ? (
+                      <>
+                        <span className="text-emerald-400 text-xl">∞</span>
+                        Usos ilimitados activos
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-emerald-400 text-xl">
+                          {typeof resolvedRemaining === 'number'
+                            ? Math.max(0, resolvedRemaining)
+                            : resolvedRemaining ?? 0}
+                        </span>
+                        playlists disponibles
+                      </>
+                    )}
+                  </h2>
+                  {!usageUnlimited && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      {resolvedCurrent} usadas
+                      {typeof resolvedMax === 'number' ? ` de ${resolvedMax} totales` : null}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {!usageUnlimited && typeof resolvedMax === 'number' && resolvedMax > 0 && (
+                <div className="mt-4 h-2 w-full bg-gray-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-400 to-cyan-500 rounded-full transition-all"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.round(((resolvedCurrent || 0) / resolvedMax) * 100),
+                      )}%`,
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

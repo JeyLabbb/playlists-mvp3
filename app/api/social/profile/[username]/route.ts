@@ -37,7 +37,7 @@ const memoryStore = globalScope[memoryStoreKey]!;
 
 async function getEmailByUsername(
   username: string,
-  supabase?: Awaited<ReturnType<typeof createSupabaseRouteClient>>,
+  supabase?: ReturnType<typeof createSupabaseRouteClient>,
 ) {
   const normalized = sanitizeUsername(username);
   if (!normalized) return null;

@@ -6,7 +6,7 @@ import {
   ensureContactByEmail,
   assignContactToGroups,
 } from '@/lib/newsletter/server';
-import { deliverCampaignNow, type CampaignContentPayload } from '@/lib/newsletter/campaigns';
+import { deliverCampaignNow, CampaignContentPayload } from '@/lib/newsletter/campaigns';
 
 const ctaSchema = z.object({
   label: z.string().min(1).max(80),
@@ -40,7 +40,7 @@ async function fetchContactsForGroups(
     .in('group_id', groupIds);
   if (error) throw error;
   const contacts: { id: string; email: string }[] = [];
-  (data || []).forEach((row: any) => {
+  (data || []).forEach((row) => {
     if (!row.contact) return;
     if (row.contact.status !== 'subscribed') return;
     contacts.push({
@@ -155,11 +155,7 @@ export async function POST(request: Request) {
         campaign_id: campaign.id,
         group_id: groupId,
       }));
-      try {
-        await supabase.from('newsletter_campaign_groups').insert(rows);
-      } catch (error) {
-        // Ignore errors when inserting campaign groups
-      }
+      await supabase.from('newsletter_campaign_groups').insert(rows).catch(() => {});
     }
 
     const recipientsMap = new Map<string, { id: string; email: string }>();
@@ -217,22 +213,18 @@ export async function POST(request: Request) {
     const trackingEnabled = payload.trackingEnabled !== false;
 
     if (payload.sendMode === 'immediate') {
-      const content: CampaignContentPayload = {
-        subject: payload.subject,
-        title: payload.title,
-        body: payload.body,
-      };
-      if (payload.primaryCta?.label && payload.primaryCta?.url) {
-        content.primaryCta = { label: payload.primaryCta.label, url: payload.primaryCta.url };
-      }
-      if (payload.secondaryCta?.label && payload.secondaryCta?.url) {
-        content.secondaryCta = { label: payload.secondaryCta.label, url: payload.secondaryCta.url };
-      }
       await deliverCampaignNow({
         supabase,
         campaign,
         recipients: recipientRows,
-        content,
+        content: {
+          subject: payload.subject,
+          title: payload.title,
+          body: payload.body,
+          primaryCta: payload.primaryCta,
+          secondaryCta: payload.secondaryCta,
+        },
+        trackingEnabled,
       });
     } else if (payload.sendMode === 'scheduled' && payload.scheduledFor) {
       await supabase.from('newsletter_jobs').insert({

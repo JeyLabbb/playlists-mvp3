@@ -220,13 +220,7 @@ async function ensureUser(
     }
 
     const { data } = await query.maybeSingle();
-    let existingUser: UserRow | null = null;
-    if (data) {
-      const checkedData = data as any;
-      if (checkedData && typeof checkedData === 'object' && 'id' in checkedData && !('error' in checkedData)) {
-        existingUser = checkedData as UserRow;
-      }
-    }
+    let existingUser = (data ?? null) as UserRow | null;
     if (existingUser) {
       if ((!existingUser.username || existingUser.username.length === 0) && columns?.username && email) {
         const generated = generateUsername(email, userId || existingUser.id);
@@ -318,23 +312,14 @@ async function ensureUser(
           .eq('email', email)
           .maybeSingle();
         if (duplicate) {
-          const checkedDuplicate = duplicate as any;
-          if (checkedDuplicate && typeof checkedDuplicate === 'object' && 'id' in checkedDuplicate && !('error' in checkedDuplicate)) {
-            return checkedDuplicate as UserRow;
-          }
+          return duplicate as UserRow;
         }
       }
       console.warn('[USAGE] Failed to insert user row:', insertError);
       return null;
     }
 
-    if (inserted) {
-      const checkedInserted = inserted as any;
-      if (checkedInserted && typeof checkedInserted === 'object' && 'id' in checkedInserted && !('error' in checkedInserted)) {
-        return checkedInserted as UserRow;
-      }
-    }
-    return null;
+    return (inserted ?? null) as UserRow | null;
   } catch (error) {
     console.error('[USAGE] ensureUser error:', error);
     return null;

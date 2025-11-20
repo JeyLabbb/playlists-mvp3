@@ -6,10 +6,11 @@ export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
 import { NextResponse } from "next/server";
-import { getPleiaServerUser } from "@/lib/auth/serverUser";
-import { getHubAccessToken } from "@/lib/spotify/hubAuth";
 import { storeLastRun } from "../../../../lib/debug/utils";
 import logger from "../../../../lib/logger";
+import { getPleiaServerUser } from "../../../../lib/auth/serverUser";
+import { getHubAccessToken } from "../../../../lib/spotify/hubAuth";
+import { getUsageSummary, getUserPlan, refundUsage, getUsageLimit, getOrCreateUsageUser } from '../../../../lib/billing/usage';
 
 // Clean imports from lib modules
 import { mapLLMTrack, mapSpotifyTrack } from "../../../../lib/tracks/mapper";
@@ -271,8 +272,9 @@ async function getTrackRadio(accessToken, trackId, limit = 20) {
 import { toTrackId } from "../../../../lib/spotify/ids";
 import { fetchTracksMeta } from "../../../../lib/spotify/meta";
 import { normalizeArtistName, MUSICAL_CONTEXTS } from "../../../../lib/music/contexts";
-import { searchUndergroundTracks } from "../../../../lib/spotify/artistSearch";
+import { searchUndergroundTracks, resolveArtistsWithDeduplication } from "../../../../lib/spotify/artistSearch";
 import { searchTracksByArtists } from "../../../../search_helpers";
+import { calculateMultiArtistDistribution, checkCapInTime, calculateCompensationPlan, normalizeForComparison, detectSpecialCases, calculateDynamicCaps } from "../../../../lib/helpers";
 
 // Festival and scene detection
 import { extractFestivalInfo, calculateStringSimilarity } from "../../../../lib/intent/festival";
@@ -570,13 +572,19 @@ function determineMode(intent, prompt) {
 
 /**
  * Limits tracks per artist to avoid excessive repetition
+ * 🚨 MEJORADO: Maneja casos especiales (cap infinito, cap 0 para excluidos)
  * @param {Array} tracks - Array of tracks
  * @param {number} maxPerArtist - Maximum tracks per artist (default: 5)
+ * @param {Object} specialCases - Casos especiales detectados
+ * @param {Object} dynamicCaps - Caps dinámicos calculados
  * @returns {Array} - Filtered tracks array
  */
-function limitTracksPerArtist(tracks, maxPerArtist = 5) {
+function limitTracksPerArtist(tracks, maxPerArtist = 5, specialCases = {}, dynamicCaps = {}) {
   const artistCounts = new Map();
   const limitedTracks = [];
+  const excludedArtists = (specialCases.excludedArtists || []).map(a => a.toLowerCase());
+  const onlyArtists = (specialCases.onlyArtists || []).map(a => a.toLowerCase());
+  const onlyArtistsCap = dynamicCaps.onlyArtistsCap === Infinity;
   
   for (const track of tracks) {
     // Normalize artistNames to array of strings
@@ -594,12 +602,43 @@ function limitTracksPerArtist(tracks, maxPerArtist = 5) {
       continue;
     }
     
+    // 🚨 CRITICAL: Verificar si algún artista está excluido (cap = 0)
+    const trackArtistsLower = namesArr.map(a => a.toLowerCase());
+    const hasExcludedArtist = trackArtistsLower.some(a => excludedArtists.includes(a));
+    if (hasExcludedArtist) {
+      console.log(`[ARTIST-LIMIT] Skipping track "${track.name}" - contains excluded artist`);
+      continue;
+    }
+    
+    // 🚨 CRITICAL: Si hay "solo de X", solo permitir tracks de esos artistas
+    if (onlyArtists.length > 0) {
+      const hasOnlyArtist = trackArtistsLower.some(a => onlyArtists.includes(a));
+      if (!hasOnlyArtist) {
+        console.log(`[ARTIST-LIMIT] Skipping track "${track.name}" - not from only artists: ${onlyArtists.join(', ')}`);
+        continue;
+      }
+      // Si es un artista "solo de", cap infinito - siempre permitir
+      for (const artist of namesArr) {
+        artistCounts.set(artist, (artistCounts.get(artist) || 0) + 1);
+      }
+      limitedTracks.push(track);
+      continue;
+    }
+    
     // Check if any artist has reached the limit
     let canAdd = true;
     const trackArtists = namesArr;
     
     for (const artist of trackArtists) {
-      const count = artistCounts.get(artist) || 0;
+      const artistLower = artist.toLowerCase();
+      const count = artistCounts.get(artistLower) || 0;
+      
+      // Cap infinito para casos especiales
+      if (maxPerArtist === Infinity) {
+        canAdd = true;
+        break;
+      }
+      
       if (count >= maxPerArtist) {
         canAdd = false;
         console.log(`[ARTIST-LIMIT] Skipping track "${track.name}" by "${artist}" - limit reached (${count}/${maxPerArtist})`);
@@ -610,7 +649,8 @@ function limitTracksPerArtist(tracks, maxPerArtist = 5) {
     if (canAdd) {
       // Increment counters for all artists in this track
       for (const artist of trackArtists) {
-        artistCounts.set(artist, (artistCounts.get(artist) || 0) + 1);
+        const artistLower = artist.toLowerCase();
+        artistCounts.set(artistLower, (artistCounts.get(artistLower) || 0) + 1);
       }
       limitedTracks.push(track);
     }
@@ -631,11 +671,25 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
   console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
   console.log(`[STREAM:${traceId}] Target tracks: ${target_tracks}`);
   
-  // 🚨 CRITICAL: Skip LLM phase for delegated modes
+  // 🚨 CRITICAL: Skip LLM phase for delegated modes, EXCEPT if ARTIST_STYLE with 0 tracks (need fan-out)
+  // FEATURE_MULTI_ARTIST_FANOUT: siempre activo por defecto (puede desactivarse con 'false')
   const mode = determineMode(intent, intent.prompt || '');
-  if (mode === 'ARTIST_STYLE' || mode === 'SINGLE_ARTIST' || mode === 'VIRAL' || mode === 'FESTIVAL') {
+  const llmTracks = intent.tracks_llm || [];
+  const FEATURE_MULTI_ARTIST_FANOUT = process.env.FEATURE_MULTI_ARTIST_FANOUT !== 'false';
+  
+  // Si es ARTIST_STYLE con tracks_llm=[], NO saltar (ejecutar fan-out en Spotify phase)
+  const shouldSkipLLMPhase = (mode === 'ARTIST_STYLE' || mode === 'SINGLE_ARTIST' || mode === 'VIRAL' || mode === 'FESTIVAL') &&
+                              !(mode === 'ARTIST_STYLE' && (FEATURE_MULTI_ARTIST_FANOUT || llmTracks.length === 0));
+  
+  if (shouldSkipLLMPhase) {
     console.log(`[STREAM:${traceId}] 🚨 Delegated mode detected (${mode}) - SKIPPING LLM PHASE COMPLETELY`);
     return;
+  }
+  
+  // Fix crítico: ARTIST_STYLE con tracks_llm=[] debe ejecutar fan-out multi-artista, no saltar
+  if (mode === 'ARTIST_STYLE' && llmTracks.length === 0) {
+    console.log(`[STREAM:${traceId}] 🚨 ARTIST_STYLE with 0 LLM tracks - will execute multi-artist fan-out in Spotify phase (FEATURE_MULTI_ARTIST_FANOUT=${FEATURE_MULTI_ARTIST_FANOUT})`);
+    // No retornar aquí; dejar que continúe (aunque no haya tracks LLM, el fan-out se ejecutará en yieldSpotifyChunks)
   }
   
   console.log(`[STREAM:${traceId}] Intent data:`, {
@@ -660,9 +714,7 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
     filtered_artists: intent.filtered_artists || []
   });
   
-  const llmTracks = intent.tracks_llm || [];
-  
-  // Pre-deduplicate LLM tracks to avoid processing duplicates
+  // Pre-deduplicate LLM tracks to avoid processing duplicates (llmTracks ya está declarado arriba)
   const uniqueLLMTracks = [];
   const seenTracks = new Set();
   
@@ -782,8 +834,8 @@ async function* yieldLLMChunks(accessToken, intent, target_tracks, traceId, used
 /**
  * Generator for Spotify tracks in chunks - guarantees exact remaining count for all modes
  */
-async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks = globalUsedTracks) {
-  console.log(`[STREAM:${traceId}] Starting Spotify phase, remaining: ${remaining}`);
+async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks = globalUsedTracks, targetTracksTotal = null) {
+  console.log(`[STREAM:${traceId}] Starting Spotify phase, remaining: ${remaining}, targetTracksTotal: ${targetTracksTotal || 'N/A'}`);
   console.log(`[STREAM:${traceId}] Global usedTracks size: ${usedTracks.size}`);
   console.log(`[STREAM:${traceId}] Spotify phase intent data:`, {
     mode: determineMode(intent, intent.prompt || ''),
@@ -1184,7 +1236,8 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
               return ((t ^ t >>> 14) >>> 0) / 4294967296;
             };
           }
-          const seedStr = `${canonized.baseQuery}|${canonized.year}|${Math.floor(Date.now() / 300000)}`; // 5 min window
+          // 🚨 MEJORA: Seed más variado para mejor aleatoriedad (incluye timestamp más granular)
+          const seedStr = `${canonized.baseQuery}|${canonized.year}|${Date.now()}`; // Timestamp completo para más variabilidad
           const rng = rngSeeded(h32(seedStr));
           console.log(`[STREAM:${traceId}] FESTIVAL: RNG seeded with "${seedStr}"`);
           
@@ -1213,26 +1266,85 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
           
           console.log(`[STREAM:${traceId}] FESTIVAL: Raw search found ${festivalPlaylists.length} playlists (before filtering)`);
           
-          // CRITICAL: Filter playlists to ensure ALL search terms are present in title
+          // 🚨 MEJORA: Priorizar playlists con año en el título, solo buscar sin año si no hay suficientes
+          let playlistsWithYear = [];
+          let playlistsWithoutYear = [];
+          
           if (intent.search_queries && intent.search_queries.length > 0) {
             const searchTerms = intent.search_queries;
             const beforeFilter = festivalPlaylists.length;
+            const yearStr = canonized.year ? String(canonized.year) : null;
             
-            festivalPlaylists = festivalPlaylists.filter(p => {
+            // Separar playlists: con año vs sin año
+            for (const p of festivalPlaylists) {
               const titleNorm = (p.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-              // ALL terms MUST be in title
+              // Verificar que TODOS los términos estén en el título
               const hasAllTerms = searchTerms.every(term => {
                 const termNorm = term.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '').replace(/(.)\1+/g, '$1');
                 return titleNorm.includes(termNorm);
               });
-              return hasAllTerms;
-            });
+              
+              if (hasAllTerms) {
+                // Verificar si tiene el año en el título
+                const hasYearInTitle = yearStr ? titleNorm.includes(yearStr) : true;
+                if (hasYearInTitle) {
+                  playlistsWithYear.push(p);
+                } else {
+                  playlistsWithoutYear.push(p);
+                }
+              }
+            }
             
-            console.log(`[STREAM:${traceId}] FESTIVAL: Filtered playlists: ${beforeFilter} → ${festivalPlaylists.length} (ALL terms required: ${searchTerms.join(', ')})`);
+            console.log(`[STREAM:${traceId}] FESTIVAL: Filtered playlists: ${beforeFilter} → ${playlistsWithYear.length} with year, ${playlistsWithoutYear.length} without year (ALL terms required: ${searchTerms.join(', ')})`);
+            
+            // 🚨 CRITICAL: Solo usar playlists sin año si no hay suficientes con año
+            // Necesitamos al menos 2-3 playlists para tener buen consenso
+            const MIN_PLAYLISTS_WITH_YEAR = 2;
+            if (playlistsWithYear.length >= MIN_PLAYLISTS_WITH_YEAR) {
+              festivalPlaylists = playlistsWithYear;
+              console.log(`[STREAM:${traceId}] FESTIVAL: Using ${playlistsWithYear.length} playlists WITH year (sufficient)`);
+            } else if (playlistsWithYear.length > 0) {
+              // Si hay algunas con año pero no suficientes, combinarlas con las sin año
+              festivalPlaylists = [...playlistsWithYear, ...playlistsWithoutYear];
+              console.log(`[STREAM:${traceId}] FESTIVAL: Using ${playlistsWithYear.length} with year + ${playlistsWithoutYear.length} without year (insufficient with year)`);
+            } else {
+              // Si no hay ninguna con año, usar las sin año como último recurso
+              festivalPlaylists = playlistsWithoutYear;
+              console.log(`[STREAM:${traceId}] FESTIVAL: No playlists with year found, using ${playlistsWithoutYear.length} without year (fallback)`);
+            }
+          } else {
+            // Si no hay search_queries, filtrar por año si está disponible
+            if (canonized.year) {
+              const yearStr = String(canonized.year);
+              const beforeFilter = festivalPlaylists.length;
+              
+              playlistsWithYear = festivalPlaylists.filter(p => {
+                const titleNorm = (p.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+                return titleNorm.includes(yearStr);
+              });
+              
+              playlistsWithoutYear = festivalPlaylists.filter(p => {
+                const titleNorm = (p.name || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+                return !titleNorm.includes(yearStr);
+              });
+              
+              const MIN_PLAYLISTS_WITH_YEAR = 2;
+              if (playlistsWithYear.length >= MIN_PLAYLISTS_WITH_YEAR) {
+                festivalPlaylists = playlistsWithYear;
+                console.log(`[STREAM:${traceId}] FESTIVAL: Filtered by year: ${beforeFilter} → ${playlistsWithYear.length} with year (sufficient)`);
+              } else if (playlistsWithYear.length > 0) {
+                festivalPlaylists = [...playlistsWithYear, ...playlistsWithoutYear];
+                console.log(`[STREAM:${traceId}] FESTIVAL: Filtered by year: ${beforeFilter} → ${playlistsWithYear.length} with year + ${playlistsWithoutYear.length} without (insufficient)`);
+              } else {
+                festivalPlaylists = playlistsWithoutYear;
+                console.log(`[STREAM:${traceId}] FESTIVAL: No playlists with year, using ${playlistsWithoutYear.length} without year (fallback)`);
+              }
+            }
           }
           
-          // Fallback to generic function if still empty
+          // Fallback to generic function ONLY if still empty
           if (festivalPlaylists.length === 0) {
+            console.log(`[STREAM:${traceId}] FESTIVAL: No playlists found after filtering, trying fallback search`);
             festivalPlaylists = await searchFestivalLikePlaylists({ 
               accessToken, 
               baseQuery: canonized.baseQuery, 
@@ -1244,12 +1356,26 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
           console.log(`[STREAM:${traceId}] FESTIVAL: Found ${festivalPlaylists.length} playlists (after all filtering)`);
           
           if (festivalPlaylists.length > 0) {
-            // Sort playlists by popularity (followers)
-            const sortedPlaylists = [...festivalPlaylists].sort((a, b) => 
-              (b.followers?.total || 0) - (a.followers?.total || 0)
-            );
+            // 🚨 MEJORA: Añadir aleatoriedad en la selección de playlists
+            // Mezclar playlists antes de ordenar para añadir variabilidad
+            const shuffled = [...festivalPlaylists];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+              const j = Math.floor(rng() * (i + 1));
+              [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
             
-            console.log(`[STREAM:${traceId}] FESTIVAL: Sorted ${sortedPlaylists.length} playlists by popularity`);
+            // Sort playlists by popularity (followers), pero con ligera aleatoriedad
+            // Añadir un factor aleatorio pequeño para variar el orden
+            const sortedPlaylists = shuffled.sort((a, b) => {
+              const followersA = (a.followers?.total || 0);
+              const followersB = (b.followers?.total || 0);
+              // Añadir ruido aleatorio pequeño (±10% de diferencia) para variar el orden
+              const noiseA = (rng() - 0.5) * followersA * 0.1;
+              const noiseB = (rng() - 0.5) * followersB * 0.1;
+              return (followersB + noiseB) - (followersA + noiseA);
+            });
+            
+            console.log(`[STREAM:${traceId}] FESTIVAL: Sorted ${sortedPlaylists.length} playlists by popularity (with randomness)`);
             console.log(`[STREAM:${traceId}] ========== ALL FESTIVAL PLAYLISTS FOUND ==========`);
             sortedPlaylists.forEach((p, idx) => {
               console.log(`[STREAM:${traceId}] FESTIVAL PL ${idx + 1}/${sortedPlaylists.length}: "${p.name}" (${p.followers?.total || 0} followers, owner: ${p.owner?.display_name || 'unknown'})`);
@@ -1411,194 +1537,658 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       }
       
     } else if (mode === 'ARTIST_STYLE') {
-      // NEW ARTIST_STYLE method: Top 3 tracks → Radio of each track → Limit original artist to 5 → Fill with others
-      console.log(`[STREAM:${traceId}] ===== ENTERING NEW ARTIST_STYLE MODE =====`);
-      console.log(`[STREAM:${traceId}] NEW ARTIST_STYLE: Top 3 tracks → Radio → Limit artist → Fill`);
+      // Fan-out multi-artista orden-invariante con caps en tiempo real
+      // FEATURE flags (siempre activos por defecto, pueden desactivarse explícitamente con 'false')
+      const FEATURE_MULTI_ARTIST_FANOUT = process.env.FEATURE_MULTI_ARTIST_FANOUT !== 'false';
+      const FEATURE_ENFORCE_CAPS_DURING_BUILD = process.env.FEATURE_ENFORCE_CAPS_DURING_BUILD !== 'false';
+      const FEATURE_SMART_COMPENSATION = process.env.FEATURE_SMART_COMPENSATION !== 'false';
+      const FEATURE_ARTIST_RESOLVER_STRICT = process.env.FEATURE_ARTIST_RESOLVER_STRICT !== 'false';
+      const FEATURE_SPOTIFY_MARKET_FALLBACK = process.env.FEATURE_SPOTIFY_MARKET_FALLBACK !== 'false';
+      
+      // Configuración de caps (con defaults)
+      const PRIORITY_PER_ARTIST_CAP_DEFAULT = Number.parseInt(process.env.PRIORITY_PER_ARTIST_CAP_DEFAULT || '10', 10);
+      const NON_PRIORITY_PER_ARTIST_CAP_DEFAULT = Number.parseInt(process.env.NON_PRIORITY_PER_ARTIST_CAP_DEFAULT || '5', 10);
+      
+      console.log(`[STREAM:${traceId}] ===== ENTERING ARTIST_STYLE MODE =====`);
       console.log(`[STREAM:${traceId}] ARTIST_STYLE details:`, {
         priorityArtists: intent.priority_artists?.length || 0,
-        remaining: remaining
+        remaining: remaining,
+        flags: {
+          FEATURE_MULTI_ARTIST_FANOUT,
+          FEATURE_ENFORCE_CAPS_DURING_BUILD,
+          FEATURE_SMART_COMPENSATION,
+          FEATURE_ARTIST_RESOLVER_STRICT,
+          FEATURE_SPOTIFY_MARKET_FALLBACK
+        },
+        caps: {
+          PRIORITY_PER_ARTIST_CAP_DEFAULT,
+          NON_PRIORITY_PER_ARTIST_CAP_DEFAULT
+        }
       });
       
       try {
-        const priorityArtists = intent.priority_artists || [];
-        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Priority artists:`, priorityArtists);
+        const priorityArtistsRaw = intent.priority_artists || [];
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Raw priority artists:`, priorityArtistsRaw);
         
-        if (priorityArtists.length > 0) {
-          const artistName = priorityArtists[0]; // Use first priority artist
-          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Processing "${artistName}"`);
-          
-          // Step 1: Get top 3 tracks of the artist
-          const topTracks = await getArtistTopTracks(accessToken, artistName, 3);
-          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Got ${topTracks.length} top tracks for "${artistName}"`);
-          
-          if (topTracks.length > 0) {
-            // Step 2: Get radio for each top track
-            const allRadioTracks = [];
-            const seenTrackIds = new Set();
-            
-            for (const track of topTracks) {
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Getting radio for track "${track.name}" (${track.id})`);
-              const radioTracks = await getTrackRadio(accessToken, track.id, 20);
-              
-              // Add tracks to collection, avoiding duplicates
-              for (const radioTrack of radioTracks) {
-                if (!seenTrackIds.has(radioTrack.id)) {
-                  seenTrackIds.add(radioTrack.id);
-                  allRadioTracks.push(radioTrack);
-                }
-              }
-              
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Radio for "${track.name}" added ${radioTracks.length} tracks`);
-            }
-            
-            console.log(`[STREAM:${traceId}] ARTIST_STYLE: Total radio tracks collected: ${allRadioTracks.length}`);
-
-            // NEW APPROACH: If no radio tracks found OR very few tracks, use collaboration-based approach
-            if (allRadioTracks.length < 10) { // Use collaboration if less than 10 tracks from radio
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Only ${allRadioTracks.length} radio tracks found, using collaboration-based approach`);
-              
-              // Step 1: Add top tracks of main artist (limited to 5)
-              for (const track of topTracks.slice(0, 5)) {
-                if (!seenTrackIds.has(track.id)) {
-                  seenTrackIds.add(track.id);
-                  allRadioTracks.push(track);
-                }
-              }
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Added ${Math.min(5, topTracks.length)} top tracks from main artist`);
-              
-              // Step 2: Get ALL tracks from main artist to find collaborators
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Getting all tracks from "${artistName}" to find collaborators`);
-              const allArtistTracks = await getArtistAllTracks(accessToken, artistName);
-              
-              if (allArtistTracks.length > 0) {
-                // Step 3: Extract collaborators
-                const collaborators = extractCollaborators(allArtistTracks, artistName);
-                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${collaborators.length} collaborators:`, collaborators.slice(0, 10));
-                
-                // Step 4: Get 5 tracks from each collaborator (MORE AGGRESSIVE - search ALL collaborators)
-                for (const collaborator of collaborators) { // NO LIMIT - use ALL collaborators
-                  if (allRadioTracks.length >= remaining) break;
-                  
-                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Getting 5 tracks from collaborator "${collaborator}"`);
-                  const collaboratorTracks = await searchTracksByArtists(accessToken, [collaborator], 5); // INCREASED: from 3 to 5 tracks
-                  
-                  let addedCount = 0;
-                  for (const track of collaboratorTracks) {
-                    if (!seenTrackIds.has(track.id) && allRadioTracks.length < remaining) {
-          seenTrackIds.add(track.id);
-                      allRadioTracks.push(track);
-                      addedCount++;
-                    }
-                  }
-                  
-                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Added ${addedCount} tracks from "${collaborator}" (total: ${allRadioTracks.length}/${remaining})`);
-                }
-              }
-              
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Collaboration-based approach added ${allRadioTracks.length} total tracks`);
-              
-              // If still not enough tracks, try collaborators of collaborators
-              if (allRadioTracks.length < remaining && collaborators.length > 0) {
-                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Still need ${remaining - allRadioTracks.length} more tracks, trying collaborators of collaborators`);
-                
-                // Get collaborators of ONLY the first 5 main collaborators (more conservative)
-                const secondaryCollaborators = new Set();
-                for (const mainCollaborator of collaborators.slice(0, 5)) { // REDUCED: Try only first 5 main collaborators
-                  if (allRadioTracks.length >= remaining) break;
-                  
-                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Getting collaborators of "${mainCollaborator}"`);
-                  const mainCollaboratorTracks = await getArtistAllTracks(accessToken, mainCollaborator, 30); // REDUCED: from 50 to 30 albums
-                  
-                  if (mainCollaboratorTracks.length > 0) {
-                    const subCollaborators = extractCollaborators(mainCollaboratorTracks, mainCollaborator);
-                    subCollaborators.forEach(collab => secondaryCollaborators.add(collab));
-                  }
-                }
-                
-                const secondaryCollaboratorList = Array.from(secondaryCollaborators);
-                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${secondaryCollaboratorList.length} secondary collaborators`);
-                
-                // Get only 2 tracks from each secondary collaborator (more conservative)
-                for (const secondaryCollab of secondaryCollaboratorList) {
-                  if (allRadioTracks.length >= remaining) break;
-                  
-                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Getting 2 tracks from secondary collaborator "${secondaryCollab}"`);
-                  const secondaryTracks = await searchTracksByArtists(accessToken, [secondaryCollab], 2); // REDUCED: from 3 to 2 tracks
-                  
-                  let addedCount = 0;
-                  for (const track of secondaryTracks) {
-                    if (!seenTrackIds.has(track.id) && allRadioTracks.length < remaining) {
-                      seenTrackIds.add(track.id);
-                      allRadioTracks.push(track);
-                      addedCount++;
-                    }
-                  }
-                  
-                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Added ${addedCount} tracks from secondary collaborator "${secondaryCollab}" (total: ${allRadioTracks.length}/${remaining})`);
-                }
-                
-                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Secondary collaborators added ${allRadioTracks.length} total tracks`);
-              }
-            }
-            
-            // Step 3: Apply exclusions
-            let filteredTracks = allRadioTracks;
-            if (intent.exclusions && intent.exclusions.banned_artists && intent.exclusions.banned_artists.length > 0) {
-              filteredTracks = allRadioTracks.filter(track => notExcluded(track, intent.exclusions));
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Applied exclusions ${allRadioTracks.length} → ${filteredTracks.length} tracks`);
-            }
-            
-            // Step 4: Limit tracks from original artist to maximum 5 (priority artist)
-            const originalArtistTracks = [];
-            const otherArtistTracks = [];
-            
-            for (const track of filteredTracks) {
-              const trackArtists = track.artists || [];
-              const isOriginalArtist = trackArtists.some(artist => 
-                artist.name && artist.name.toLowerCase() === artistName.toLowerCase()
-              );
-              
-              if (isOriginalArtist) {
-                originalArtistTracks.push(track);
-              } else {
-                otherArtistTracks.push(track);
-              }
-            }
-            
-            console.log(`[STREAM:${traceId}] ARTIST_STYLE: Original artist tracks: ${originalArtistTracks.length}, Other artist tracks: ${otherArtistTracks.length}`);
-            
-            // Limit original artist to maximum 5 tracks
-            const limitedOriginalTracks = originalArtistTracks.slice(0, 5);
-            console.log(`[STREAM:${traceId}] ARTIST_STYLE: Limited original artist to ${limitedOriginalTracks.length} tracks`);
-            
-            // Step 5: Combine and fill up to target
-            const combinedTracks = [...limitedOriginalTracks, ...otherArtistTracks];
-            spotifyTracks = combinedTracks.slice(0, remaining);
-            
-            console.log(`[STREAM:${traceId}] ARTIST_STYLE: Final result: ${spotifyTracks.length}/${remaining} tracks`);
-            console.log(`[STREAM:${traceId}] ARTIST_STYLE tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artists?.map(a => a.name) || [] })));
-            
-                  } else {
-            console.log(`[STREAM:${traceId}] ARTIST_STYLE: No top tracks found for "${artistName}", trying collaboration search`);
-            // Try collaboration-based search instead of generic fallback
-            const allArtistTracks = await getArtistAllTracks(accessToken, artistName);
-            const collaborators = extractCollaborators(allArtistTracks, artistName);
-            
-            if (collaborators.length > 0) {
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${collaborators.length} collaborators, searching their tracks`);
-              spotifyTracks = dedupeById(await searchTracksByArtists(accessToken, collaborators.slice(0, 10), remaining));
-              } else {
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: No collaborators found, returning empty`);
-              spotifyTracks = [];
-            }
-          }
-            } else {
+        if (priorityArtistsRaw.length === 0) {
           console.log(`[STREAM:${traceId}] ARTIST_STYLE: No priority artists, skipping`);
           spotifyTracks = [];
+          return;
         }
         
-        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Generated ${spotifyTracks.length}/${remaining} tracks`);
-        console.log(`[STREAM:${traceId}] ARTIST_STYLE tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artists?.map(a => a.name) || [] })));
+        // Resolver artistas con deduplicación por ID
+        // FEATURE_ARTIST_RESOLVER_STRICT: usa resolución estricta, sino fallback a nombres originales
+        let priorityArtists = priorityArtistsRaw;
+        let resolvedArtists = new Map(); // nombre → artista resuelto { id, name }
+        let resolverDecisions = [];
+        let distinctPriority = priorityArtistsRaw.length;
+        let resolutionAliases = null; // Para log de alias colapsados
+        
+        if (FEATURE_ARTIST_RESOLVER_STRICT) {
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Resolving artists with strict deduplication (FEATURE_ARTIST_RESOLVER_STRICT enabled)`);
+          const market = process.env.SPOTIFY_MARKET || 'ES';
+          const resolution = await resolveArtistsWithDeduplication(accessToken, priorityArtistsRaw, market);
+          
+          resolvedArtists = resolution.distinct;
+          resolverDecisions = resolution.decisions;
+          distinctPriority = resolution.distinct.size; // Colapsa por ID único
+          resolutionAliases = resolution.aliases || null; // Guardar aliases para log
+        } else {
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using raw artist names (FEATURE_ARTIST_RESOLVER_STRICT disabled)`);
+          // Fallback: crear mapa de nombres → nombres (sin resolución)
+          for (const name of priorityArtistsRaw) {
+            resolvedArtists.set(name, { id: null, name });
+          }
+          distinctPriority = priorityArtistsRaw.length;
+        }
+        
+        // Usar nombres resueltos (no los originales si son alias)
+        priorityArtists = Array.from(resolvedArtists.keys());
+        
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Resolved ${priorityArtistsRaw.length} names → ${distinctPriority} distinct IDs`);
+        
+        // Log resolverDecisions para telemetría
+        if (FEATURE_ARTIST_RESOLVER_STRICT && resolverDecisions.length > 0) {
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Resolver decisions:`, JSON.stringify(resolverDecisions, null, 2));
+        }
+        
+        // Log alias colapsados
+        if (resolutionAliases && resolutionAliases.size > 0) {
+          for (const [artistId, aliases] of resolutionAliases.entries()) {
+            if (aliases.length > 1) {
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Collapsed aliases ${aliases.join(', ')} → same ID ${artistId}`);
+            }
+          }
+        }
+        
+        if (distinctPriority === 0) {
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: No valid artists resolved, skipping`);
+          spotifyTracks = [];
+          return;
+        }
+        
+        // 🚨 CRITICAL: Calcular distribución usando target_tracks TOTAL (no remaining)
+        // 🚨 MEJORADO: Detectar casos especiales y calcular caps dinámicos
+        const targetForDistribution = targetTracksTotal || remaining;
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using targetTracksTotal=${targetForDistribution} for distribution (remaining=${remaining})`);
+        
+        // Detectar casos especiales del prompt
+        const specialCases = detectSpecialCases(
+          intent.prompt || '',
+          priorityArtistsRaw,
+          intent.exclusions?.banned_artists || []
+        );
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Special cases detected:`, JSON.stringify(specialCases));
+        
+        // Calcular caps dinámicos
+        const dynamicCaps = calculateDynamicCaps(
+          targetForDistribution,
+          distinctPriority,
+          specialCases,
+          specialCases.onlyArtists.length > 0
+        );
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Dynamic caps calculated:`, JSON.stringify(dynamicCaps));
+        
+        const distribution = calculateMultiArtistDistribution(
+          targetForDistribution,
+          distinctPriority,
+          dynamicCaps,
+          specialCases
+        );
+        
+        const { bucketPlan, perPriorityCap, nonPriorityCap } = distribution;
+        
+        // 🚨 CRITICAL: Guardar artistId en bucketPlan para verificación por ID
+        // Mapear bucket idx → artista (orden-invariante: procesar en orden de entrada)
+        const bucketToArtist = new Map();
+        const bucketToArtistId = new Map(); // bucket idx → artistId
+        let bucketIdx = 0;
+        for (const artistName of priorityArtists) {
+          bucketToArtist.set(bucketIdx, artistName);
+          const resolvedArtist = resolvedArtists.get(artistName);
+          const artistId = resolvedArtist?.id || null;
+          const resolvedName = resolvedArtist?.name || artistName;
+          bucketToArtistId.set(bucketIdx, artistId);
+          
+          // Actualizar bucketPlan con artistId y resolvedName
+          const bucket = bucketPlan.get(bucketIdx);
+          if (bucket) {
+            bucket.artistId = artistId; // ✅ Nuevo: guardar artistId
+            bucket.artistName = resolvedName; // ✅ Nuevo: guardar nombre resuelto
+            bucket.originalNames = [artistName]; // Para alias
+          }
+          
+          bucketIdx++;
+        }
+        
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Bucket plan:`, JSON.stringify(
+          Array.from(bucketPlan.entries()).map(([idx, bucket]) => ({
+            idx,
+            artistId: bucket.artistId || null,
+            artistName: bucket.artistName || null,
+            target: bucket.target,
+            cap: bucket.cap
+          })),
+          null,
+          2
+        ));
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Caps - priority=${perPriorityCap}, non-priority=${nonPriorityCap}`);
+        
+        // Contadores por artista (normalizados a lowercase) y por bucket
+        const artistCounters = new Map(); // artista (lowercase) → count
+        const bucketTracks = new Map(); // bucket idx → array de tracks
+        const allTracksCollected = [];
+        const seenTrackIds = new Set();
+        const addsByArtist = new Map(); // artista → adds count
+        const skipsByCap = new Map(); // artista → skips count
+        
+        // Helper: añade track con validación de cap en tiempo real Y verificación de bucket
+        // FEATURE_ARTIST_RESOLVER_STRICT: verifica por ID primero, luego nombre normalizado
+        const addTrackWithCap = (track, bucketIdx, isPriority = true, expectedBucketArtistName = null) => {
+          if (!track || !track.id || seenTrackIds.has(track.id)) return false;
+          
+          // Aplicar exclusiones
+          if (intent.exclusions && notExcluded(track, intent.exclusions) === false) {
+            return false;
+          }
+          
+          // Normalizar artista principal
+          const mainArtistName = (track.artists?.[0]?.name || track.artistNames?.[0] || 'Unknown').toLowerCase();
+          const currentArtistCount = artistCounters.get(mainArtistName) || 0;
+          const cap = isPriority ? perPriorityCap : nonPriorityCap;
+          
+          // 🚨 CRITICAL: Verificar que el track pertenezca al bucket correcto
+          // FEATURE_ARTIST_RESOLVER_STRICT: verifica por ID primero, luego nombre normalizado (fallback)
+          if (isPriority && bucketIdx >= 0) {
+            const bucket = bucketPlan.get(bucketIdx);
+            if (!bucket) return false;
+            
+            const bucketArtistId = bucket.artistId || null;
+            const bucketArtistName = bucket.artistName || expectedBucketArtistName || null;
+            
+            let belongsToBucket = false;
+            
+            // Estrategia 1: Verificar por ID (más preciso, solo si FEATURE_ARTIST_RESOLVER_STRICT)
+            if (FEATURE_ARTIST_RESOLVER_STRICT && bucketArtistId) {
+              const trackArtistIds = (track.artists || [])
+                .map(a => (typeof a === 'object' && a?.id ? a.id : null))
+                .filter(Boolean);
+              
+              belongsToBucket = trackArtistIds.includes(bucketArtistId);
+              
+              if (!belongsToBucket && bucketArtistName) {
+                // Estrategia 2: Verificar por nombre normalizado (fallback para alias/variantes)
+                // 🚨 MEJORA: Más tolerante con variantes de nombres (ej: "anuel" vs "anuelaa")
+                const normalizedBucketName = normalizeForComparison(bucketArtistName);
+                const trackArtistsNormalized = (track.artists || track.artistNames || [])
+                  .map(a => {
+                    const name = typeof a === 'string' ? a : (a?.name || '');
+                    return normalizeForComparison(name);
+                  })
+                  .filter(Boolean);
+                
+                // Verificar coincidencia exacta
+                belongsToBucket = trackArtistsNormalized.includes(normalizedBucketName);
+                
+                // Si no hay coincidencia exacta, verificar si uno contiene al otro (más tolerante)
+                if (!belongsToBucket && normalizedBucketName.length > 0) {
+                  for (const trackArtistNorm of trackArtistsNormalized) {
+                    // Si el nombre del bucket está contenido en el nombre del track, o viceversa
+                    // (ej: "anuel" está contenido en "anuelaa", o "anuelaa" contiene "anuel")
+                    if (trackArtistNorm.includes(normalizedBucketName) || normalizedBucketName.includes(trackArtistNorm)) {
+                      // Verificar que la coincidencia sea significativa (al menos 4 caracteres)
+                      const minLength = Math.min(normalizedBucketName.length, trackArtistNorm.length);
+                      if (minLength >= 4) {
+                        belongsToBucket = true;
+                        console.log(`[STREAM:${traceId}] ARTIST_STYLE: [bucket_match_fallback] Accepted track by name containment: bucket="${bucketArtistName}" (normalized: "${normalizedBucketName}") matches track artist="${trackArtistNorm}"`);
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              // Fallback legacy: verificar por nombre (sin normalización avanzada)
+              if (bucketArtistName || expectedBucketArtistName) {
+                const expectedArtistLower = (bucketArtistName || expectedBucketArtistName).toLowerCase();
+                const trackArtistsLower = (track.artists || track.artistNames || [])
+                  .map(a => (typeof a === 'string' ? a : a?.name || '').toLowerCase())
+                  .filter(Boolean);
+                
+                // Verificar coincidencia exacta
+                belongsToBucket = trackArtistsLower.includes(expectedArtistLower);
+                
+                // Si no hay coincidencia exacta, verificar si uno contiene al otro (más tolerante)
+                if (!belongsToBucket && expectedArtistLower.length > 0) {
+                  for (const trackArtistLower of trackArtistsLower) {
+                    if (trackArtistLower.includes(expectedArtistLower) || expectedArtistLower.includes(trackArtistLower)) {
+                      const minLength = Math.min(expectedArtistLower.length, trackArtistLower.length);
+                      if (minLength >= 4) {
+                        belongsToBucket = true;
+                        console.log(`[STREAM:${traceId}] ARTIST_STYLE: [bucket_match_fallback] Accepted track by name containment (legacy): bucket="${bucketArtistName || expectedBucketArtistName}" matches track artist="${trackArtistLower}"`);
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            
+            if (!belongsToBucket) {
+              // Log de rechazo detallado para telemetría
+              const bucketArtistIdStr = bucketArtistId || 'null';
+              const trackArtistIds = (track.artists || [])
+                .map(a => (typeof a === 'object' && a?.id ? a.id : null))
+                .filter(Boolean);
+              const trackArtistNames = (track.artists || track.artistNames || [])
+                .map(a => (typeof a === 'string' ? a : a?.name || ''))
+                .filter(Boolean);
+              const trackArtistNamesNormalized = trackArtistNames.map(n => normalizeForComparison(n));
+              
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: [bucket_mismatch] track="${track.name}" bucketArtistId=${bucketArtistIdStr} bucketName="${bucketArtistName || expectedBucketArtistName || 'unknown'}" trackArtistIds=[${trackArtistIds.join(', ')}] trackArtistNamesNormalized=[${trackArtistNamesNormalized.join(', ')}]`);
+              return false;
+            }
+          }
+          
+          // Check cap en tiempo real (FEATURE_ENFORCE_CAPS_DURING_BUILD)
+          if (FEATURE_ENFORCE_CAPS_DURING_BUILD) {
+            const capCheck = checkCapInTime(track, artistCounters, cap, isPriority, specialCases, specialCases.onlyArtists || []);
+            if (!capCheck.allowed) {
+              const currentSkips = skipsByCap.get(mainArtistName) || 0;
+              skipsByCap.set(mainArtistName, currentSkips + 1);
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Skipping "${track.name}" by "${mainArtistName}" - ${capCheck.reason || 'cap exceeded'} (${currentArtistCount}/${cap})`);
+              return false;
+            }
+          }
+          
+          // Verificar bucket target
+          const bucket = bucketPlan.get(bucketIdx);
+          if (bucket && bucket.current >= bucket.target) {
+            return false; // Bucket ya lleno
+          }
+          
+          // Añadir track
+          seenTrackIds.add(track.id);
+          artistCounters.set(mainArtistName, currentArtistCount + 1);
+          
+          if (bucket) {
+            bucket.current++;
+            bucket.adds++;
+          }
+          
+          const currentAdds = addsByArtist.get(mainArtistName) || 0;
+          addsByArtist.set(mainArtistName, currentAdds + 1);
+          
+          if (!bucketTracks.has(bucketIdx)) {
+            bucketTracks.set(bucketIdx, []);
+          }
+          bucketTracks.get(bucketIdx).push(track);
+          allTracksCollected.push(track);
+          
+          return true;
+        };
+        
+        // 🚨 CRITICAL: Usar targetTracksTotal en lugar de remaining para generar TODOS los tracks solicitados
+        const targetTotal = targetTracksTotal || remaining;
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Starting multi-artist fan-out for ${distinctPriority} artists (order-invariant)`);
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Target total: ${targetTotal}, Remaining: ${remaining}`);
+        
+        // FASE 1: Fan-out multi-artista (orden-invariante) - procesar TODOS los priority artists (siempre activo)
+        // 🚨 CRITICAL: NO detenerse cuando alcanza remaining - procesar TODOS los priority artists hasta su cap
+        for (const [idx, artistName] of bucketToArtist.entries()) {
+            // 🚨 CRITICAL: NO break aquí - procesar TODOS los priority artists hasta su cap
+            const bucket = bucketPlan.get(idx);
+            if (!bucket || bucket.current >= bucket.target) {
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Bucket ${idx} for "${artistName}" already full (${bucket?.current}/${bucket?.target}), skipping`);
+              continue; // Skip si bucket ya lleno
+            }
+            
+            const needed = bucket.target - bucket.current;
+            console.log(`[STREAM:${traceId}] ARTIST_STYLE: Processing bucket ${idx} for "${artistName}" (target: ${bucket.target}, current: ${bucket.current}, needed: ${needed})`);
+            
+            // Obtener artista resuelto (si está habilitado strict resolver)
+            const resolvedArtist = resolvedArtists.get(artistName);
+            const artistToUse = resolvedArtist?.name || artistName;
+            const artistId = resolvedArtist?.id || null;
+            
+            try {
+              // Estrategia 1: Top tracks del artista
+              const topTracks = await getArtistTopTracks(accessToken, artistId || artistToUse, Math.min(needed * 3, 10));
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Got ${topTracks.length} top tracks for "${artistToUse}"`);
+              
+              for (const track of topTracks) {
+                // 🚨 CRITICAL: Solo verificar bucket target, NO remaining - procesar hasta cap completo
+                if (bucket.current >= bucket.target) break;
+                addTrackWithCap(track, idx, true, artistName); // Pasar artistName para verificación
+              }
+              
+              // Si aún necesitamos más tracks para este bucket, usar radio/related
+              if (bucket.current < bucket.target && topTracks.length > 0) {
+                const stillNeeded = bucket.target - bucket.current;
+                const trackIds = topTracks.slice(0, 3).map(t => t.id).filter(Boolean);
+                
+                if (trackIds.length > 0) {
+                  const radioTracks = await radioFromRelatedTop(
+                    accessToken,
+                    trackIds,
+                    {
+                      need: stillNeeded * 2,
+                      market: FEATURE_SPOTIFY_MARKET_FALLBACK ? (process.env.SPOTIFY_MARKET || 'ES') : 'ES',
+                      seedArtistIds: artistId ? [artistId] : null
+                    }
+                  );
+                  
+                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: Got ${radioTracks.length} radio tracks for "${artistToUse}"`);
+                  
+                  // Log radioFallbacks si hay alguno (telemetría)
+                  // Nota: radioFromRelatedTop ya loggea fallbacks internamente
+                  
+                  for (const track of radioTracks) {
+                    // 🚨 CRITICAL: Solo verificar bucket target, NO remaining
+                    if (bucket.current >= bucket.target) break;
+                    // Radio tracks pueden ser del artista o colaboradores, verificar que pertenezca al bucket
+                    addTrackWithCap(track, idx, true, artistName); // Pasar artistName para verificación
+                  }
+                }
+              }
+              
+              // Si aún falta material, usar búsqueda directa
+              if (bucket.current < bucket.target) {
+                const stillNeeded = bucket.target - bucket.current;
+                const directTracks = await searchTracksByArtists(accessToken, [artistToUse], stillNeeded * 2);
+                
+                for (const track of directTracks) {
+                  // 🚨 CRITICAL: Solo verificar bucket target, NO remaining
+                  if (bucket.current >= bucket.target) break;
+                  addTrackWithCap(track, idx, true, artistName); // Pasar artistName para verificación
+                }
+              }
+              
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Bucket ${idx} for "${artistToUse}": ${bucket.current}/${bucket.target} tracks`);
+              
+            } catch (err) {
+              console.error(`[STREAM:${traceId}] ARTIST_STYLE: Error processing "${artistToUse}":`, err);
+            }
+          }
+          
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Multi-artist fan-out complete: ${allTracksCollected.length} tracks collected (target: ${targetTotal})`);
+        
+        // Log telemetría: adds/skips por artista
+        for (const [artist, adds] of addsByArtist.entries()) {
+          const skips = skipsByCap.get(artist) || 0;
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: ${artist} - adds=${adds}, skipsByCap=${skips}`);
+        }
+        
+        // FASE 2: Compensación inteligente (FEATURE_SMART_COMPENSATION)
+        // 🚨 CRITICAL: Usar targetTotal en lugar de remaining para calcular missing tracks
+        let compensationPlan = null;
+        if (FEATURE_SMART_COMPENSATION && allTracksCollected.length < targetTotal) {
+          const missing = targetTotal - allTracksCollected.length;
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Starting smart compensation for ${missing} missing tracks (collected: ${allTracksCollected.length}, target: ${targetTotal})`);
+          
+          compensationPlan = calculateCompensationPlan(bucketPlan, missing, nonPriorityCap);
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Compensation plan:`, JSON.stringify(compensationPlan, null, 2));
+          
+          // Completar buckets priority incompletos primero
+          for (const compensation of compensationPlan.compensationPlan) {
+            // 🚨 CRITICAL: Usar targetTotal en lugar de remaining
+            if (allTracksCollected.length >= targetTotal) break;
+            
+            if (compensation.type === 'priority' && compensation.bucketIdx !== undefined) {
+              const bucketIdx = compensation.bucketIdx;
+              const bucket = bucketPlan.get(bucketIdx);
+              if (!bucket) continue;
+              
+              const artistName = bucketToArtist?.get(bucketIdx) || priorityArtists[bucketIdx];
+              const stillNeeded = Math.min(compensation.target, bucket.target - bucket.current);
+              
+              if (stillNeeded > 0) {
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Compensating bucket ${bucketIdx} for "${artistName}" with ${stillNeeded} tracks`);
+                
+                const resolvedArtist = resolvedArtists.get(artistName);
+                const artistToUse = resolvedArtist?.name || artistName;
+                
+                try {
+                  const compTracks = await searchTracksByArtists(accessToken, [artistToUse], stillNeeded * 2);
+                  for (const track of compTracks) {
+                    // 🚨 CRITICAL: Usar targetTotal
+                    if (allTracksCollected.length >= targetTotal) break;
+                    if (bucket.current >= bucket.target) break;
+                    addTrackWithCap(track, bucketIdx, true, artistName); // Pasar artistName para verificación
+                  }
+                } catch (err) {
+                  console.error(`[STREAM:${traceId}] ARTIST_STYLE: Error compensating "${artistToUse}":`, err);
+                }
+              }
+            } else if (compensation.type === 'non_priority') {
+              // Rellenar con no-priority (respetando su cap)
+              // 🚨 CRITICAL: Usar colaboradores REALES de los priority artists con ROTACIÓN
+              const stillNeeded = compensation.target;
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Compensating with non-priority tracks from REAL collaborators with ROTATION (${stillNeeded})`);
+              
+              // Extraer colaboradores REALES de todos los priority artists
+              const allCollaborators = new Set();
+              for (const [bucketIdx, tracks] of bucketTracks.entries()) {
+                const priorityArtistName = bucketToArtist.get(bucketIdx);
+                if (!priorityArtistName) continue;
+                
+                // Extraer colaboradores de los tracks de este priority artist
+                const collaborators = extractCollaborators(tracks, priorityArtistName);
+                collaborators.forEach(collab => allCollaborators.add(collab));
+              }
+              
+              const collaboratorList = Array.from(allCollaborators);
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${collaboratorList.length} REAL collaborators from priority artists`);
+              
+              // 🚨 CRITICAL: Aplicar fórmula: (N - (CAP * NUM_PRIORITY)) / NUM_PRIORITY
+              // Esto distribuye los tracks no-priority equitativamente entre los priority artists
+              const totalTracksForDistribution = targetTracksTotal || targetTotal;
+              const priorityTracksAllocated = perPriorityCap * distinctPriority;
+              const nonPriorityTracksNeeded = totalTracksForDistribution - priorityTracksAllocated;
+              const tracksPerPriorityArtist = Math.max(0, Math.floor(nonPriorityTracksNeeded / Math.max(1, distinctPriority)));
+              
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Compensation formula: (${totalTracksForDistribution} - (${perPriorityCap} * ${distinctPriority})) / ${distinctPriority} = ${tracksPerPriorityArtist} per priority artist`);
+              
+              // Crear set de nombres de priority artists (se usará en varias partes)
+              const priorityArtistNamesSet = new Set(priorityArtists.map(a => a.toLowerCase()));
+              
+              // Si hay colaboradores, usar ROTACIÓN para distribuir equitativamente
+              if (collaboratorList.length > 0) {
+                // 🚨 CRITICAL: Filtrar colaboradores que NO están al límite y limitar a ~10
+                const availableCollaborators = collaboratorList.filter(collab => {
+                  const collabLower = collab.toLowerCase();
+                  const currentCount = artistCounters.get(collabLower) || 0;
+                  return currentCount < nonPriorityCap;
+                }).slice(0, 10); // Limitar a 10 colaboradores máximo
+                
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using ${availableCollaborators.length} available collaborators for rotation`);
+                
+                // 🚨 CRITICAL: Implementar ROTACIÓN - tomar 1 track de cada colaborador y volver al inicio
+                let collaboratorIndex = 0;
+                let tracksAddedFromRotation = 0;
+                const maxTracksToFetch = stillNeeded * 2; // Fetch más de lo necesario para tener opciones
+                
+                // Primera pasada: buscar tracks de todos los colaboradores (1 por cada uno)
+                const collaboratorTrackMap = new Map(); // colaborador → array de tracks disponibles
+                
+                for (const collaborator of availableCollaborators) {
+                  if (tracksAddedFromRotation >= maxTracksToFetch) break;
+                  try {
+                    // Buscar ~2-3 tracks por colaborador inicialmente
+                    const tracksToFetch = Math.min(3, Math.ceil(stillNeeded / availableCollaborators.length) + 2);
+                    const collabTracks = await searchTracksByArtists(accessToken, [collaborator], tracksToFetch);
+                    
+                    // Filtrar tracks que NO tengan al priority artist (solo colaboradores)
+                    const filteredCollabTracks = collabTracks.filter(track => {
+                      const trackArtists = (track.artists || track.artistNames || [])
+                        .map(a => (typeof a === 'string' ? a : a?.name || '').toLowerCase())
+                        .filter(Boolean);
+                      // El track NO debe tener ningún priority artist (solo colaboradores)
+                      return !trackArtists.some(artist => priorityArtistNamesSet.has(artist));
+                    });
+                    
+                    if (filteredCollabTracks.length > 0) {
+                      collaboratorTrackMap.set(collaborator, filteredCollabTracks);
+                    }
+                  } catch (err) {
+                    console.error(`[STREAM:${traceId}] ARTIST_STYLE: Error searching tracks for collaborator "${collaborator}":`, err);
+                  }
+                }
+                
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Fetched tracks from ${collaboratorTrackMap.size} collaborators for rotation`);
+                
+                // 🚨 CRITICAL: ROTACIÓN - tomar 1 track de cada colaborador y volver al inicio
+                while (allTracksCollected.length < targetTotal && collaboratorTrackMap.size > 0) {
+                  const collaborator = availableCollaborators[collaboratorIndex % availableCollaborators.length];
+                  const tracksForThisCollaborator = collaboratorTrackMap.get(collaborator);
+                  
+                  if (tracksForThisCollaborator && tracksForThisCollaborator.length > 0) {
+                    // Tomar el primer track disponible de este colaborador
+                    const track = tracksForThisCollaborator.shift();
+                    
+                    // Verificar cap antes de añadir
+                    const mainArtistName = (track.artists?.[0]?.name || track.artistNames?.[0] || '').toLowerCase();
+                    const isPriority = priorityArtistNamesSet.has(mainArtistName);
+                    
+                    if (!isPriority) {
+                      const capCheck = checkCapInTime(track, artistCounters, nonPriorityCap, false, specialCases, specialCases.onlyArtists || []);
+                      if (capCheck.allowed) {
+                        addTrackWithCap(track, -1, false);
+                      }
+                    }
+                    
+                    // Si ya no quedan tracks de este colaborador, remover del map
+                    if (tracksForThisCollaborator.length === 0) {
+                      collaboratorTrackMap.delete(collaborator);
+                    }
+                  } else {
+                    // Si no hay tracks para este colaborador, removerlo del map
+                    collaboratorTrackMap.delete(collaborator);
+                  }
+                  
+                  // Avanzar al siguiente colaborador (rotación)
+                  collaboratorIndex++;
+                  
+                  // Si ya no quedan colaboradores con tracks, salir
+                  if (collaboratorTrackMap.size === 0) break;
+                }
+                
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Rotation complete: added ${allTracksCollected.length - (targetTotal - stillNeeded)} tracks from collaborators`);
+              } else {
+                // Si no hay colaboradores, usar radio como fallback (pero filtrar priority artists)
+                const allPriorityTracks = Array.from(bucketTracks.values()).flat().slice(0, 5);
+                const seedTrackIds = allPriorityTracks.map(t => t.id).filter(Boolean);
+                
+                if (seedTrackIds.length > 0) {
+                  const radioTracks = await radioFromRelatedTop(
+                    accessToken,
+                    seedTrackIds,
+                    {
+                      need: stillNeeded * 2,
+                      market: FEATURE_SPOTIFY_MARKET_FALLBACK ? (process.env.SPOTIFY_MARKET || 'ES') : 'ES'
+                    }
+                  );
+                  
+                  // Filtrar tracks que NO sean de priority artists (priorityArtistNamesSet ya está definido arriba)
+                  for (const track of radioTracks) {
+                    // 🚨 CRITICAL: Usar targetTotal
+                    if (allTracksCollected.length >= targetTotal) break;
+                    
+                    const mainArtistName = (track.artists?.[0]?.name || track.artistNames?.[0] || '').toLowerCase();
+                    const isPriority = priorityArtistNamesSet.has(mainArtistName);
+                    
+                    if (!isPriority) {
+                      // Asignar a bucket "virtual" -1 para no-priority
+                      const capCheck = checkCapInTime(track, artistCounters, nonPriorityCap, false, specialCases, specialCases.onlyArtists || []);
+                      if (capCheck.allowed) {
+                        addTrackWithCap(track, -1, false);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Smart compensation complete: ${allTracksCollected.length}/${targetTotal} tracks (target achieved)`);
+        }
+        
+        // Aplicar exclusiones finales y asegurar que tenemos exactamente los tracks de priority artists
+        // 🚨 CRITICAL: No cortar por remaining aquí - mantener todos los tracks recogidos que sean válidos
+        // Usar targetTotal en lugar de remaining para el corte final
+        spotifyTracks = allTracksCollected
+          .filter(track => notExcluded(track, intent.exclusions));
+        
+        // 🚨 CRITICAL: Si tenemos más de targetTotal, cortar solo si es necesario (pero respetar buckets priority)
+        // Usar targetTotal, NO remaining
+        if (spotifyTracks.length > targetTotal) {
+          // Priorizar tracks de priority artists primero
+          const priorityTracks = [];
+          const nonPriorityTracks = [];
+          const priorityArtistNamesSet = new Set(priorityArtists.map(a => a.toLowerCase()));
+          
+          for (const track of spotifyTracks) {
+            const mainArtistName = (track.artists?.[0]?.name || track.artistNames?.[0] || 'Unknown').toLowerCase();
+            if (priorityArtistNamesSet.has(mainArtistName)) {
+              priorityTracks.push(track);
+            } else {
+              nonPriorityTracks.push(track);
+            }
+          }
+          
+          // Combinar: priority primero, luego no-priority hasta targetTotal (NO remaining)
+          spotifyTracks = [
+            ...priorityTracks,
+            ...nonPriorityTracks.slice(0, Math.max(0, targetTotal - priorityTracks.length))
+          ];
+        }
+        
+        // Log final de telemetría
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Final result: ${spotifyTracks.length}/${targetTotal} tracks (remaining was: ${remaining})`);
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE: BucketPlan final:`, JSON.stringify(
+          Array.from(bucketPlan.entries()).map(([idx, bucket]) => ({
+            idx,
+            target: bucket.target,
+            current: bucket.current,
+            adds: bucket.adds,
+            skipsByCap: bucket.skipsByCap
+          })),
+          null,
+          2
+        ));
+        
+        if (resolverDecisions.length > 0) {
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: ResolverDecisions:`, JSON.stringify(resolverDecisions, null, 2));
+        }
+        
+        if (compensationPlan) {
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: CompensationPlan:`, JSON.stringify(compensationPlan, null, 2));
+        }
+        
+        console.log(`[STREAM:${traceId}] ARTIST_STYLE tracks sample:`, spotifyTracks.slice(0, 3).map(t => ({ 
+          name: t.name, 
+          artists: t.artists?.map(a => a.name) || t.artistNames || [] 
+        })));
       } catch (err) {
         console.error(`[STREAM:${traceId}] ARTIST_STYLE Error:`, err);
         spotifyTracks = [];
@@ -2057,42 +2647,48 @@ async function handleStreamingRequest(request) {
     
     console.log(`[STREAM:${traceId}] Starting SSE streaming for: "${prompt}"`);
     
-    // Get session and access token
-    const user = await getPleiaServerUser();
-    const accessToken = await getHubAccessToken();
-    
-    if (!accessToken) {
-      console.log(`[STREAM:${traceId}] No valid access token found`);
+    // Get PLEIA user and Spotify access token from hub auth
+    const pleiaUser = await getPleiaServerUser();
+    if (!pleiaUser?.email) {
+      console.log(`[STREAM:${traceId}] No authenticated PLEIA user found`);
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
-    
-    console.log(`[STREAM:${traceId}] Access token found for user: ${user?.email || 'unknown'}`);
 
-    // Check usage limit before generating playlist
-    if (session.user?.email) {
+    const accessToken = await getHubAccessToken();
+    if (!accessToken) {
+      console.log(`[STREAM:${traceId}] No valid Spotify access token available`);
+      return NextResponse.json({ error: "Spotify authentication required" }, { status: 401 });
+    }
+
+    console.log(`[STREAM:${traceId}] Session found for user: ${pleiaUser.email}`);
+
+    // Check usage limit before generating playlist (using Supabase, not KV)
+    if (pleiaUser.email) {
       try {
-        // Direct KV operations instead of HTTP call
-        const kv = await import('@vercel/kv');
-        const profileKey = `jey_user_profile:${user?.email || 'unknown'}`;
-        const profile = await kv.kv.get(profileKey);
+        const { getUsageSummary, getUserPlan } = await import('../../../../lib/billing/usageV2');
+        const usageSummary = await getUsageSummary({ email: pleiaUser.email, userId: pleiaUser.id });
+        const planContext = await getUserPlan(pleiaUser.email);
         
-        const used = profile?.usage?.used || 0;
-        const isFounder = profile?.plan === 'founder';
+        const used = usageSummary.used || 0;
+        const remaining = usageSummary.remaining;
+        const isUnlimited = planContext?.unlimited || usageSummary.unlimited;
+        const isFounder = planContext?.isFounder || planContext?.plan === 'founder';
         
-        // Check if user has reached limit (only if not founder)
-        if (!isFounder && used >= 5) {
-          console.log(`[STREAM:${traceId}] ❌ USAGE LIMIT REACHED for user ${user?.email || 'unknown'}: ${used}/5`);
+        // Check if user has reached limit (only if not unlimited)
+        if (!isUnlimited && typeof remaining === 'number' && remaining <= 0) {
+          console.log(`[STREAM:${traceId}] ❌ USAGE LIMIT REACHED for user ${pleiaUser.email}: ${used}/${usageSummary.limit || 5}`);
           return NextResponse.json({
             code: "LIMIT_REACHED",
             error: "Usage limit reached",
             message: "You have reached your usage limit. Please upgrade to continue generating playlists.",
             used: used,
-            remaining: 0
+            remaining: 0,
+            limit: usageSummary.limit || 5
           }, { status: 403 });
-        } else if (isFounder) {
-          console.log(`[STREAM:${traceId}] ✅ Founder user - unlimited access: ${used}/∞`);
+        } else if (isUnlimited || isFounder) {
+          console.log(`[STREAM:${traceId}] ✅ Founder/Unlimited user - unlimited access`);
         } else {
-          console.log(`[STREAM:${traceId}] ✅ Usage check passed: ${used}/5`);
+          console.log(`[STREAM:${traceId}] ✅ Usage check passed: ${used}/${usageSummary.limit || 5} (remaining: ${remaining})`);
         }
       } catch (usageError) {
         console.error(`[STREAM:${traceId}] ❌ Error checking usage status:`, usageError);
@@ -2114,7 +2710,7 @@ async function handleStreamingRequest(request) {
         // Use global usedTracks to prevent repetition across all contexts
         let usedTracks = globalUsedTracks;
         let heartbeatInterval;
-        let firstTrackSent = false; // Flag to track if we've sent the first track
+        let usageConsumedInError = false; // Track if usage was consumed during error recovery
         
         // Set up heartbeat
         heartbeatInterval = setInterval(() => {
@@ -2172,7 +2768,7 @@ async function handleStreamingRequest(request) {
                    
                    // Log prompt to Supabase
                    console.log(`[STREAM:${traceId}] ===== LOGGING PROMPT TO SUPABASE =====`);
-                   console.log(`[STREAM:${traceId}] Email: ${user?.email || 'unknown'}`);
+                   console.log(`[STREAM:${traceId}] Email: ${pleiaUser.email}`);
                    console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
                    try {
                      const logResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
@@ -2180,7 +2776,7 @@ async function handleStreamingRequest(request) {
                        headers: { 'Content-Type': 'application/json' },
                        body: JSON.stringify({
                          type: 'prompt',
-                         payload: { email: user?.email || 'unknown', prompt, source: 'web' }
+                         payload: { email: pleiaUser.email, prompt, source: 'web' }
                        })
                      });
                      if (logResponse.ok) {
@@ -2208,6 +2804,8 @@ async function handleStreamingRequest(request) {
                    
                    console.log(`[STREAM:${traceId}] ===== STARTING LLM PHASE =====`);
             
+            // CRITICAL: NO consumir uso durante la fase LLM - solo al final cuando haya tracks válidos
+            // Esto previene consumo de uso si hay errores posteriores
             for await (const chunk of yieldLLMChunks(accessToken, intent, target_tracks, traceId, usedTracks)) {
               // Add new tracks to usedTracks set to prevent repetition
               chunk.forEach(track => {
@@ -2215,74 +2813,7 @@ async function handleStreamingRequest(request) {
               });
               allTracks = [...allTracks, ...chunk];
               
-              // Consume usage when first track is sent
-              if (!firstTrackSent && chunk.length > 0 && session.user?.email) {
-                firstTrackSent = true;
-                try {
-                  console.log(`[STREAM:${traceId}] Consuming usage for first track`);
-                  
-                  // Direct KV operations instead of HTTP call
-                  const kv = await import('@vercel/kv');
-                  const profileKey = `jey_user_profile:${user?.email || 'unknown'}`;
-                  const profile = await kv.kv.get(profileKey);
-                  
-                  let used = profile?.usage?.used || 0;
-                  const isFounder = profile?.plan === 'founder';
-                  
-                  if (isFounder) {
-                    console.log(`[STREAM:${traceId}] Founder user - no usage consumption needed: ${used}/∞`);
-                    
-       // Log metrics to Supabase for founder
-       console.log(`[STREAM:${traceId}] ===== LOGGING METRICS FOR FOUNDER =====`);
-       console.log(`[STREAM:${traceId}] Email: ${user?.email || 'unknown'}`);
-       await logMetrics(user?.email || 'unknown', 'generate_playlist', {
-         prompt: prompt,
-         trackCount: target_tracks,
-         plan: 'founder',
-         remainingUses: '∞'
-       });
-       console.log(`[STREAM:${traceId}] ===== METRICS LOGGED FOR FOUNDER =====`);
-       
-      // Log playlist creation for founder
-      console.log(`[STREAM:${traceId}] ===== LOGGING PLAYLIST CREATION FOR FOUNDER =====`);
-      await logPlaylist(user?.email || 'unknown', playlist_name || `Playlist ${new Date().toISOString()}`, prompt, null, null, target_tracks);
-      console.log(`[STREAM:${traceId}] ===== PLAYLIST LOGGED FOR FOUNDER =====`);
-                  } else if (used >= 5) {
-                    console.log(`[STREAM:${traceId}] Usage limit already reached: ${used}/5`);
-                  } else {
-                    used += 1;
-                    const updatedProfile = {
-                      ...profile,
-                      usage: {
-                        used,
-                        lastUsed: new Date().toISOString()
-                      }
-                    };
-                    
-                    await kv.kv.set(profileKey, updatedProfile);
-                    console.log(`[STREAM:${traceId}] Usage consumed: ${used}/5`);
-                    
-       // Log metrics to Supabase
-       console.log(`[STREAM:${traceId}] ===== LOGGING METRICS FOR USER =====`);
-       console.log(`[STREAM:${traceId}] Email: ${user?.email || 'unknown'}`);
-       console.log(`[STREAM:${traceId}] Used: ${used}/5`);
-       await logMetrics(user?.email || 'unknown', 'generate_playlist', {
-         prompt: prompt,
-         trackCount: target_tracks,
-         plan: profile?.plan || 'free',
-         remainingUses: 5 - used
-       });
-       console.log(`[STREAM:${traceId}] ===== METRICS LOGGED FOR USER =====`);
-       
-      // Log playlist creation
-      console.log(`[STREAM:${traceId}] ===== LOGGING PLAYLIST CREATION =====`);
-      await logPlaylist(user?.email || 'unknown', playlist_name || `Playlist ${new Date().toISOString()}`, prompt, null, null, target_tracks);
-      console.log(`[STREAM:${traceId}] ===== PLAYLIST LOGGED =====`);
-                  }
-                } catch (consumeError) {
-                  console.warn(`[STREAM:${traceId}] Error consuming usage:`, consumeError);
-                }
-              }
+              // NO consumir uso aquí - se consumirá al final si hay tracks válidos
               
               try {
                 controller.enqueue(encoder.encode(`event: LLM_CHUNK\ndata: ${JSON.stringify({
@@ -2346,7 +2877,7 @@ async function handleStreamingRequest(request) {
               controller.enqueue(encoder.encode(`event: SPOTIFY_START\ndata: {"message": "Getting Spotify recommendations...", "remaining": ${remaining}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
               
               let spotifyYielded = 0;
-              for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks)) {
+              for await (const chunk of yieldSpotifyChunks(accessToken, intent, remaining, traceId, usedTracks, target_tracks)) {
                 // Add new tracks to usedTracks set to prevent repetition
                 chunk.forEach(track => {
                   if (track.id) usedTracks.add(track.id);
@@ -2354,53 +2885,7 @@ async function handleStreamingRequest(request) {
                 allTracks = [...allTracks, ...chunk];
                 spotifyYielded += chunk.length;
                 
-                // Consume usage when first track is sent (if not already consumed in LLM phase)
-                if (!firstTrackSent && chunk.length > 0 && session.user?.email) {
-                  firstTrackSent = true;
-                  try {
-                    console.log(`[STREAM:${traceId}] Consuming usage for first Spotify track`);
-                    
-                    // Direct KV operations instead of HTTP call
-                    const kv = await import('@vercel/kv');
-                    const profileKey = `jey_user_profile:${user?.email || 'unknown'}`;
-                    const profile = await kv.kv.get(profileKey);
-                    
-                    let used = profile?.usage?.used || 0;
-                    const isFounder = profile?.plan === 'founder';
-                    
-                    if (isFounder) {
-                      console.log(`[STREAM:${traceId}] Founder user - no usage consumption needed: ${used}/∞`);
-                    } else if (used >= 5) {
-                      console.log(`[STREAM:${traceId}] Usage limit already reached: ${used}/5`);
-                    } else {
-                      used += 1;
-                      const updatedProfile = {
-                        ...profile,
-                        usage: {
-                          used,
-                          lastUsed: new Date().toISOString()
-                        }
-                      };
-                      
-                      await kv.kv.set(profileKey, updatedProfile);
-                      console.log(`[STREAM:${traceId}] Usage consumed: ${used}/5`);
-                    }
-
-                    // Log metrics to Supabase
-                    const metricsResult = await logMetrics(user?.email || 'unknown', 'generate_playlist', {
-                      prompt: intent.prompt || '',
-                      trackCount: target_tracks,
-                      plan: profile?.plan || 'free',
-                      remainingUses: isFounder ? '∞' : (5 - used)
-                    });
-                    
-                    if (metricsResult.ok) {
-                      console.log(`[METRICS] Successfully logged playlist generation for ${user?.email || 'unknown'}`);
-                    }
-                  } catch (consumeError) {
-                    console.warn(`[STREAM:${traceId}] Error consuming usage:`, consumeError);
-                  }
-                }
+                // NO consumir uso aquí - se consumirá al final si hay tracks válidos
                 
                 controller.enqueue(encoder.encode(`event: SPOTIFY_CHUNK\ndata: ${JSON.stringify({
                   tracks: chunk,
@@ -2420,10 +2905,21 @@ async function handleStreamingRequest(request) {
               
               controller.enqueue(encoder.encode(`event: SPOTIFY_DONE\ndata: {"totalSoFar": ${allTracks.length}, "attempt": ${spotifyAttempts}, "target": ${target_tracks}}\n\n`));
               
-              // If we didn't get any new tracks, try with broader search terms
+              // If we didn't get any new tracks, try with broader search terms (solo si NO es ARTIST_STYLE)
+              const currentMode = determineMode(intent, intent.prompt || '');
+              const isArtistStyleMode = currentMode === 'ARTIST_STYLE';
+              
               if (spotifyYielded === 0 && remaining > 0) {
                 console.log(`[STREAM:${traceId}] No new tracks from Spotify, trying broader search...`);
-                // Add context artists to intent for next attempt
+                
+                // 🚨 CRITICAL: Para ARTIST_STYLE, si no se generaron tracks nuevos, NO hacer más intentos
+                // porque cada intento generará los mismos tracks que ya están en usedTracks
+                if (isArtistStyleMode) {
+                  console.log(`[STREAM:${traceId}] ARTIST_STYLE mode: No new tracks generated, stopping attempts (would generate duplicates)`);
+                  break; // Salir del loop de intentos
+                }
+                
+                // Add context artists to intent for next attempt (solo para modos NO-ARTIST_STYLE)
                 if (!intent.artists_llm) intent.artists_llm = [];
                 if (intent.contexts && MUSICAL_CONTEXTS[intent.contexts]) {
                   const contextArtists = MUSICAL_CONTEXTS[intent.contexts].artists || [];
@@ -2436,6 +2932,12 @@ async function handleStreamingRequest(request) {
               
               // Update remaining for next iteration
               remaining = target_tracks - allTracks.length;
+              
+              // 🚨 CRITICAL: Para ARTIST_STYLE, si ya generamos tracks, salir del loop (no hacer más intentos)
+              if (isArtistStyleMode && allTracks.length > 0 && spotifyYielded > 0) {
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE mode: Generated ${spotifyYielded} tracks, stopping attempts (would generate duplicates)`);
+                break; // Salir del loop de intentos
+              }
             }
             
             // Final check - if we still don't have enough AND outside tolerance, try one more time
@@ -2478,19 +2980,35 @@ async function handleStreamingRequest(request) {
             allTracks = dedupeById(allTracks);
             console.log(`[STREAM:${traceId}] Final deduplication: ${allTracks.length} tracks after dedup`);
             
-            // Apply artist limit to avoid excessive repetition
-              // Dynamic cap: default 3; if there are priority artists or strong preference in prompt, raise to 5 (max)
-              const preferenceHint = /solo\b|favorit|me\s+gusta|prefier|preferenc|solo\s+de|solo\s+del/i.test(intent.prompt || '');
-              const dynamicCap = (intent.priority_artists && intent.priority_artists.length) || preferenceHint ? 5 : 3;
-              console.log(`[STREAM:${traceId}] Applying artist limits: ${allTracks.length} tracks before limiting (cap=${dynamicCap})`);
-              allTracks = limitTracksPerArtist(allTracks, dynamicCap);
-              console.log(`[STREAM:${traceId}] Artist limits applied: ${allTracks.length} tracks after limiting`);
+            // 🚨 CRITICAL: NO aplicar caps al final si es ARTIST_STYLE - ya se aplicaron DURANTE la generación
+            const finalMode = determineMode(intent, intent.prompt || '');
+            const isArtistStyleMode = finalMode === 'ARTIST_STYLE';
             
-             // If we removed too many tracks due to artist limits, compensate
+            if (!isArtistStyleMode) {
+              // 🚨 MEJORADO: Usar sistema de caps dinámicos
+              const { detectSpecialCases, calculateDynamicCaps } = await import('../../../../lib/helpers.js');
+              const specialCases = detectSpecialCases(intent.prompt || '', intent.priority_artists || [], intent.exclusions?.banned_artists || []);
+              const dynamicCaps = calculateDynamicCaps(target_tracks, intent.priority_artists?.length || 0, specialCases, specialCases.onlyArtists.length > 0);
+              
+              // Usar cap dinámico calculado
+              const dynamicCap = dynamicCaps.nonPriorityCap || 5;
+              console.log(`[STREAM:${traceId}] Applying artist limits: ${allTracks.length} tracks before limiting (cap=${dynamicCap}, specialCases=${JSON.stringify(specialCases)})`);
+              allTracks = limitTracksPerArtist(allTracks, dynamicCap, specialCases, dynamicCaps);
+              console.log(`[STREAM:${traceId}] Artist limits applied: ${allTracks.length} tracks after limiting`);
+            } else {
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE mode detected - skipping final artist limits (already applied during generation)`);
+            }
+            
+             // If we removed too many tracks due to artist limits, compensate (solo si NO es ARTIST_STYLE)
              let missingTracks = target_tracks - allTracks.length;
              // Tolerance window: if within N±3, accept without more compensation (48-52 for target 50)
              const withinTolerance = allTracks.length >= Math.max(1, target_tracks - 3) && allTracks.length <= (target_tracks + 3);
-             if (withinTolerance) {
+             
+             // 🚨 CRITICAL: Para ARTIST_STYLE, NO hacer compensación adicional - ya se hizo durante la generación
+             if (isArtistStyleMode) {
+               console.log(`[STREAM:${traceId}] ARTIST_STYLE mode detected - skipping additional compensation (already applied during generation)`);
+               console.log(`[STREAM:${traceId}] ARTIST_STYLE final count: ${allTracks.length}/${target_tracks} tracks`);
+             } else if (withinTolerance) {
                console.log(`[STREAM:${traceId}] COMPENSATION: Within tolerance (${allTracks.length}/${target_tracks}), no compensation needed`);
              } else if (!withinTolerance && missingTracks > 0) {
               console.log(`[STREAM:${traceId}] COMPENSATION AFTER ARTIST LIMITS: Need ${missingTracks} more tracks`);
@@ -2581,9 +3099,13 @@ async function handleStreamingRequest(request) {
                   
                   console.log(`[STREAM:${traceId}] COMPENSATION: Added ${toAdd.length} compensation tracks (had ${dedupedCompensation.length} available)`);
                   
-                  // Re-apply artist limits to new tracks
+                  // Re-apply artist limits to new tracks (solo si NO es ARTIST_STYLE)
+                  if (!isArtistStyleMode) {
                     allTracks = limitTracksPerArtist(allTracks, dynamicCap);
                     console.log(`[STREAM:${traceId}] Final artist limits applied: ${allTracks.length} tracks`);
+                  } else {
+                    console.log(`[STREAM:${traceId}] ARTIST_STYLE mode - skipping artist limits re-application (already applied during generation)`);
+                  }
                   
                   // Final check: if still not enough tracks, try more aggressive collaboration search
                   const finalMissing = target_tracks - allTracks.length;
@@ -2706,20 +3228,92 @@ async function handleStreamingRequest(request) {
               console.warn(`[STREAM:${traceId}] Failed to store debug data:`, e.message);
             }
             
-                   // Send final result
+            // CRITICAL: Validar tracks finales y consumir uso SOLO si hay tracks válidos
+            const validTracks = allTracks.filter(t => t && t.id && t.name);
+            console.log(`[STREAM:${traceId}] Final validation: ${validTracks.length}/${allTracks.length} valid tracks`);
+            
+            let usageEventId = null;
+            let usageConsumed = false;
+            
+            // Solo consumir uso si hay al menos 1 track válido
+            if (validTracks.length > 0 && pleiaUser?.email) {
+              try {
+                console.log(`[STREAM:${traceId}] ✅ Generation successful: ${validTracks.length} valid tracks - consuming usage now`);
+                
+                const { consumeUsage } = await import('../../../../lib/billing/usageV2');
+                const usageResult = await consumeUsage(
+                  { email: pleiaUser.email, userId: pleiaUser.id },
+                  {
+                    traceId,
+                    phase: 'stream-final',
+                    prompt: intent.prompt || prompt || '',
+                    targetTracks: target_tracks,
+                    tracksGenerated: validTracks.length,
+                  }
+                );
+                
+                if (!usageResult.ok) {
+                  console.warn(`[STREAM:${traceId}] Usage consumption failed: ${usageResult.reason} - ${usageResult.remaining} remaining`);
+                } else {
+                  usageConsumed = true;
+                  usageEventId = usageResult.usageId || null;
+                  const remaining = typeof usageResult.remaining === 'number' ? usageResult.remaining : '∞';
+                  const used = usageResult.used || 0;
+                  const limit = usageResult.plan === 'founder' ? '∞' : (usageResult.remaining === 'unlimited' ? '∞' : (typeof remaining === 'number' ? used + remaining : '∞'));
+                  console.log(`[STREAM:${traceId}] ✅ Usage consumed successfully: ${used}/${limit} (remaining: ${remaining})`);
+                  
+                  // Enviar actualización de uso al frontend
+                  try {
+                    controller.enqueue(encoder.encode(`event: USAGE_UPDATE\ndata: ${JSON.stringify({
+                      used,
+                      remaining,
+                      limit: typeof limit === 'number' ? limit : null,
+                      unlimited: usageResult.remaining === 'unlimited',
+                      plan: usageResult.plan || 'free'
+                    })}\n\n`));
+                  } catch (updateError) {
+                    console.warn(`[STREAM:${traceId}] Failed to send usage update:`, updateError);
+                  }
+                  
+                  // Log metrics to Supabase
+                  try {
+                    await logMetrics(pleiaUser.email, 'generate_playlist', {
+                      prompt: intent.prompt || prompt || '',
+                      trackCount: validTracks.length,
+                      plan: usageResult.plan || 'free',
+                      remainingUses: typeof usageResult.remaining === 'number' ? usageResult.remaining : usageResult.remaining,
+                      usageEventId: usageEventId
+                    });
+                    
+                    // Log playlist creation
+                    await logPlaylist(pleiaUser.email, playlist_name || `Playlist ${new Date().toISOString()}`, prompt, null, null, validTracks.length);
+                  } catch (metricsError) {
+                    console.warn(`[STREAM:${traceId}] Failed to log metrics/playlist:`, metricsError);
+                  }
+                }
+              } catch (consumeError) {
+                console.error(`[STREAM:${traceId}] ❌ Error consuming usage:`, consumeError);
+                // NO hacer refund aquí - el error es en el consumo, no en la generación
+              }
+            } else {
+              console.warn(`[STREAM:${traceId}] ❌ No valid tracks generated (${validTracks.length}) - usage will NOT be consumed`);
+            }
+            
+            // Send final result (usar tracks válidos, no todos)
             clearTimeout(timeout);
             clearInterval(heartbeatInterval);
             
             console.log(`[STREAM:${traceId}] ===== SENDING FINAL RESULT =====`);
-                   console.log(`[STREAM:${traceId}] Final tracks count: ${allTracks.length}`);
-                   console.log(`[STREAM:${traceId}] Final tracks sample:`, allTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artists?.map(a => a.name) || t.artistNames || [] })));
+            console.log(`[STREAM:${traceId}] Final tracks count: ${validTracks.length}`);
+            console.log(`[STREAM:${traceId}] Final tracks sample:`, validTracks.slice(0, 3).map(t => ({ name: t.name, artists: t.artists?.map(a => a.name) || t.artistNames || [] })));
             
             try {
               controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
-                       tracks: allTracks,
-                       totalSoFar: allTracks.length,
+                tracks: validTracks,
+                totalSoFar: validTracks.length,
                 partial: false,
-                       duration: Date.now() - startTime
+                duration: Date.now() - startTime,
+                usageConsumed: usageConsumed
               })}\n\n`));
               
               console.log(`[STREAM:${traceId}] Final result sent, closing connection`);
@@ -2733,58 +3327,68 @@ async function handleStreamingRequest(request) {
             }
             
           } catch (error) {
-            console.error(`[STREAM:${traceId}] Processing error:`, error);
+            console.error(`[STREAM:${traceId}] ❌ Processing error:`, error);
             
-            // If usage was consumed but no tracks were generated, refund the usage
-            if (firstTrackSent && allTracks.length === 0 && session.user?.email) {
+            // CRITICAL: Si hubo error, validar tracks y hacer refund si fue necesario
+            const validTracksOnError = allTracks.filter(t => t && t.id && t.name);
+            
+            // Si hay tracks válidos a pesar del error, consumir uso normalmente
+            if (validTracksOnError.length > 0 && pleiaUser?.email && !usageConsumedInError) {
               try {
-                console.log(`[STREAM:${traceId}] Refunding usage due to error with no tracks`);
-                
-                // Direct KV operations instead of HTTP call
-                const kv = await import('@vercel/kv');
-                const profileKey = `jey_user_profile:${user?.email || 'unknown'}`;
-                const profile = await kv.kv.get(profileKey);
-                
-                  let used = profile?.usage?.used || 0;
-                  const isFounder = profile?.plan === 'founder';
-                  
-                  if (isFounder) {
-                    console.log(`[STREAM:${traceId}] Founder user - no usage refund needed: ${used}/∞`);
-                  } else if (used > 0) {
-                    used -= 1;
-                    const updatedProfile = {
-                      ...profile,
-                      usage: {
-                        used,
-                        lastUsed: new Date().toISOString()
-                      }
-                    };
-                    
-                    await kv.kv.set(profileKey, updatedProfile);
-                    console.log(`[STREAM:${traceId}] Usage refunded: ${used}/5`);
-                  } else {
-                    console.log(`[STREAM:${traceId}] No usage to refund`);
+                console.log(`[STREAM:${traceId}] Error occurred but we have ${validTracksOnError.length} valid tracks - consuming usage`);
+                const { consumeUsage } = await import('../../../../lib/billing/usageV2');
+                const usageResult = await consumeUsage(
+                  { email: pleiaUser.email, userId: pleiaUser.id },
+                  {
+                    traceId,
+                    phase: 'stream-error-recovery',
+                    prompt: intent?.prompt || prompt || '',
+                    targetTracks: target_tracks,
+                    tracksGenerated: validTracksOnError.length,
                   }
+                );
+                if (usageResult.ok) {
+                  usageConsumedInError = true;
+                  console.log(`[STREAM:${traceId}] ✅ Usage consumed despite error: ${usageResult.used}/${usageResult.plan}`);
+                }
+              } catch (consumeError) {
+                console.warn(`[STREAM:${traceId}] Failed to consume usage on error recovery:`, consumeError);
+              }
+            }
+            
+            // Si no hay tracks válidos y se consumió uso, registrar para refund (aunque no podemos hacerlo sin usageEventId)
+            if (usageConsumedInError && validTracksOnError.length === 0 && pleiaUser?.email) {
+              try {
+                console.log(`[STREAM:${traceId}] Making refund - usage was consumed but no valid tracks generated`);
+                // Nota: necesitaríamos el usageEventId para hacer refund, pero como no lo tenemos aquí,
+                // simplemente logueamos el problema. El consumo de uso debería estar atómicamente asociado
+                // a la generación exitosa de tracks, por lo que este caso no debería ocurrir normalmente.
+                console.warn(`[STREAM:${traceId}] ⚠️ Cannot refund without usageEventId - this indicates a logic error`);
               } catch (refundError) {
-                console.warn(`[STREAM:${traceId}] Error refunding usage:`, refundError);
+                console.warn(`[STREAM:${traceId}] Error attempting refund:`, refundError);
               }
             }
             
             clearTimeout(timeout);
             clearInterval(heartbeatInterval);
             
-            if (allTracks.length > 0) {
+            // Validar tracks incluso en caso de error (reutilizar variable ya declarada arriba)
+            // validTracksOnError ya está declarado arriba en el catch block
+            
+            if (validTracksOnError.length > 0) {
               controller.enqueue(encoder.encode(`event: DONE\ndata: ${JSON.stringify({
-                tracks: allTracks,
-                totalSoFar: allTracks.length,
+                tracks: validTracksOnError,
+                totalSoFar: validTracksOnError.length,
                 partial: true,
                 reason: 'error',
-                error: error.message
+                error: error.message,
+                usageConsumed: usageConsumedInError
               })}\n\n`));
             } else {
               controller.enqueue(encoder.encode(`event: ERROR\ndata: ${JSON.stringify({
                 error: error.message || 'Processing failed',
-                totalSoFar: 0
+                totalSoFar: 0,
+                usageConsumed: false
               })}\n\n`));
             }
             

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getPleiaServerUser } from '@/lib/auth/serverUser';
+import { getServerSession } from 'next-auth/next';
 import fs from 'fs';
 import path from 'path';
 
@@ -22,9 +22,9 @@ function loadFeedback() {
 export async function GET(request) {
   try {
     // Check authentication
-    const user = await getPleiaServerUser();
+    const session = await getServerSession();
     
-    if (!user?.email) {
+    if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

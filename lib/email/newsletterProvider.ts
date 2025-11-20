@@ -203,25 +203,22 @@ const htmlWrapper = (
 `;
 
 function normalizeRecipients(entries: RawRecipient[]): NormalizedRecipient[] {
-  const normalized: NormalizedRecipient[] = [];
-  for (const entry of entries || []) {
-    if (!entry) continue;
-    if (typeof entry === 'string') {
-      const email = entry.trim().toLowerCase();
-      if (email) {
-        normalized.push({ email });
+  return (entries || [])
+    .map((entry) => {
+      if (!entry) return null;
+      if (typeof entry === 'string') {
+        const email = entry.trim().toLowerCase();
+        return email ? { email } : null;
       }
-      continue;
-    }
-    const email = entry.email?.trim().toLowerCase();
-    if (!email) continue;
-    normalized.push({
-      email,
-      contactId: entry.contactId ?? null,
-      recipientId: entry.recipientId ?? null,
-    });
-  }
-  return normalized;
+      const email = entry.email?.trim().toLowerCase();
+      if (!email) return null;
+      return {
+        email,
+        contactId: entry.contactId ?? null,
+        recipientId: entry.recipientId ?? null,
+      };
+    })
+    .filter((item): item is NormalizedRecipient => Boolean(item?.email));
 }
 
 function resolveBaseUrl() {

@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
-import { getHubAccessToken } from "../../../lib/spotify/hubAuth";
+import { getToken } from "next-auth/jwt";
 import { retryWithBackoff, batchSpotifyOperation } from "../../../lib/helpers.js";
 
 export async function POST(req) {
   try {
-    // 1) Get hub access token (for creating playlists)
-    const accessToken = await getHubAccessToken();
-    if (!accessToken) {
+    // 1) Get user token
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    if (!token?.accessToken) {
       return NextResponse.json({ error: "No access token" }, { status: 401 });
     }
-    
-    const token = { accessToken };
 
     // 2) Parse request body
     let name = "AI Generated Playlist";
@@ -43,7 +41,7 @@ export async function POST(req) {
       const response = await fetch("https://api.spotify.com/v1/me/playlists", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${token.accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -92,7 +90,7 @@ export async function POST(req) {
           {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${accessToken}`,
+              Authorization: `Bearer ${token.accessToken}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ uris: batch }),

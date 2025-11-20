@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getPleiaServerUser } from '@/lib/auth/serverUser';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../../../lib/auth/config';
 
 // TODO: eliminar este endpoint dev antes de deploy
 
@@ -10,13 +11,13 @@ export async function POST() {
   }
 
   try {
-    const user = await getPleiaServerUser();
+    const session = await getServerSession(authOptions);
     
-    if (!user?.email) {
+    if (!session?.user?.email) {
       return NextResponse.json({ ok: false, error: 'No session' }, { status: 401 });
     }
 
-    const email = user.email;
+    const email = session.user.email;
     console.log('[DEV] Marking user as Founder:', email);
 
     // Usar el mismo store que ya existe para el perfil

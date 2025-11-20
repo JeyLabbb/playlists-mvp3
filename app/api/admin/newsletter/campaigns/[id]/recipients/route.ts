@@ -4,7 +4,7 @@ import { getNewsletterAdminClient } from '@/lib/newsletter/server';
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  context: { params: { id: string } } | { params: Promise<{ id: string }> },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -13,7 +13,7 @@ export async function GET(
     }
 
     const supabase = await getNewsletterAdminClient();
-    const { id } = await params;
+    const params = await (context.params as any);
     const url = new URL(request.url);
     const limit = Math.min(Number(url.searchParams.get('limit') || 200), 500);
     const offset = Number(url.searchParams.get('offset') || 0);
@@ -35,7 +35,7 @@ export async function GET(
         contact:newsletter_contacts(id,name,status)
       `,
       )
-      .eq('campaign_id', id)
+      .eq('campaign_id', params.id)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
     if (error) throw error;

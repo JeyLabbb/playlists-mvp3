@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getHubAccessToken } from "@/lib/spotify/hubAuth";
+import { getToken } from "next-auth/jwt";
 
 /* ---------------------------------- utils --------------------------------- */
 
@@ -360,8 +360,8 @@ async function nonEventFallback({ prompt, wanted, token }) {
 
 async function handler(req) {
   try {
-    const accessToken = await getHubAccessToken();
-    if (!accessToken) {
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+    if (!token?.accessToken) {
       return NextResponse.json({ error: "no-access-token" }, { status: 401 });
     }
 
@@ -378,12 +378,12 @@ async function handler(req) {
     let note = null;
 
     if (isEvent) {
-      const fr = await festivalRecs({ prompt, wanted, token: accessToken });
+      const fr = await festivalRecs({ prompt, wanted, token: token.accessToken });
       tracks = fr.tracks || [];
       used = `festival:${fr.why}`;
       note = fr.note || null;
     } else {
-      tracks = await nonEventFallback({ prompt, wanted, token: accessToken });
+      tracks = await nonEventFallback({ prompt, wanted, token: token.accessToken });
       used = "non-event:search";
     }
 

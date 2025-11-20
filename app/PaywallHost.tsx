@@ -158,8 +158,8 @@ export default function PaywallHost() {
               limit: prev.usage.limit ?? usageStatus.usage?.limit ?? 5,
             },
             // Mantener canAccessAdvantage del payload si ya está calculado
-            canAccessAdvantage: prev.canAccessAdvantage ?? usageStatus.isEarlyFounderCandidate,
-            advantage: prev.advantage ?? usageStatus.isEarlyFounderCandidate,
+            canAccessAdvantage: prev.canAccessAdvantage ?? usageStatus.canAccessAdvantage,
+            advantage: prev.advantage ?? usageStatus.canAccessAdvantage,
             isEarlyFounderCandidate: prev.isEarlyFounderCandidate ?? usageStatus.isEarlyFounderCandidate,
           };
         }
@@ -167,8 +167,8 @@ export default function PaywallHost() {
         return {
           ...(prev || {}),
           usage: usageStatus,
-          canAccessAdvantage: prev?.canAccessAdvantage ?? usageStatus.isEarlyFounderCandidate,
-          advantage: prev?.advantage ?? usageStatus.isEarlyFounderCandidate,
+          canAccessAdvantage: prev?.canAccessAdvantage ?? usageStatus.canAccessAdvantage,
+          advantage: prev?.advantage ?? usageStatus.canAccessAdvantage,
           isEarlyFounderCandidate: prev?.isEarlyFounderCandidate ?? usageStatus.isEarlyFounderCandidate,
         };
       });
@@ -211,7 +211,7 @@ export default function PaywallHost() {
       payload?.advantage ??
       base?.canAccessAdvantage ??
       base?.advantage ??
-      usageStatus?.isEarlyFounderCandidate ??
+      usageStatus?.canAccessAdvantage ??
       false;
 
     // Solo calcular advantage si no está presente y tenemos datos para calcularlo
@@ -299,10 +299,10 @@ export default function PaywallHost() {
   if (!mounted || !portalNode) return null;
 
   return createPortal(
-      <PaywallModal
+    <PaywallModal
       isOpen={open && !hasUnlimited(payload)}
       onClose={closeHost}
-      remaining={combinedUsage?.remaining ?? 0}
+      usage={combinedUsage}
       onBuyFounder={handleFounderCheckout}
     />,
     portalNode,

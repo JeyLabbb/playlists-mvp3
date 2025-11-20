@@ -1,26 +1,25 @@
 // FIXPACK: Endpoint de status para verificar configuración sin llamadas reales a Spotify
 // Permite validar que la sesión y configuración están correctas antes de generar playlists
 
-import { getPleiaServerUser } from "@/lib/auth/serverUser";
-import { getHubAccessToken } from "@/lib/spotify/hubAuth";
+import { getServerSession } from "next-auth";
+import { authOptions } from "../../../lib/auth/config";
 
 export async function GET() {
   try {
-    const user = await getPleiaServerUser();
-    const accessToken = await getHubAccessToken();
+    const session = await getServerSession(authOptions);
     
     const status = {
       canCreateOnSpotify: false,
-      hasSession: !!user,
-      hasAccessToken: !!accessToken,
-      spotifyUserIdDetected: !!user?.id,
+      hasSession: !!session,
+      hasAccessToken: !!session?.accessToken,
+      spotifyUserIdDetected: !!session?.user?.id,
       strategies: ["normal", "festival", "current"],
       featurePresetsLoaded: true,
       timestamp: new Date().toISOString()
     };
 
     // FIXPACK: Determina si puede crear playlists basado en sesión válida
-    if (accessToken && user?.id) {
+    if (session?.accessToken && session?.user?.id) {
       status.canCreateOnSpotify = true;
     }
 

@@ -56,7 +56,7 @@ export async function GET() {
         .select('id, email, username, plan, last_prompt_at')
         .in('id', uniqueUserIds);
 
-      let effectiveRows: any[] | null = userRows;
+      let effectiveRows = userRows;
       let effectiveError = usersError;
 
       if (usersError?.code === '42703') {
@@ -83,7 +83,7 @@ export async function GET() {
     }
 
     const friends = (friendsRes.data ?? []).map((row) => {
-      const detail = userDetailsMap.get(row.friend_id) ?? { email: null, username: null, plan: null, last_prompt_at: null };
+      const detail = userDetailsMap.get(row.friend_id) ?? { email: null, plan: null, last_prompt_at: null };
       return {
         friendId: row.friend_id,
         createdAt: row.created_at,
@@ -95,7 +95,7 @@ export async function GET() {
     });
 
     const incoming = (incomingRes.data ?? []).map((row) => {
-      const detail = userDetailsMap.get(row.sender_id) ?? { email: null, username: null };
+      const detail = userDetailsMap.get(row.sender_id) ?? { email: null };
       return {
         requestId: row.id,
         senderId: row.sender_id,
@@ -106,7 +106,7 @@ export async function GET() {
     });
 
     const outgoing = (outgoingRes.data ?? []).map((row) => {
-      const detail = userDetailsMap.get(row.receiver_id) ?? { email: null, username: null };
+      const detail = userDetailsMap.get(row.receiver_id) ?? { email: null };
       return {
         requestId: row.id,
         receiverId: row.receiver_id,

@@ -21,7 +21,7 @@ const updateWorkflowSchema = z.object({
 
 export async function PATCH(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -30,7 +30,6 @@ export async function PATCH(
     }
     const payload = updateWorkflowSchema.parse(await request.json());
     const supabase = await getNewsletterAdminClient();
-    const { id } = await params;
 
     const updates: Record<string, any> = {};
     if (payload.name) updates.name = payload.name;
@@ -43,14 +42,14 @@ export async function PATCH(
       const { error } = await supabase
         .from('newsletter_workflows')
         .update(updates)
-        .eq('id', id);
+        .eq('id', params.id);
       if (error) throw error;
     }
 
     if (payload.steps) {
-      await supabase.from('newsletter_workflow_steps').delete().eq('workflow_id', id);
+      await supabase.from('newsletter_workflow_steps').delete().eq('workflow_id', params.id);
       const stepRows = payload.steps.map((step, index) => ({
-        workflow_id: id,
+        workflow_id: params.id,
         step_order: index,
         action_type: step.action_type,
         action_config: step.action_config,
@@ -61,7 +60,7 @@ export async function PATCH(
     const { data, error: refreshedError } = await supabase
       .from('newsletter_workflows')
       .select('*, steps:newsletter_workflow_steps(*)')
-      .eq('id', id)
+      .eq('id', params.id)
       .single();
     if (refreshedError) throw refreshedError;
 
@@ -77,7 +76,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -85,8 +84,7 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
     const supabase = await getNewsletterAdminClient();
-    const { id } = await params;
-    await supabase.from('newsletter_workflows').delete().eq('id', id);
+    await supabase.from('newsletter_workflows').delete().eq('id', params.id);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('[NEWSLETTER] workflow DELETE error:', error);

@@ -3,7 +3,57 @@ import { z } from 'zod';
 import { ensureAdminAccess } from '@/lib/admin/session';
 import { getNewsletterAdminClient } from '@/lib/newsletter/server';
 
-const fullUpdateSchema = z.object({
+const updateSchema = z.object({
+  title: z.string().min(1).max(160).optional(),
+  subject: z.string().min(1).max(160).optional(),
+});
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: { id: string } },
+) {
+  try {
+    const adminAccess = await ensureAdminAccess(request);
+    if (!adminAccess.ok) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const payload = updateSchema.parse(await request.json());
+    const supabase = await getNewsletterAdminClient();
+
+    const updates: Record<string, any> = {};
+    if (typeof payload.title === 'string') updates.title = payload.title;
+    if (typeof payload.subject === 'string') updates.subject = payload.subject;
+
+    if (!Object.keys(updates).length) {
+      return NextResponse.json({ success: false, error: 'Nada que actualizar' }, { status: 400 });
+    }
+
+    const { data, error } = await supabase
+      .from('newsletter_campaigns')
+      .update(updates)
+      .eq('id', params.id)
+      .select('*')
+      .maybeSingle();
+
+    if (error) throw error;
+
+    return NextResponse.json({ success: true, campaign: data });
+  } catch (error: any) {
+    console.error('[NEWSLETTER] campaign PATCH error:', error);
+    return NextResponse.json(
+      { success: false, error: error.message || 'No se pudo actualizar la campaña' },
+      { status: 500 },
+    );
+  }
+}
+
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { ensureAdminAccess } from '@/lib/admin/session';
+import { getNewsletterAdminClient } from '@/lib/newsletter/server';
+
+const updateSchema = z.object({
   title: z.string().min(1).max(160).optional(),
   subject: z.string().min(1).max(160).optional(),
   preheader: z.string().max(200).optional(),
@@ -14,7 +64,7 @@ const fullUpdateSchema = z.object({
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -22,11 +72,10 @@ export async function GET(
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
     const supabase = await getNewsletterAdminClient();
-    const { id } = await params;
     const { data, error } = await supabase
       .from('newsletter_campaigns')
       .select('*')
-      .eq('id', id)
+      .eq('id', params.id)
       .single();
     if (error) throw error;
     return NextResponse.json({ success: true, campaign: data });
@@ -41,16 +90,15 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
     if (!adminAccess.ok) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
-    const payload = fullUpdateSchema.parse(await request.json());
+    const payload = updateSchema.parse(await request.json());
     const supabase = await getNewsletterAdminClient();
-    const { id } = await params;
 
     const updates: Record<string, any> = {};
     if (payload.title) updates.title = payload.title;
@@ -73,7 +121,7 @@ export async function PATCH(
     const { data, error } = await supabase
       .from('newsletter_campaigns')
       .update(updates)
-      .eq('id', id)
+      .eq('id', params.id)
       .select('*')
       .single();
     if (error) throw error;
@@ -90,7 +138,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -98,8 +146,7 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
     const supabase = await getNewsletterAdminClient();
-    const { id } = await params;
-    const { error } = await supabase.from('newsletter_campaigns').delete().eq('id', id);
+    const { error } = await supabase.from('newsletter_campaigns').delete().eq('id', params.id);
     if (error) throw error;
     return NextResponse.json({ success: true });
   } catch (error: any) {

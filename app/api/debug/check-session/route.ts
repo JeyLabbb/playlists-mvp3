@@ -1,39 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPleiaServerUser } from '@/lib/auth/serverUser';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../../lib/auth/config';
 
 export async function GET(request: NextRequest) {
   try {
     console.log('[DEBUG] Checking session details...');
     
-    const user = await getPleiaServerUser();
+    const session = await getServerSession(authOptions as any) as any;
     
-    if (!user) {
+    if (!session) {
       return NextResponse.json({
         ok: false,
         error: 'No session found',
         authenticated: false,
-        message: 'Please log in'
+        message: 'Please log in with Spotify'
       }, { status: 401 });
     }
     
     console.log('[DEBUG] Session found:', {
-      user: user,
-      email: user.email,
-      name: user.name
+      user: session.user,
+      hasAccessToken: !!session.accessToken,
+      hasSpotify: !!session.spotify,
+      error: session.error
     });
     
     return NextResponse.json({
       ok: true,
       authenticated: true,
       session: {
-        user: {
-          email: user.email,
-          name: user.name,
-          image: user.image,
-          id: user.id
-        }
+        user: session.user,
+        hasAccessToken: !!session.accessToken,
+        accessTokenPreview: session.accessToken ? `${session.accessToken.substring(0, 20)}...` : null,
+        hasSpotify: !!session.spotify,
+        spotify: session.spotify,
+        error: session.error
       },
-      message: 'Session is valid'
+      message: session.error ? 'Session has error, may need refresh' : 'Session is valid'
     }, { status: 200 });
     
   } catch (error: any) {
