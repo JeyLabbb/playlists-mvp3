@@ -272,7 +272,7 @@ export default function ProfilePage() {
       
       if (response.ok) {
         // Redirigir a signout de NextAuth
-        window.location.href = '/api/auth/signout?callbackUrl=/';
+        window.location.href = '/';
       } else {
         console.error('Logout failed');
         setError('Error al cerrar sesión');

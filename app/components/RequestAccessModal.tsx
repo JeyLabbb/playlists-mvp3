@@ -23,30 +23,15 @@ export default function RequestAccessModal({ open, onClose }: Props) {
   // Polling de sesión para cerrar modal cuando se autentica
   useEffect(() => {
     if (status === 'authenticated') {
-      try {
-        localStorage.setItem('ea_done', '1');
-        localStorage.removeItem('ea_pending');
-      } catch {}
       // Oculta modal y limpia query de callback
       router.replace('/');
     }
   }, [status, router]);
 
-  // Función para leer cookie ea_snooze
-  const getEaSnoozeCookie = () => {
-    if (typeof window === 'undefined') return false;
-    const cookies = document.cookie.split(';');
-    const eaSnoozeCookie = cookies.find(cookie => 
-      cookie.trim().startsWith('ea_snooze=')
-    );
-    return eaSnoozeCookie?.trim().split('=')[1] === '1';
-  };
-
-  // Solo mostrar si no está autenticado y no hay cookie ea_snooze
+  // Solo mostrar si no está autenticado
   const shouldOpen = 
     typeof window !== 'undefined' &&
     status !== 'authenticated' &&
-    !getEaSnoozeCookie() &&
     open;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -91,9 +76,6 @@ export default function RequestAccessModal({ open, onClose }: Props) {
   };
 
   const handleAlreadyRequested = async () => {
-    try { 
-      localStorage.setItem('ea_pending', '1'); 
-    } catch {}
     // Usar login de Supabase
     login('/?from=oauth');
   };
@@ -143,7 +125,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
 
               <div>
                 <label className="block text-sm font-medium text-white mb-2">
-                  Email de tu cuenta de Spotify
+                  Email
                 </label>
                 <input
                   type="email"
@@ -155,7 +137,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
                   required
                 />
                 <p className="mt-1 text-xs text-gray-text-secondary">
-                  Usa el mismo email de tu cuenta de Spotify.
+                  Usa el email con el que quieres registrarte.
                 </p>
               </div>
 
@@ -201,7 +183,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
                 </p>
                 
                 <p className="text-xs text-gray-text-secondary text-center mt-3 px-2">
-                  Si Spotify te pide un código, complétalo. Si no vuelves automáticamente, regresa a esta página y pulsa de nuevo Iniciar sesión; te reconocerá y entrarás directo.
+                  Si no vuelves automáticamente, regresa a esta página y pulsa de nuevo Iniciar sesión; te reconocerá y entrarás directo.
                 </p>
                 
                 <button
