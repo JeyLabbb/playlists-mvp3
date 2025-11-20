@@ -1,6 +1,7 @@
 export const HUB_MODE = process.env.HUB_MODE === '1';
+// DISABLE_SPOTIFY_USER_OAUTH solo afecta a OAuth de Spotify para usuarios, no a login con Google/Apple
 export const DISABLE_SPOTIFY_USER_OAUTH =
-  process.env.DISABLE_SPOTIFY_USER_OAUTH === '1' || HUB_MODE;
+  process.env.DISABLE_SPOTIFY_USER_OAUTH === '1';
 
 /**
  * Expose hub mode flag to the client. Make sure to set NEXT_PUBLIC_HUB_MODE
