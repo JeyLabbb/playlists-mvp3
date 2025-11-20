@@ -271,7 +271,7 @@ export default function ProfilePage() {
       });
       
       if (response.ok) {
-        // Redirigir a signout de NextAuth
+        // Logout completo
         window.location.href = '/';
       } else {
         console.error('Logout failed');
