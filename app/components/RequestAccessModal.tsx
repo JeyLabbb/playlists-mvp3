@@ -108,7 +108,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
             <div>
               <h3 className="text-xl font-semibold text-white">Iniciar sesión</h3>
               <p className="mt-1 text-sm text-gray-text-secondary">
-                Para entrar con Spotify necesitamos activar tu email primero.
+                Inicia sesión para acceder a todas las funcionalidades.
               </p>
             </div>
           </div>

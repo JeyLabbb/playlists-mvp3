@@ -255,8 +255,6 @@ export default function ProfilePage() {
       
       // Limpiar localStorage de estados de auth
       try {
-        localStorage.removeItem('ea_done');
-        localStorage.removeItem('ea_pending');
         // Limpiar cualquier perfil local
         if (session?.user?.email) {
           const localKey = `jey_user_profile:${session.user.email}`;
