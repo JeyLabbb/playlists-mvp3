@@ -537,19 +537,8 @@ export default function Home() {
       return;
     }
     
-    // Si no hay sesión, mostrar modal de login con show_dialog=true
+    // Si no hay sesión, redirigir a login
     if (!session?.user) {
-      // Función para leer cookie ea_snooze
-      const getEaSnoozeCookie = () => {
-        if (typeof window === 'undefined') return false;
-        const cookies = document.cookie.split(';');
-        const eaSnoozeCookie = cookies.find(cookie => 
-          cookie.trim().startsWith('ea_snooze=')
-        );
-        return eaSnoozeCookie?.trim().split('=')[1] === '1';
-      };
-
-      // Usar login de Supabase
       login('/?from=oauth');
       return;
     }
