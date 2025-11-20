@@ -12,7 +12,7 @@ const updateSchema = z.object({
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -20,6 +20,7 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
+    const params = await context.params;
     const contactId = params.id;
     const payload = updateSchema.parse(await request.json());
     const supabase = await getNewsletterAdminClient();
@@ -70,7 +71,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -78,6 +79,7 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
+    const params = await context.params;
     const supabase = await getNewsletterAdminClient();
     const { error } = await supabase.from('newsletter_contacts').delete().eq('id', params.id);
     if (error) throw error;
