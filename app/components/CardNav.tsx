@@ -164,16 +164,6 @@ export default function CardNav({
     if (session?.user) {
       router.push("/me");
     } else {
-      // Función para leer cookie ea_snooze
-      const getEaSnoozeCookie = () => {
-        if (typeof window === 'undefined') return false;
-        const cookies = document.cookie.split(';');
-        const eaSnoozeCookie = cookies.find(cookie => 
-          cookie.trim().startsWith('ea_snooze=')
-        );
-        return eaSnoozeCookie?.trim().split('=')[1] === '1';
-      };
-
       // Usar login de Supabase
       login('/');
     }
