@@ -12,6 +12,7 @@ import FeedbackGate from "./components/FeedbackGate";
 import AnimatedList from "./components/AnimatedList";
 import FounderNudge from "./components/nudges/FounderNudge";
 import PaywallModal from "./components/paywall/PaywallModal";
+import PaywallHost from "./PaywallHost";
 import UsageLimitReached from "./components/UsageLimitReached";
 import { useProfile } from "../lib/useProfile";
 
@@ -1483,6 +1484,9 @@ export default function Home() {
 
       {/* Founder Nudge */}
       <FounderNudge />
+
+      {/* Paywall Host - New system */}
+      <PaywallHost />
 
     </div>
   );
