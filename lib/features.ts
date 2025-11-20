@@ -1,13 +1,15 @@
-// HUB_MODE siempre activo - no depende de variables de entorno
-export const HUB_MODE = true;
-export const DISABLE_SPOTIFY_USER_OAUTH = true; // Siempre deshabilitado en HUB mode
+export const HUB_MODE = process.env.HUB_MODE === '1';
+export const DISABLE_SPOTIFY_USER_OAUTH =
+  process.env.DISABLE_SPOTIFY_USER_OAUTH === '1' || HUB_MODE;
 
 /**
  * Expose hub mode flag to the client. Make sure to set NEXT_PUBLIC_HUB_MODE
  * alongside HUB_MODE in the environment.
  */
-// PUBLIC_HUB_MODE siempre activo
-export const PUBLIC_HUB_MODE = true;
+export const PUBLIC_HUB_MODE =
+  typeof process.env.NEXT_PUBLIC_HUB_MODE !== 'undefined'
+    ? process.env.NEXT_PUBLIC_HUB_MODE === '1'
+    : HUB_MODE;
 
 export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || 'PLEIA';
 
