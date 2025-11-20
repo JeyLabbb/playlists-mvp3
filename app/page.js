@@ -662,9 +662,9 @@ export default function Home() {
           
           // PROMPT 9: Handle standardized NO_SESSION error
           if (playlistData?.code === 'NO_SESSION' || playlistRes.status === 401) {
-            setError("Please sign in with Spotify to generate playlists. Click the 'Connect with Spotify' button above.");
+            setError("Por favor inicia sesión con Pleia para generar playlists.");
           } else if (playlistData?.needsAuth) {
-            setError("Please sign in with Spotify to generate playlists. Click the 'Connect with Spotify' button above.");
+            setError("Por favor inicia sesión con Pleia para generar playlists.");
           } else if (playlistData?.code === 'LIMIT_REACHED') {
             setShowUsageLimit(true);
             setTracks([]);
@@ -770,7 +770,7 @@ export default function Home() {
       
       // PROMPT 9: Handle standardized NO_SESSION error
       if (res.status === 401 || data?.code === 'NO_SESSION') {
-        throw new Error("Please sign in with Spotify to create playlists. Click the 'Connect with Spotify' button above.");
+        throw new Error("Por favor inicia sesión con Pleia para crear playlists.");
       }
       
       if (!res.ok || !data?.ok) throw new Error(data?.error || data?.message || 'Failed to create playlist');
