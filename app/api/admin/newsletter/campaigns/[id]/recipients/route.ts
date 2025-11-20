@@ -4,7 +4,7 @@ import { getNewsletterAdminClient } from '@/lib/newsletter/server';
 
 export async function GET(
   request: Request,
-  context: { params: { id: string } } | { params: Promise<{ id: string }> },
+  context: { params: Promise<{ id: string }> },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
@@ -13,7 +13,7 @@ export async function GET(
     }
 
     const supabase = await getNewsletterAdminClient();
-    const params = await (context.params as any);
+    const params = await context.params;
     const url = new URL(request.url);
     const limit = Math.min(Number(url.searchParams.get('limit') || 200), 500);
     const offset = Number(url.searchParams.get('offset') || 0);
