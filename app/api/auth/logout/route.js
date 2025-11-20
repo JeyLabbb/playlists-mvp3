@@ -8,7 +8,7 @@ export async function POST() {
     // Crear respuesta
     const res = NextResponse.json({ ok: true });
     
-    // Snooze del Early Access tras cerrar sesión (24h)
+    // Cookie de sesión (24h)
     res.headers.set('Set-Cookie', 'ea_snooze=1; Path=/; Max-Age=86400; SameSite=Lax; Secure');
     
     // Cookie para forzar re-consent (1h)
@@ -16,7 +16,7 @@ export async function POST() {
     
     console.log('[LOGOUT] User logout requested:', user?.email || 'anonymous');
     
-    // La UI hará window.location.href = '/api/auth/signout?callbackUrl=/'
+    // La UI redirigirá al home
     return res;
   } catch (error) {
     console.error('[LOGOUT] Error:', error);

@@ -106,7 +106,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
         <div className="relative rounded-2xl border p-5" style={{ background: 'var(--color-slate)', borderColor: 'rgba(255, 255, 255, 0.1)' }}>
           <div className="flex items-start justify-between mb-6">
             <div>
-              <h3 className="text-xl font-semibold text-white">Solicitar acceso al Early Access</h3>
+              <h3 className="text-xl font-semibold text-white">Iniciar sesión</h3>
               <p className="mt-1 text-sm text-gray-text-secondary">
                 Para entrar con Spotify necesitamos activar tu email primero.
               </p>

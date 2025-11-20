@@ -164,7 +164,7 @@ function InvitePageContent() {
               border: 'none'
             }}
           >
-            {loading ? 'Entrando...' : 'Entrar con Spotify'}
+            {loading ? 'Entrando...' : 'Iniciar sesión'}
           </button>
 
           {/* Footer */}
