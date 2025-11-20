@@ -52,7 +52,7 @@ function isPlaceholderEmail(email?: string | null) {
 }
 
 async function fetchSingle<Row>(
-  query: ReturnType<SupabaseClientLike['from']>,
+  query: any,
 ): Promise<Row | null> {
   try {
     const { data, error } = await query.maybeSingle();

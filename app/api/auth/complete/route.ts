@@ -541,9 +541,6 @@ export async function POST(request: Request) {
             full_name: parsed.data.displayName,
             name: parsed.data.displayName,
           },
-          data: {
-            full_name: parsed.data.displayName,
-          },
         });
       } catch (metaError) {
         console.warn('[AUTH] Failed to update user metadata during onboarding:', metaError);

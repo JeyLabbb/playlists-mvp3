@@ -12,7 +12,7 @@ export async function createSupabaseRouteClient() {
   const cookieStore = await cookies();
 
   return createRouteHandlerClient({
-    cookies: () => cookieStore,
+    cookies: async () => cookieStore,
   });
 }
 

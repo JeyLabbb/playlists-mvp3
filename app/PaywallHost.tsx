@@ -157,9 +157,8 @@ export default function PaywallHost() {
               remaining: prev.usage.remaining ?? usageStatus.usage?.remaining ?? 0,
               limit: prev.usage.limit ?? usageStatus.usage?.limit ?? 5,
             },
-            // Mantener canAccessAdvantage del payload si ya está calculado
-            canAccessAdvantage: prev.canAccessAdvantage ?? usageStatus.canAccessAdvantage,
-            advantage: prev.advantage ?? usageStatus.canAccessAdvantage,
+            // Mantener advantage del payload si ya está calculado
+            advantage: prev.advantage ?? (usageStatus.isEarlyFounderCandidate ? true : undefined),
             isEarlyFounderCandidate: prev.isEarlyFounderCandidate ?? usageStatus.isEarlyFounderCandidate,
           };
         }
@@ -167,8 +166,7 @@ export default function PaywallHost() {
         return {
           ...(prev || {}),
           usage: usageStatus,
-          canAccessAdvantage: prev?.canAccessAdvantage ?? usageStatus.canAccessAdvantage,
-          advantage: prev?.advantage ?? usageStatus.canAccessAdvantage,
+          advantage: prev?.advantage ?? (usageStatus.isEarlyFounderCandidate ? true : undefined),
           isEarlyFounderCandidate: prev?.isEarlyFounderCandidate ?? usageStatus.isEarlyFounderCandidate,
         };
       });
@@ -209,9 +207,8 @@ export default function PaywallHost() {
     let advantage =
       payload?.canAccessAdvantage ??
       payload?.advantage ??
-      base?.canAccessAdvantage ??
       base?.advantage ??
-      usageStatus?.canAccessAdvantage ??
+      (usageStatus?.isEarlyFounderCandidate ? true : undefined) ??
       false;
 
     // Solo calcular advantage si no está presente y tenemos datos para calcularlo
