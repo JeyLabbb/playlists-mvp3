@@ -209,7 +209,7 @@ export async function POST(request: Request) {
         },
         emailRedirectTo: process.env.NEXT_PUBLIC_SITE_URL
           ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
-          : undefined,
+          : 'https://playlists.jeylabbb.com/auth/callback',
       },
     });
 

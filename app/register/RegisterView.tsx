@@ -46,24 +46,24 @@ export default function RegisterView({ redirectTo }: Props) {
         }
       }
 
-      // 🚨 CRITICAL: En producción, siempre usar la URL de producción
-      // window.location.origin puede ser localhost en algunos casos
+      // 🚨 CRITICAL: En producción, SIEMPRE usar la URL de producción
+      // Forzar producción si no estamos explícitamente en desarrollo local
       const getOrigin = () => {
-        if (typeof window === 'undefined') return undefined;
+        if (typeof window === 'undefined') return 'https://playlists.jeylabbb.com';
+        
         const origin = window.location.origin;
-        // Si estamos en producción pero origin es localhost, usar producción
-        if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-          return process.env.NEXT_PUBLIC_SITE_URL || 'https://playlists.jeylabbb.com';
+        const isLocalDev = origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('192.168.');
+        
+        // Si es desarrollo local explícito, usar el origin
+        if (isLocalDev && process.env.NODE_ENV === 'development') {
+          return origin;
         }
-        return origin;
+        
+        // En cualquier otro caso (producción, staging, etc.), usar producción
+        return process.env.NEXT_PUBLIC_SITE_URL || 'https://playlists.jeylabbb.com';
       };
       
-      const callbackUrl =
-        typeof window !== 'undefined'
-          ? `${getOrigin()}/auth/callback?redirect=${encodeURIComponent(
-              redirectTo || '/',
-            )}`
-          : undefined;
+      const callbackUrl = `${getOrigin()}/auth/callback?redirect=${encodeURIComponent(redirectTo || '/')}`;
 
       const response = await fetch('/api/auth/oauth', {
         method: 'POST',

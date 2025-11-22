@@ -13,31 +13,36 @@ export async function POST(request: Request) {
       );
     }
 
-    // 🚨 CRITICAL: Construir URL de redirección usando el origin de la request
-    // Esto asegura que funcione tanto en desarrollo como en producción
+    // 🚨 CRITICAL: SIEMPRE usar URL de producción en producción
+    // Solo usar localhost si estamos explícitamente en desarrollo local
     const headersList = await headers();
     const host = headersList.get('host');
     const protocol = headersList.get('x-forwarded-proto') || 'https';
     
+    // Detectar si estamos en desarrollo local
+    const isLocalDev = process.env.NODE_ENV === 'development' && 
+                       host && (host.includes('localhost') || host.includes('127.0.0.1') || host.includes('192.168.'));
+    
     // Si redirectTo ya viene del cliente, validarlo y corregirlo si es necesario
     let finalRedirectTo = redirectTo;
     
-    // 🚨 CRITICAL: Si redirectTo contiene localhost, reemplazarlo por producción
+    // 🚨 CRITICAL: Si redirectTo contiene localhost y NO estamos en desarrollo local, forzar producción
     if (finalRedirectTo && (finalRedirectTo.includes('localhost') || finalRedirectTo.includes('127.0.0.1'))) {
-      console.warn('[AUTH] RedirectTo contains localhost, replacing with production URL');
-      finalRedirectTo = finalRedirectTo.replace(/https?:\/\/[^/]+/, 'https://playlists.jeylabbb.com');
+      if (!isLocalDev) {
+        console.warn('[AUTH] RedirectTo contains localhost in production, forcing production URL');
+        finalRedirectTo = finalRedirectTo.replace(/https?:\/\/[^/]+/, 'https://playlists.jeylabbb.com');
+      }
     }
     
     if (!finalRedirectTo) {
-      if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
-        // Usar el host de la request solo si no es localhost
+      if (isLocalDev && host) {
+        // Solo en desarrollo local explícito, usar el host de la request
         finalRedirectTo = `${protocol}://${host}/auth/callback`;
-      } else if (process.env.NEXT_PUBLIC_SITE_URL) {
-        // Fallback a variable de entorno
-        finalRedirectTo = `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`;
       } else {
-        // Último fallback a producción
-        finalRedirectTo = 'https://playlists.jeylabbb.com/auth/callback';
+        // En producción o cualquier otro caso, usar producción
+        finalRedirectTo = process.env.NEXT_PUBLIC_SITE_URL 
+          ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
+          : 'https://playlists.jeylabbb.com/auth/callback';
       }
     }
 
