@@ -40,12 +40,13 @@ async function fetchContactsForGroups(
     .in('group_id', groupIds);
   if (error) throw error;
   const contacts: { id: string; email: string }[] = [];
-  (data || []).forEach((row) => {
-    if (!row.contact) return;
-    if (row.contact.status !== 'subscribed') return;
+  (data || []).forEach((row: any) => {
+    const contact = Array.isArray(row.contact) ? row.contact[0] : row.contact;
+    if (!contact) return;
+    if (contact.status !== 'subscribed') return;
     contacts.push({
-      id: row.contact.id,
-      email: row.contact.email,
+      id: contact.id,
+      email: contact.email,
     });
   });
   return contacts;
@@ -155,7 +156,11 @@ export async function POST(request: Request) {
         campaign_id: campaign.id,
         group_id: groupId,
       }));
-      await supabase.from('newsletter_campaign_groups').insert(rows).catch(() => {});
+      try {
+        await supabase.from('newsletter_campaign_groups').insert(rows);
+      } catch (error) {
+        // Ignore errors when inserting campaign groups
+      }
     }
 
     const recipientsMap = new Map<string, { id: string; email: string }>();
@@ -221,10 +226,14 @@ export async function POST(request: Request) {
           subject: payload.subject,
           title: payload.title,
           body: payload.body,
-          primaryCta: payload.primaryCta,
-          secondaryCta: payload.secondaryCta,
-        },
-        trackingEnabled,
+          ...(payload.primaryCta?.label && payload.primaryCta?.url && { 
+            primaryCta: { label: payload.primaryCta.label, url: payload.primaryCta.url } 
+          }),
+          ...(payload.secondaryCta?.label && payload.secondaryCta?.url && { 
+            secondaryCta: { label: payload.secondaryCta.label, url: payload.secondaryCta.url } 
+          }),
+        } as CampaignContentPayload,
+        trackingEnabled: trackingEnabled,
       });
     } else if (payload.sendMode === 'scheduled' && payload.scheduledFor) {
       await supabase.from('newsletter_jobs').insert({

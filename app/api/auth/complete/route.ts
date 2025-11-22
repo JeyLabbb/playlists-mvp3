@@ -553,9 +553,6 @@ export async function POST(request: Request) {
             full_name: parsed.data.displayName,
             name: parsed.data.displayName,
           },
-          data: {
-            full_name: parsed.data.displayName,
-          },
         });
       } catch (metaError) {
         console.warn('[AUTH] Failed to update user metadata during onboarding:', metaError);
@@ -666,7 +663,12 @@ export async function POST(request: Request) {
                 // Actualizar stats del referrer directamente
                 const kv = await import('@vercel/kv');
                 const referrerProfileKey = `jey_user_profile:${refEmail}`;
-                const referrerProfile = await kv.kv.get(referrerProfileKey) || {};
+                const referrerProfile = (await kv.kv.get(referrerProfileKey) || {}) as { 
+                  referredQualifiedCount?: number; 
+                  referrals?: string[]; 
+                  plan?: string; 
+                  founderSince?: string;
+                };
                 
                 const referredQualifiedCount = (referrerProfile.referredQualifiedCount || 0) + 1;
                 const referrals = referrerProfile.referrals || [];
@@ -713,7 +715,7 @@ export async function POST(request: Request) {
                 
                 // También actualizar el perfil del nuevo usuario con el referrer
                 const newUserProfileKey = `jey_user_profile:${pleiaUser.email.toLowerCase()}`;
-                const newUserProfile = await kv.kv.get(newUserProfileKey) || {};
+                const newUserProfile = (await kv.kv.get(newUserProfileKey) || {}) as Record<string, any>;
                 await kv.kv.set(newUserProfileKey, {
                   ...newUserProfile,
                   email: pleiaUser.email.toLowerCase(),

@@ -19,32 +19,29 @@ type PleiaSessionResult = {
 };
 
 export function usePleiaSession(): PleiaSessionResult {
-  try {
-    const { session, isLoading } = useSessionContext();
+  // Hook must be called unconditionally - cannot be inside try-catch
+  // All components using this hook should be wrapped in SessionContextProvider
+  // If provider is not available, this will throw (development error)
+  const { session, isLoading } = useSessionContext();
 
-    if (isLoading) {
-      return { data: null, status: 'loading' };
-    }
-
-    if (session?.user) {
-      const data: PleiaSession = {
-        user: {
-          email: session.user.email ?? '',
-          name: session.user.user_metadata?.full_name || session.user.email || null,
-          image: session.user.user_metadata?.avatar_url || null,
-          id: session.user.id,
-          metadata: session.user.user_metadata,
-        },
-      };
-
-      return { data, status: 'authenticated' };
-    }
-
-    return { data: null, status: 'unauthenticated' };
-  } catch (error) {
-    // If SessionContext is not available (e.g., SupabaseProvider not mounted), return unauthenticated
-    console.warn('[PLEIA-SESSION] SessionContext not available:', error);
-    return { data: null, status: 'unauthenticated' };
+  if (isLoading) {
+    return { data: null, status: 'loading' };
   }
+
+  if (session?.user) {
+    const data: PleiaSession = {
+      user: {
+        email: session.user.email ?? '',
+        name: session.user.user_metadata?.full_name || session.user.email || null,
+        image: session.user.user_metadata?.avatar_url || null,
+        id: session.user.id,
+        metadata: session.user.user_metadata,
+      },
+    };
+
+    return { data, status: 'authenticated' };
+  }
+
+  return { data: null, status: 'unauthenticated' };
 }
 

@@ -83,7 +83,11 @@ export async function GET() {
           .from('users')
           .select('id, email, plan')
           .in('id', uniqueUserIds);
-        effectiveRows = fallback.data;
+        effectiveRows = (fallback.data || []).map((row: any) => ({
+          ...row,
+          username: null,
+          last_prompt_at: null,
+        }));
         effectiveError = fallback.error;
         
         // Si aún así no funciona, intentar obtener username de otra tabla o usar email como fallback
@@ -210,7 +214,7 @@ export async function GET() {
             const { data: authUsers, error: authError } = await adminSupabase.auth.admin.listUsers();
             if (!authError && authUsers?.users) {
               missingIds.forEach((missingId) => {
-                const authUser = authUsers.users.find(u => u.id === missingId);
+                const authUser = (authUsers.users as any[]).find((u: any) => u.id === missingId);
                 if (authUser?.email) {
                   // Crear entrada mínima en userDetailsMap con solo el email
                   userDetailsMap.set(missingId, {

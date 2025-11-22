@@ -218,7 +218,9 @@ function normalizeRecipients(entries: RawRecipient[]): NormalizedRecipient[] {
         recipientId: entry.recipientId ?? null,
       };
     })
-    .filter((item): item is NormalizedRecipient => Boolean(item?.email));
+    .filter((item) => {
+      return item !== null && typeof item === 'object' && 'email' in item && typeof item.email === 'string' && item.email.length > 0;
+    }) as NormalizedRecipient[];
 }
 
 function resolveBaseUrl() {

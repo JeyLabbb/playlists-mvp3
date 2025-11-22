@@ -21,8 +21,9 @@ const updateWorkflowSchema = z.object({
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   try {
     const adminAccess = await ensureAdminAccess(request);
     if (!adminAccess.ok) {
@@ -42,14 +43,14 @@ export async function PATCH(
       const { error } = await supabase
         .from('newsletter_workflows')
         .update(updates)
-        .eq('id', params.id);
+        .eq('id', id);
       if (error) throw error;
     }
 
     if (payload.steps) {
-      await supabase.from('newsletter_workflow_steps').delete().eq('workflow_id', params.id);
+      await supabase.from('newsletter_workflow_steps').delete().eq('workflow_id', id);
       const stepRows = payload.steps.map((step, index) => ({
-        workflow_id: params.id,
+        workflow_id: id,
         step_order: index,
         action_type: step.action_type,
         action_config: step.action_config,
@@ -60,7 +61,7 @@ export async function PATCH(
     const { data, error: refreshedError } = await supabase
       .from('newsletter_workflows')
       .select('*, steps:newsletter_workflow_steps(*)')
-      .eq('id', params.id)
+      .eq('id', id)
       .single();
     if (refreshedError) throw refreshedError;
 
@@ -76,15 +77,16 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   try {
     const adminAccess = await ensureAdminAccess(request);
     if (!adminAccess.ok) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
     const supabase = await getNewsletterAdminClient();
-    await supabase.from('newsletter_workflows').delete().eq('id', params.id);
+    await supabase.from('newsletter_workflows').delete().eq('id', id);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('[NEWSLETTER] workflow DELETE error:', error);

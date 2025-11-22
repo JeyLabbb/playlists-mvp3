@@ -158,8 +158,8 @@ export default function PaywallHost() {
               limit: prev.usage.limit ?? usageStatus.usage?.limit ?? 5,
             },
             // Mantener canAccessAdvantage del payload si ya está calculado
-            canAccessAdvantage: prev.canAccessAdvantage ?? usageStatus.canAccessAdvantage,
-            advantage: prev.advantage ?? usageStatus.canAccessAdvantage,
+            canAccessAdvantage: prev.canAccessAdvantage ?? (usageStatus as any)?.canAccessAdvantage,
+            advantage: prev.advantage ?? (usageStatus as any)?.canAccessAdvantage,
             isEarlyFounderCandidate: prev.isEarlyFounderCandidate ?? usageStatus.isEarlyFounderCandidate,
           };
         }
@@ -167,8 +167,8 @@ export default function PaywallHost() {
         return {
           ...(prev || {}),
           usage: usageStatus,
-          canAccessAdvantage: prev?.canAccessAdvantage ?? usageStatus.canAccessAdvantage,
-          advantage: prev?.advantage ?? usageStatus.canAccessAdvantage,
+          canAccessAdvantage: prev?.canAccessAdvantage ?? (usageStatus as any)?.canAccessAdvantage,
+          advantage: prev?.advantage ?? (usageStatus as any)?.canAccessAdvantage,
           isEarlyFounderCandidate: prev?.isEarlyFounderCandidate ?? usageStatus.isEarlyFounderCandidate,
         };
       });

@@ -48,7 +48,7 @@ export default function CardNav({
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const { isFounder, ready: profileReady, data: profileData, plan } = useProfile();
-  const { remaining, hasUnlimitedUses, loading: usageLoading, maxUses } = useUsageStatus({ disabled: !session?.user });
+  const { remaining, unlimited: hasUnlimitedUses, isLoading: usageLoading, maxUses } = useUsageStatus({ disabled: !session?.user });
   const { count: friendsNotificationsCount, isLoading: notificationsLoading } = useFriendsNotifications();
   const isFounderPlan = isFounder || profileData?.isFounder || plan === 'founder';
   

@@ -238,8 +238,11 @@ async function ensureUser(
       query = query.eq('email', email);
     }
 
-    const { data } = await query.maybeSingle();
-    let existingUser = (data ?? null) as UserRow | null;
+    const { data, error } = await query.maybeSingle();
+    let existingUser: UserRow | null = null;
+    if (!error && data) {
+      existingUser = data as unknown as UserRow;
+    }
     if (existingUser) {
       if ((!existingUser.username || existingUser.username.length === 0) && columns?.username && email) {
         const generated = generateUsername(email, userId || existingUser.id);
@@ -331,14 +334,14 @@ async function ensureUser(
           .eq('email', email)
           .maybeSingle();
         if (duplicate) {
-          return duplicate as UserRow;
+          return duplicate as unknown as UserRow;
         }
       }
       console.warn('[USAGE] Failed to insert user row:', insertError);
       return null;
     }
 
-    return (inserted ?? null) as UserRow | null;
+    return (inserted ? (inserted as unknown as UserRow) : null);
   } catch (error) {
     console.error('[USAGE] ensureUser error:', error);
     return null;

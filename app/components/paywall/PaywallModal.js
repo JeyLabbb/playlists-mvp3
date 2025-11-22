@@ -5,8 +5,7 @@ import { useMemo } from 'react';
 const DEFAULT_LIMIT = 5;
 
 export default function PaywallModal({ isOpen, onClose, usage, onBuyFounder }) {
-  if (!isOpen) return null;
-
+  // Hook must be called unconditionally - move before early return
   const summary = useMemo(() => {
     // 🚨 CRITICAL: Usar EXACTAMENTE la misma estructura que devuelve /api/usage/status y useUsageStatus
     // Esto asegura que los datos coincidan con lo que se muestra en el perfil
@@ -123,6 +122,9 @@ export default function PaywallModal({ isOpen, onClose, usage, onBuyFounder }) {
 
     return result;
   }, [usage]);
+
+  // Early return after hooks - hooks must be called unconditionally
+  if (!isOpen) return null;
 
   const {
     planLabel,
