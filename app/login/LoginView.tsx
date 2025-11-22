@@ -25,9 +25,21 @@ export default function LoginView({ redirectTo }: Props) {
     setLoading(true);
 
     try {
+      // 🚨 CRITICAL: En producción, siempre usar la URL de producción
+      // window.location.origin puede ser localhost en algunos casos
+      const getOrigin = () => {
+        if (typeof window === 'undefined') return undefined;
+        const origin = window.location.origin;
+        // Si estamos en producción pero origin es localhost, usar producción
+        if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+          return process.env.NEXT_PUBLIC_SITE_URL || 'https://playlists.jeylabbb.com';
+        }
+        return origin;
+      };
+      
       const callbackUrl =
         typeof window !== 'undefined'
-          ? `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(
+          ? `${getOrigin()}/auth/callback?redirect=${encodeURIComponent(
               redirectTo || '/',
             )}`
           : undefined;
