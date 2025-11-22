@@ -273,22 +273,7 @@ export async function GET() {
 
     // 🚨 CRITICAL: Procesar solicitudes salientes con búsquedas directas si es necesario
     const outgoingPromises = (outgoingRes.data ?? []).map(async (row) => {
-      const detail = userDetailsMap.get(row.receiver_id) ?? { email: null, username: null };
-      
-      // 🚨 CRITICAL: Log detallado para debugging
-      console.log('[SOCIAL] Processing outgoing request:', {
-        requestId: row.id,
-        receiverId: row.receiver_id,
-        hasDetailInMap: userDetailsMap.has(row.receiver_id),
-        detail: detail ? {
-          hasEmail: !!detail.email,
-          email: detail.email?.substring(0, 20) + '...',
-          hasUsername: !!detail.username,
-          username: detail.username
-        } : null,
-        mapSize: userDetailsMap.size,
-        allMapKeys: Array.from(userDetailsMap.keys()).slice(0, 5)
-      });
+      let detail = userDetailsMap.get(row.receiver_id) ?? { email: null, username: null };
       
       // 🚨 CRITICAL: Si no encontramos el usuario, intentar buscarlo directamente
       if (!detail.email && !detail.username) {
@@ -316,29 +301,66 @@ export async function GET() {
             const email = directUser.email ? directUser.email.trim().toLowerCase() : null;
             const username = (directUser as any).username ? (directUser as any).username.trim() : null;
             
-            userDetailsMap.set(row.receiver_id, {
+            detail = {
               email: email,
               username: username,
               plan: null,
               last_prompt_at: null
-            });
-            
-            return {
-              requestId: row.id,
-              receiverId: row.receiver_id,
-              status: row.status,
-              email: email,
-              username: normalizeUsername(username) || username,
-              createdAt: row.created_at,
             };
+            
+            userDetailsMap.set(row.receiver_id, detail);
           } else {
-            console.error('[SOCIAL] Direct lookup also failed:', {
-              receiverId: row.receiver_id,
-              error: directError?.message
-            });
+            // Si no está en users, intentar obtener email de auth.users
+            if (adminSupabase) {
+              try {
+                const { data: authUsers, error: authError } = await adminSupabase.auth.admin.listUsers();
+                if (!authError && authUsers?.users) {
+                  const authUser = (authUsers.users as any[]).find((u: any) => u.id === row.receiver_id);
+                  if (authUser?.email) {
+                    console.log('[SOCIAL] Found email from auth.users for receiver:', {
+                      id: row.receiver_id,
+                      email: authUser.email
+                    });
+                    
+                    detail = {
+                      email: authUser.email.toLowerCase(),
+                      username: null,
+                      plan: null,
+                      last_prompt_at: null
+                    };
+                    
+                    userDetailsMap.set(row.receiver_id, detail);
+                  }
+                }
+              } catch (authLookupError) {
+                console.warn('[SOCIAL] Error looking up receiver in auth.users:', authLookupError);
+              }
+            }
           }
         } catch (directLookupError) {
           console.error('[SOCIAL] Error in direct lookup:', directLookupError);
+          
+          // Último intento: buscar en auth.users
+          if (adminSupabase) {
+            try {
+              const { data: authUsers, error: authError } = await adminSupabase.auth.admin.listUsers();
+              if (!authError && authUsers?.users) {
+                const authUser = (authUsers.users as any[]).find((u: any) => u.id === row.receiver_id);
+                if (authUser?.email) {
+                  detail = {
+                    email: authUser.email.toLowerCase(),
+                    username: null,
+                    plan: null,
+                    last_prompt_at: null
+                  };
+                  
+                  userDetailsMap.set(row.receiver_id, detail);
+                }
+              }
+            } catch (authLookupError) {
+              console.warn('[SOCIAL] Error in final auth.users lookup:', authLookupError);
+            }
+          }
         }
       }
       
