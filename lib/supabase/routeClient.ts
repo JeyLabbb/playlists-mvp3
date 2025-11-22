@@ -9,10 +9,13 @@ export async function createSupabaseRouteClient() {
     throw new Error('Missing Supabase environment variables for route client');
   }
 
+  // For Next.js 15, cookies() is async, but createRouteHandlerClient expects
+  // a function that returns cookies synchronously. We need to await cookies()
+  // and then pass a function that returns the awaited cookieStore.
   const cookieStore = await cookies();
 
   return createRouteHandlerClient({
-    cookies: async () => cookieStore,
+    cookies: () => cookieStore as any,
   });
 }
 
