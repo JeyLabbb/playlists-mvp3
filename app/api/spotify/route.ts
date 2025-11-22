@@ -15,7 +15,7 @@ export async function GET() {
     const base =
       env.NEXTAUTH_URL && env.NEXTAUTH_URL.trim().length > 0
         ? env.NEXTAUTH_URL.replace(/\/$/, "")
-        : `http://127.0.0.1:${env.PORT}`;
+        : 'https://playlists.jeylabbb.com';
 
     const redirect_uri = `${base}/api/auth/callback/spotify`;
 

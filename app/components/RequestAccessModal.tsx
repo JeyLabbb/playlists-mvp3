@@ -93,7 +93,7 @@ export default function RequestAccessModal({ open, onClose }: Props) {
       localStorage.setItem('ea_pending', '1'); 
     } catch {}
     // Usar signIn de NextAuth
-    const baseUrl = process.env.NEXT_PUBLIC_NEXTAUTH_URL || 'http://127.0.0.1:3000';
+    const baseUrl = process.env.NEXT_PUBLIC_NEXTAUTH_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://playlists.jeylabbb.com';
     await signIn('spotify', { callbackUrl: `${baseUrl}/?from=oauth` });
   };
 

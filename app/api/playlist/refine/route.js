@@ -65,7 +65,8 @@ export async function POST(request) {
         // Use the original prompt with refinements to get more tracks
         const refinedPrompt = `${originalPrompt} ${refinements.genres?.join(' ') || ''} ${refinements.mood || ''}`.trim();
         
-        const response = await fetch('http://localhost:3000/api/playlist/llm', {
+        const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXTAUTH_URL || 'https://playlists.jeylabbb.com';
+        const response = await fetch(`${baseUrl}/api/playlist/llm`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

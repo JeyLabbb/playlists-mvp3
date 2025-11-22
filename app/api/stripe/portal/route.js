@@ -27,7 +27,7 @@ export async function POST(req) {
     console.log('[PORTAL] Creating billing portal session...');
     const portal = await stripe.billingPortal.sessions.create({
       customer: checkout.customer,
-      return_url: process.env.STRIPE_SUCCESS_URL || 'http://localhost:3000/checkout/success',
+      return_url: process.env.STRIPE_SUCCESS_URL || 'https://playlists.jeylabbb.com/checkout/success',
     });
 
     console.log('[PORTAL] Portal session created:', portal.url);

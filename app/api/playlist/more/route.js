@@ -37,7 +37,8 @@ export async function POST(request) {
     let additionalTracksList = [];
     
     try {
-      const response = await fetch('http://localhost:3000/api/playlist/llm', {
+      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXTAUTH_URL || 'https://playlists.jeylabbb.com';
+      const response = await fetch(`${baseUrl}/api/playlist/llm`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

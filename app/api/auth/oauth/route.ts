@@ -31,8 +31,8 @@ export async function POST(request: Request) {
         // Fallback a variable de entorno
         finalRedirectTo = `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`;
       } else {
-        // Último fallback (solo para desarrollo local)
-        finalRedirectTo = 'http://localhost:3000/auth/callback';
+        // Último fallback a producción
+        finalRedirectTo = 'https://playlists.jeylabbb.com/auth/callback';
       }
     }
 
