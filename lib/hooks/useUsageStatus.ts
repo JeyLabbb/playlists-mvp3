@@ -11,8 +11,8 @@ const FALLBACK_FREE_LIMIT = Number.parseInt(
   10,
 );
 
-const HUB_MODE_ENABLED =
-  process.env.NEXT_PUBLIC_HUB_MODE === '1' || process.env.HUB_MODE === '1';
+// HUB_MODE eliminado - siempre desactivado
+const HUB_MODE_ENABLED = false;
 
 type UsageResponse = {
   needsAccount?: boolean;
@@ -66,8 +66,12 @@ export function useUsageStatus(options: UseUsageStatusOptions = {}) {
     mutate,
     isValidating,
   } = useSWR<UsageResponse>(disabled ? null : '/api/usage/status', fetcher, {
-    revalidateOnFocus: false,
+    revalidateOnFocus: false, // 🚨 OPTIMIZATION: Desactivar revalidación al enfocar
     refreshInterval: disabled ? 0 : refreshInterval,
+    dedupingInterval: 5000, // 🚨 OPTIMIZATION: Cachear por 5 segundos para evitar peticiones duplicadas
+    keepPreviousData: true, // 🚨 OPTIMIZATION: Mantener datos anteriores mientras carga
+    errorRetryCount: 2, // 🚨 OPTIMIZATION: Reducir reintentos
+    errorRetryInterval: 500, // 🚨 OPTIMIZATION: Reintentar más rápido
   });
 
   const refresh = useCallback(() => mutate(), [mutate]);
@@ -114,13 +118,11 @@ export function useUsageStatus(options: UseUsageStatusOptions = {}) {
     const counters = data.counters || null;
     const usage = data.usage || {};
     let planValue = usage.plan || data.plan || 'free';
-    if (planValue === 'hub' && !HUB_MODE_ENABLED) {
+    // HUB_MODE eliminado - convertir 'hub' a 'free'
+    if (planValue === 'hub') {
       planValue = 'free';
     }
-    const planIsUnlimited =
-      planValue === 'hub'
-        ? HUB_MODE_ENABLED
-        : ['founder', 'premium', 'monthly'].includes(planValue);
+    const planIsUnlimited = ['founder', 'premium', 'monthly'].includes(planValue);
     const current =
       typeof usage.current === 'number'
         ? usage.current
@@ -213,6 +215,7 @@ export function useUsageStatus(options: UseUsageStatusOptions = {}) {
     termsAccepted: usageState?.termsAccepted ?? true,
     termsAcceptedAt: usageState?.termsAcceptedAt ?? null,
     marketingOptIn: usageState?.marketingOptIn ?? false,
+    isEarlyFounderCandidate: usageState?.isEarlyFounderCandidate ?? false, // 🚨 CRITICAL: Exponer flag de early founder candidate
   };
 }
 

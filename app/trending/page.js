@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import AnimatedList from '../components/AnimatedList';
+import { normalizeUsername } from '../../lib/social/usernameUtils';
 
 export default function TrendingPage() {
+  const router = useRouter();
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState('recent');
@@ -131,9 +134,15 @@ export default function TrendingPage() {
       
       // Check if this is an example playlist (starts with 37i9dQZF1DX)
       const isExamplePlaylist = playlist.playlistId.startsWith('37i9dQZF1DX');
+      
+      // Get owner email from playlist for access control
+      const ownerEmail = playlist.ownerEmail || playlist.author?.email || null;
+      
       const tracksEndpoint = isExamplePlaylist 
         ? `/api/spotify/example-tracks?id=${playlist.playlistId}`
-        : `/api/spotify/playlist-tracks?id=${playlist.playlistId}`;
+        : ownerEmail
+          ? `/api/spotify/playlist-tracks?id=${playlist.playlistId}&ownerEmail=${encodeURIComponent(ownerEmail)}`
+          : `/api/spotify/playlist-tracks?id=${playlist.playlistId}`;
       
       const tracksResponse = await fetch(tracksEndpoint);
       const tracksData = await tracksResponse.json();
@@ -147,14 +156,55 @@ export default function TrendingPage() {
       } else {
         console.error('Failed to load playlist tracks:', tracksData.error);
         
-        // If authentication is required, show a helpful message
+        // If authentication is required, try to get a preview (25% of playlist) from Spotify public API
         if (tracksData.error === 'Authentication required for playlist access') {
-          setPreviewTracks([{
-            name: '🔐 Autenticación Requerida',
-            artists: ['Inicia sesión con Spotify para ver las canciones'],
-            id: 'auth-required',
-            open_url: null
-          }]);
+          try {
+            // Try to fetch playlist info from Spotify public API (no auth needed for public playlists)
+            const playlistId = playlist.playlistId;
+            if (playlistId) {
+              const publicResponse = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, {
+                headers: {
+                  'Content-Type': 'application/json'
+                }
+              });
+              
+              if (publicResponse.ok) {
+                const playlistData = await publicResponse.json();
+                const allTracks = playlistData.tracks?.items || [];
+                // Show 25% of the playlist (minimum 5 tracks, maximum 15)
+                const previewCount = Math.max(5, Math.min(15, Math.ceil(allTracks.length * 0.25)));
+                const previewTracksData = allTracks.slice(0, previewCount).map(item => {
+                  const track = item.track;
+                  if (!track) return null;
+                  return {
+                    id: track.id,
+                    name: track.name,
+                    artists: track.artists?.map(artist => artist.name) || [],
+                    artistNames: track.artists?.map(artist => artist.name).join(', ') || 'Artista desconocido',
+                    open_url: track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
+                    preview_url: track.preview_url || null,
+                    duration_ms: track.duration_ms,
+                    popularity: track.popularity
+                  };
+                }).filter(Boolean);
+                
+                if (previewTracksData.length > 0) {
+                  setPreviewTracks(previewTracksData);
+                  console.log(`[PREVIEW] Loaded ${previewTracksData.length} preview tracks (${previewCount} of ${allTracks.length} total)`);
+                } else {
+                  setPreviewTracks([]);
+                }
+              } else {
+                // If public API also fails, show empty state with button to open in Spotify
+                setPreviewTracks([]);
+              }
+            } else {
+              setPreviewTracks([]);
+            }
+          } catch (previewError) {
+            console.error('Error fetching preview from public API:', previewError);
+            setPreviewTracks([]);
+          }
         } else {
           setPreviewTracks([]);
         }
@@ -280,7 +330,19 @@ export default function TrendingPage() {
             createdAt: playlist.createdAt,
             updatedAt: playlist.updatedAt || playlist.createdAt,
             author: {
-              username: playlist.username || playlist.userEmail?.split('@')[0] || 'unknown',
+              username: (() => {
+                const rawUsername = playlist.username || playlist.userEmail?.split('@')[0] || 'unknown';
+                // Normalizar username (quitar sufijo -xxxxx)
+                if (rawUsername.includes('-')) {
+                  const parts = rawUsername.split('-');
+                  const lastPart = parts[parts.length - 1];
+                  // Si el último segmento es 6-8 caracteres alfanuméricos, es probablemente un sufijo generado
+                  if (/^[a-z0-9]{6,8}$/i.test(lastPart) && parts.length > 1) {
+                    return parts.slice(0, -1).join('-');
+                  }
+                }
+                return rawUsername;
+              })(),
               displayName: playlist.userName || playlist.userEmail?.split('@')[0] || 'Usuario',
               image: playlist.userImage || null
             }
@@ -451,10 +513,14 @@ export default function TrendingPage() {
                                 <div>
                                   <span 
                                     className="text-blue-400 hover:text-blue-300 font-medium text-xs sm:text-sm cursor-pointer transition-colors"
-                                    onClick={() => window.location.href = `/u/${playlist.author?.username || 'unknown'}`}
+                                    onClick={() => {
+                                      if (playlist.author?.username) {
+                                        router.push(`/u/${playlist.author.username}`);
+                                      }
+                                    }}
                                     title="Ver perfil del autor"
                                   >
-                                    @{playlist.author?.username || 'unknown'}
+                                    @{normalizeUsername(playlist.author?.username) || playlist.author?.username || 'unknown'}
                                   </span>
                                   <div className="text-xs text-gray-500 sm:block hidden">
                                     {playlist.author?.displayName || 'Usuario'}
@@ -560,9 +626,9 @@ export default function TrendingPage() {
                   ) : previewTracks.length > 0 ? (
                     <div className="p-4">
                       <AnimatedList
-                        items={previewTracks.slice(0, 15).map((track) => ({
+                        items={previewTracks.map((track) => ({
                           title: track.name || 'Título desconocido',
-                          artist: track.artists?.join(', ') || track.artistNames?.join(', ') || 'Artista desconocido',
+                          artist: track.artists?.join(', ') || track.artistNames || 'Artista desconocido',
                           trackId: track.id,
                           openUrl: track.open_url || `https://open.spotify.com/track/${track.id}`
                         }))}
@@ -575,17 +641,41 @@ export default function TrendingPage() {
                         className=""
                         itemClassName=""
                       />
-                      {previewTracks.length > 15 && (
-                        <div className="text-center py-4">
-                          <p className="text-gray-500 text-sm">
-                            ... y {previewTracks.length - 15} canciones más
+                      {previewPlaylist && previewPlaylist.trackCount > previewTracks.length && (
+                        <div className="text-center py-4 border-t border-gray-700 mt-4">
+                          <p className="text-gray-400 text-sm mb-3">
+                            Mostrando {previewTracks.length} de {previewPlaylist.trackCount} canciones
                           </p>
+                          {previewPlaylist.spotifyUrl && (
+                            <button
+                              onClick={() => {
+                                trackClick(previewPlaylist.playlistId, previewPlaylist.spotifyUrl);
+                              }}
+                              className="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-lg transition-colors duration-200 mx-auto"
+                            >
+                              <span className="text-xl">🎧</span>
+                              <span>Abrir playlist completa en Spotify</span>
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
                   ) : (
                     <div className="p-6 text-center">
-                      <p className="text-gray-400">No se pudieron cargar las canciones</p>
+                      <p className="text-gray-400 mb-4">No se pudieron cargar las canciones</p>
+                      {previewPlaylist?.spotifyUrl && (
+                        <button
+                          onClick={() => {
+                            trackClick(previewPlaylist.playlistId, previewPlaylist.spotifyUrl);
+                            setPreviewPlaylist(null);
+                            setPreviewTracks([]);
+                          }}
+                          className="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-lg transition-colors duration-200 mx-auto"
+                        >
+                          <span className="text-xl">🎧</span>
+                          <span>Abrir en Spotify</span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -629,7 +719,7 @@ export default function TrendingPage() {
           {/* Footer */}
           <div className="text-center mt-12 pt-8 border-t border-gray-700">
             <p className="text-gray-500 text-sm">
-              Playlists generadas con IA y creadas por usuarios de JeyLabbb
+              Playlists generadas con IA • by MTRYX
             </p>
             <p className="text-gray-600 text-xs mt-1">
               Haz clic en el nombre del autor para ver sus otras creaciones

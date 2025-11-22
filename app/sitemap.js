@@ -1,5 +1,5 @@
 export default async function sitemap() {
-  const base = process.env.NEXT_PUBLIC_SITE_URL || 'https://pleia.app';
+  const base = process.env.NEXT_PUBLIC_SITE_URL || 'https://playlists.jeylabbb.com';
   const routes = [
     '/',
     '/trending',
@@ -8,6 +8,10 @@ export default async function sitemap() {
     '/crear-playlists',
     '/como-funciona',
     '/faq',
+    '/terms',
+    '/privacy',
+    '/support',
+    '/pricing',
   ];
   return routes.map((route) => ({
     url: `${base}${route}`,

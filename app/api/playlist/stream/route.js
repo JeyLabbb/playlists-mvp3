@@ -212,22 +212,41 @@ function extractCollaborators(tracks, mainArtistName) {
   const mainArtistLower = mainArtistName.toLowerCase();
   
   for (const track of tracks) {
+    // 🚨 CRITICAL: Buscar en ambos artistas (objetos) y artistNames (strings)
+    const trackArtists = [];
+    
+    // Extraer de track.artists (objetos con {id, name})
     if (track.artists && Array.isArray(track.artists)) {
       for (const artist of track.artists) {
-        if (artist.name && artist.name.toLowerCase() !== mainArtistLower) {
-          // Filter out generic names that aren't real artists
-          const artistName = artist.name.trim();
-          const artistLower = artistName.toLowerCase();
-          
-          if (artistName && 
-              !artistName.includes('Various Artists') &&
-              !artistName.includes('Unknown Artist') &&
-              !artistName.includes('Top Hits') &&
-              !artistName.includes('Playlist') &&
-              !artistName.includes('Mix') &&
-              artistName.length > 1) {
-            collaborators.add(artistName);
-          }
+        const artistName = typeof artist === 'string' ? artist : (artist?.name || '');
+        if (artistName) trackArtists.push(artistName);
+      }
+    }
+    
+    // Extraer de track.artistNames (array de strings)
+    if (track.artistNames && Array.isArray(track.artistNames)) {
+      for (const artistName of track.artistNames) {
+        if (typeof artistName === 'string' && artistName) {
+          trackArtists.push(artistName);
+        }
+      }
+    }
+    
+    // Procesar todos los artistas encontrados
+    for (const artistName of trackArtists) {
+      const artistLower = artistName.toLowerCase();
+      if (artistLower !== mainArtistLower) {
+        // Filter out generic names that aren't real artists
+        const trimmedName = artistName.trim();
+        
+        if (trimmedName && 
+            !trimmedName.includes('Various Artists') &&
+            !trimmedName.includes('Unknown Artist') &&
+            !trimmedName.includes('Top Hits') &&
+            !trimmedName.includes('Playlist') &&
+            !trimmedName.includes('Mix') &&
+            trimmedName.length > 1) {
+          collaborators.add(trimmedName);
         }
       }
     }
@@ -1853,20 +1872,129 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Starting multi-artist fan-out for ${distinctPriority} artists (order-invariant)`);
         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Target total: ${targetTotal}, Remaining: ${remaining}`);
         
-        // FASE 1: Fan-out multi-artista (orden-invariante) - procesar TODOS los priority artists (siempre activo)
-        // 🚨 CRITICAL: NO detenerse cuando alcanza remaining - procesar TODOS los priority artists hasta su cap
-        for (const [idx, artistName] of bucketToArtist.entries()) {
-            // 🚨 CRITICAL: NO break aquí - procesar TODOS los priority artists hasta su cap
+        // FASE 1: Fan-out multi-artista (orden-invariante) - procesar TODOS los priority artists
+        // 🚨 CRITICAL: Si hay muchos priority artists, usar ROTACIÓN (1 canción de cada uno, luego otra vez)
+        // para asegurar que todos aparezcan antes de cumplir caps individuales
+        const totalPriorityTracksNeeded = Array.from(bucketPlan.values()).reduce((sum, bucket) => sum + bucket.target, 0);
+        const useRotation = distinctPriority > 3 || totalPriorityTracksNeeded > targetTotal * 0.6; // Usar rotación si hay muchos priority o si ocupan >60% del total
+        
+        if (useRotation) {
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using ROTATION strategy (${distinctPriority} priority artists, ${totalPriorityTracksNeeded} tracks needed)`);
+          
+          // Pre-cargar tracks de todos los priority artists
+          const artistTracksMap = new Map(); // bucketIdx → array de tracks disponibles
+          
+          for (const [idx, artistName] of bucketToArtist.entries()) {
+            const bucket = bucketPlan.get(idx);
+            if (!bucket) continue;
+            
+            const resolvedArtist = resolvedArtists.get(artistName);
+            const artistToUse = resolvedArtist?.name || artistName;
+            const artistId = resolvedArtist?.id || null;
+            
+            try {
+              // Obtener más tracks de los necesarios para tener opciones en la rotación
+              const tracksToFetch = Math.max(bucket.target * 2, 20);
+              const topTracks = await getArtistTopTracks(accessToken, artistId || artistToUse, Math.min(tracksToFetch, 50));
+              
+              // Si aún necesitamos más, usar radio
+              let allTracksForArtist = [...topTracks];
+              if (topTracks.length > 0 && allTracksForArtist.length < tracksToFetch) {
+                const trackIds = topTracks.slice(0, 5).map(t => t.id).filter(Boolean);
+                if (trackIds.length > 0) {
+                  const radioTracks = await radioFromRelatedTop(
+                    accessToken,
+                    trackIds,
+                    {
+                      need: tracksToFetch - allTracksForArtist.length,
+                      market: FEATURE_SPOTIFY_MARKET_FALLBACK ? (process.env.SPOTIFY_MARKET || 'ES') : 'ES',
+                      seedArtistIds: artistId ? [artistId] : null
+                    }
+                  );
+                  allTracksForArtist.push(...radioTracks);
+                }
+              }
+              
+              // Si aún falta, usar búsqueda directa
+              if (allTracksForArtist.length < tracksToFetch) {
+                const directTracks = await searchTracksByArtists(accessToken, [artistToUse], tracksToFetch - allTracksForArtist.length);
+                allTracksForArtist.push(...directTracks);
+              }
+              
+              artistTracksMap.set(idx, allTracksForArtist);
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Pre-loaded ${allTracksForArtist.length} tracks for "${artistToUse}" (bucket ${idx})`);
+            } catch (err) {
+              console.error(`[STREAM:${traceId}] ARTIST_STYLE: Error pre-loading tracks for "${artistToUse}":`, err);
+              artistTracksMap.set(idx, []);
+            }
+          }
+          
+          // ROTACIÓN: tomar 1 track de cada priority artist y volver al inicio
+          let rotationIndex = 0;
+          let roundsCompleted = 0;
+          
+          while (roundsCompleted < Math.max(...Array.from(bucketPlan.values()).map(b => b.target))) {
+            let anyTrackAdded = false;
+            
+            for (let i = 0; i < distinctPriority; i++) {
+              const bucketIdx = rotationIndex % distinctPriority;
+              const bucket = bucketPlan.get(bucketIdx);
+              const artistName = bucketToArtist.get(bucketIdx);
+              
+              if (!bucket || bucket.current >= bucket.target) {
+                rotationIndex++;
+                continue;
+              }
+              
+              const tracksForThisArtist = artistTracksMap.get(bucketIdx) || [];
+              
+              // Buscar el primer track disponible que aún no se haya usado
+              let trackAdded = false;
+              for (let j = 0; j < tracksForThisArtist.length; j++) {
+                const track = tracksForThisArtist[j];
+                if (!track || seenTrackIds.has(track.id)) continue;
+                
+                if (addTrackWithCap(track, bucketIdx, true, artistName)) {
+                  trackAdded = true;
+                  anyTrackAdded = true;
+                  // Remover el track usado del array para no usarlo de nuevo
+                  tracksForThisArtist.splice(j, 1);
+                  break;
+                }
+              }
+              
+              if (!trackAdded && tracksForThisArtist.length === 0) {
+                // Si no hay más tracks disponibles para este artista, marcar como completo
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: No more tracks available for "${artistName}" (bucket ${bucketIdx}), marking as complete`);
+                bucket.current = bucket.target; // Forzar completar para salir del loop
+              }
+              
+              rotationIndex++;
+            }
+            
+            if (!anyTrackAdded) {
+              // Si no se añadió ningún track en esta ronda, salir
+              break;
+            }
+            
+            roundsCompleted++;
+          }
+          
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Rotation complete after ${roundsCompleted} rounds`);
+        } else {
+          // Estrategia normal: llenar cada bucket secuencialmente hasta su cap
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Using SEQUENTIAL strategy (${distinctPriority} priority artists)`);
+          
+          for (const [idx, artistName] of bucketToArtist.entries()) {
             const bucket = bucketPlan.get(idx);
             if (!bucket || bucket.current >= bucket.target) {
               console.log(`[STREAM:${traceId}] ARTIST_STYLE: Bucket ${idx} for "${artistName}" already full (${bucket?.current}/${bucket?.target}), skipping`);
-              continue; // Skip si bucket ya lleno
+              continue;
             }
             
             const needed = bucket.target - bucket.current;
             console.log(`[STREAM:${traceId}] ARTIST_STYLE: Processing bucket ${idx} for "${artistName}" (target: ${bucket.target}, current: ${bucket.current}, needed: ${needed})`);
             
-            // Obtener artista resuelto (si está habilitado strict resolver)
             const resolvedArtist = resolvedArtists.get(artistName);
             const artistToUse = resolvedArtist?.name || artistName;
             const artistId = resolvedArtist?.id || null;
@@ -1877,9 +2005,8 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
               console.log(`[STREAM:${traceId}] ARTIST_STYLE: Got ${topTracks.length} top tracks for "${artistToUse}"`);
               
               for (const track of topTracks) {
-                // 🚨 CRITICAL: Solo verificar bucket target, NO remaining - procesar hasta cap completo
                 if (bucket.current >= bucket.target) break;
-                addTrackWithCap(track, idx, true, artistName); // Pasar artistName para verificación
+                addTrackWithCap(track, idx, true, artistName);
               }
               
               // Si aún necesitamos más tracks para este bucket, usar radio/related
@@ -1900,14 +2027,9 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
                   
                   console.log(`[STREAM:${traceId}] ARTIST_STYLE: Got ${radioTracks.length} radio tracks for "${artistToUse}"`);
                   
-                  // Log radioFallbacks si hay alguno (telemetría)
-                  // Nota: radioFromRelatedTop ya loggea fallbacks internamente
-                  
                   for (const track of radioTracks) {
-                    // 🚨 CRITICAL: Solo verificar bucket target, NO remaining
                     if (bucket.current >= bucket.target) break;
-                    // Radio tracks pueden ser del artista o colaboradores, verificar que pertenezca al bucket
-                    addTrackWithCap(track, idx, true, artistName); // Pasar artistName para verificación
+                    addTrackWithCap(track, idx, true, artistName);
                   }
                 }
               }
@@ -1918,9 +2040,8 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
                 const directTracks = await searchTracksByArtists(accessToken, [artistToUse], stillNeeded * 2);
                 
                 for (const track of directTracks) {
-                  // 🚨 CRITICAL: Solo verificar bucket target, NO remaining
                   if (bucket.current >= bucket.target) break;
-                  addTrackWithCap(track, idx, true, artistName); // Pasar artistName para verificación
+                  addTrackWithCap(track, idx, true, artistName);
                 }
               }
               
@@ -1930,6 +2051,7 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
               console.error(`[STREAM:${traceId}] ARTIST_STYLE: Error processing "${artistToUse}":`, err);
             }
           }
+        }
           
         console.log(`[STREAM:${traceId}] ARTIST_STYLE: Multi-artist fan-out complete: ${allTracksCollected.length} tracks collected (target: ${targetTotal})`);
         
@@ -1992,22 +2114,57 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
                 const priorityArtistName = bucketToArtist.get(bucketIdx);
                 if (!priorityArtistName) continue;
                 
+                // 🚨 CRITICAL: Asegurar que tracks es un array y tiene la estructura correcta
+                const tracksArray = Array.isArray(tracks) ? tracks : [];
+                
                 // Extraer colaboradores de los tracks de este priority artist
-                const collaborators = extractCollaborators(tracks, priorityArtistName);
+                const collaborators = extractCollaborators(tracksArray, priorityArtistName);
                 collaborators.forEach(collab => allCollaborators.add(collab));
+                
+                // 🚨 CRITICAL: Si no hay colaboradores en tracks, intentar obtenerlos de los top tracks del artista
+                if (collaborators.length === 0) {
+                  try {
+                    const resolvedArtist = resolvedArtists.get(priorityArtistName);
+                    if (resolvedArtist?.id) {
+                      // Obtener top tracks del artista para extraer colaboradores
+                      const topTracksResponse = await fetch(`https://api.spotify.com/v1/artists/${resolvedArtist.id}/top-tracks?market=ES`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                      });
+                      if (topTracksResponse.ok) {
+                        const topTracksData = await topTracksResponse.json();
+                        const topTracks = topTracksData.tracks || [];
+                        const topTracksCollaborators = extractCollaborators(topTracks, priorityArtistName);
+                        topTracksCollaborators.forEach(collab => allCollaborators.add(collab));
+                        console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${topTracksCollaborators.length} collaborators from top tracks for "${priorityArtistName}"`);
+                      }
+                    }
+                  } catch (err) {
+                    console.warn(`[STREAM:${traceId}] ARTIST_STYLE: Error getting top tracks for "${priorityArtistName}":`, err);
+                  }
+                }
               }
               
               const collaboratorList = Array.from(allCollaborators);
               console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${collaboratorList.length} REAL collaborators from priority artists`);
               
-              // 🚨 CRITICAL: Aplicar fórmula: (N - (CAP * NUM_PRIORITY)) / NUM_PRIORITY
+              // 🚨 CRITICAL: Aplicar fórmula: (n canciones pedidas - x canciones de priority) / z priority artists
               // Esto distribuye los tracks no-priority equitativamente entre los priority artists
               const totalTracksForDistribution = targetTracksTotal || targetTotal;
-              const priorityTracksAllocated = perPriorityCap * distinctPriority;
-              const nonPriorityTracksNeeded = totalTracksForDistribution - priorityTracksAllocated;
-              const tracksPerPriorityArtist = Math.max(0, Math.floor(nonPriorityTracksNeeded / Math.max(1, distinctPriority)));
               
-              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Compensation formula: (${totalTracksForDistribution} - (${perPriorityCap} * ${distinctPriority})) / ${distinctPriority} = ${tracksPerPriorityArtist} per priority artist`);
+              // Calcular cuántas canciones de priority artists ya tenemos
+              let actualPriorityTracks = 0;
+              for (const [bucketIdx, bucket] of bucketPlan.entries()) {
+                actualPriorityTracks += bucket.current || 0;
+              }
+              
+              // Fórmula: (n - x) / z donde:
+              // n = totalTracksForDistribution (canciones pedidas)
+              // x = actualPriorityTracks (canciones de priority artists ya recogidas)
+              // z = distinctPriority (cantidad de priority artists)
+              const nonPriorityTracksNeeded = totalTracksForDistribution - actualPriorityTracks;
+              const tracksPerPriorityArtist = Math.max(0, Math.ceil(nonPriorityTracksNeeded / Math.max(1, distinctPriority)));
+              
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Compensation formula: (${totalTracksForDistribution} - ${actualPriorityTracks}) / ${distinctPriority} = ${tracksPerPriorityArtist} tracks de estilo por cada priority artist`);
               
               // Crear set de nombres de priority artists (se usará en varias partes)
               const priorityArtistNamesSet = new Set(priorityArtists.map(a => a.toLowerCase()));
@@ -2095,37 +2252,152 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
                 
                 console.log(`[STREAM:${traceId}] ARTIST_STYLE: Rotation complete: added ${allTracksCollected.length - (targetTotal - stillNeeded)} tracks from collaborators`);
               } else {
-                // Si no hay colaboradores, usar radio como fallback (pero filtrar priority artists)
-                const allPriorityTracks = Array.from(bucketTracks.values()).flat().slice(0, 5);
+                // 🚨 CRITICAL: Si no hay colaboradores directos, buscar colaboradores de segundo nivel y radios
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: No direct collaborators found, searching second-level collaborators and radio tracks`);
+                
+                // ESTRATEGIA 1: Radios de tracks ya seleccionados (más confiable)
+                const allPriorityTracks = Array.from(bucketTracks.values()).flat().slice(0, 10); // Usar más tracks para mejor radio
                 const seedTrackIds = allPriorityTracks.map(t => t.id).filter(Boolean);
                 
-                if (seedTrackIds.length > 0) {
-                  const radioTracks = await radioFromRelatedTop(
-                    accessToken,
-                    seedTrackIds,
-                    {
-                      need: stillNeeded * 2,
-                      market: FEATURE_SPOTIFY_MARKET_FALLBACK ? (process.env.SPOTIFY_MARKET || 'ES') : 'ES'
-                    }
-                  );
-                  
-                  // Filtrar tracks que NO sean de priority artists (priorityArtistNamesSet ya está definido arriba)
-                  for (const track of radioTracks) {
-                    // 🚨 CRITICAL: Usar targetTotal
-                    if (allTracksCollected.length >= targetTotal) break;
-                    
-                    const mainArtistName = (track.artists?.[0]?.name || track.artistNames?.[0] || '').toLowerCase();
-                    const isPriority = priorityArtistNamesSet.has(mainArtistName);
-                    
-                    if (!isPriority) {
-                      // Asignar a bucket "virtual" -1 para no-priority
-                      const capCheck = checkCapInTime(track, artistCounters, nonPriorityCap, false, specialCases, specialCases.onlyArtists || []);
-                      if (capCheck.allowed) {
-                        addTrackWithCap(track, -1, false);
+                // ESTRATEGIA 2: Buscar colaboradores de segundo nivel (colaboradores de colaboradores)
+                const secondLevelCollaborators = new Set();
+                for (const priorityArtistName of priorityArtists) {
+                  const resolvedArtist = resolvedArtists.get(priorityArtistName);
+                  if (resolvedArtist?.id) {
+                    try {
+                      // Obtener top tracks del priority artist
+                      const topTracksResponse = await fetch(`https://api.spotify.com/v1/artists/${resolvedArtist.id}/top-tracks?market=ES`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                      });
+                      if (topTracksResponse.ok) {
+                        const topTracksData = await topTracksResponse.json();
+                        const topTracks = topTracksData.tracks || [];
+                        
+                        // Extraer colaboradores de primer nivel
+                        const firstLevelCollabs = extractCollaborators(topTracks, priorityArtistName);
+                        
+                        // Para cada colaborador de primer nivel, buscar sus colaboradores (segundo nivel)
+                        for (const firstLevelCollab of firstLevelCollabs.slice(0, 5)) { // Limitar a 5 para no hacer demasiadas llamadas
+                          try {
+                            // Buscar artista por nombre
+                            const searchResponse = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(firstLevelCollab)}&type=artist&limit=1`, {
+                              headers: { 'Authorization': `Bearer ${accessToken}` }
+                            });
+                            if (searchResponse.ok) {
+                              const searchData = await searchResponse.json();
+                              const collabArtist = searchData.artists?.items?.[0];
+                              if (collabArtist?.id) {
+                                // Obtener top tracks del colaborador de primer nivel
+                                const collabTopTracksResponse = await fetch(`https://api.spotify.com/v1/artists/${collabArtist.id}/top-tracks?market=ES`, {
+                                  headers: { 'Authorization': `Bearer ${accessToken}` }
+                                });
+                                if (collabTopTracksResponse.ok) {
+                                  const collabTopTracksData = await collabTopTracksResponse.json();
+                                  const collabTopTracks = collabTopTracksData.tracks || [];
+                                  
+                                  // Extraer colaboradores de segundo nivel (excluyendo el priority artist y el colaborador de primer nivel)
+                                  const secondLevel = extractCollaborators(collabTopTracks, firstLevelCollab);
+                                  secondLevel.forEach(collab => {
+                                    // Excluir priority artists y colaboradores de primer nivel
+                                    if (!priorityArtistNamesSet.has(collab.toLowerCase()) && 
+                                        !firstLevelCollabs.some(fc => fc.toLowerCase() === collab.toLowerCase())) {
+                                      secondLevelCollaborators.add(collab);
+                                    }
+                                  });
+                                }
+                              }
+                            }
+                          } catch (err) {
+                            console.warn(`[STREAM:${traceId}] ARTIST_STYLE: Error getting second-level collaborators for "${firstLevelCollab}":`, err);
+                          }
+                        }
                       }
+                    } catch (err) {
+                      console.warn(`[STREAM:${traceId}] ARTIST_STYLE: Error getting top tracks for "${priorityArtistName}":`, err);
                     }
                   }
                 }
+                
+                const secondLevelList = Array.from(secondLevelCollaborators);
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${secondLevelList.length} second-level collaborators`);
+                
+                // ESTRATEGIA 3: Usar radios de tracks ya seleccionados (sin géneros por defecto)
+                let radioTracks = [];
+                if (seedTrackIds.length > 0) {
+                  try {
+                    radioTracks = await radioFromRelatedTop(
+                      accessToken,
+                      seedTrackIds,
+                      {
+                        need: stillNeeded * 3, // Pedir más tracks para tener opciones después de filtrar
+                        market: FEATURE_SPOTIFY_MARKET_FALLBACK ? (process.env.SPOTIFY_MARKET || 'ES') : 'ES',
+                        seedArtistIds: null, // No usar artistas directamente (pueden fallar con 404)
+                        seedGenres: null // 🚨 CRITICAL: NO usar géneros por defecto
+                      }
+                    );
+                  } catch (err) {
+                    console.warn(`[STREAM:${traceId}] ARTIST_STYLE: Error getting radio tracks:`, err);
+                  }
+                }
+                
+                // Si hay colaboradores de segundo nivel, buscar tracks de ellos también
+                if (secondLevelList.length > 0 && allTracksCollected.length < targetTotal) {
+                  const remainingFromRadio = targetTotal - allTracksCollected.length;
+                  const tracksPerSecondLevel = Math.ceil(remainingFromRadio / secondLevelList.length);
+                  
+                  for (const secondLevelCollab of secondLevelList.slice(0, 10)) { // Limitar a 10
+                    if (allTracksCollected.length >= targetTotal) break;
+                    
+                    try {
+                      const secondLevelTracks = await searchTracksByArtists(accessToken, [secondLevelCollab], tracksPerSecondLevel);
+                      
+                      // Filtrar tracks que NO tengan priority artists
+                      const filteredSecondLevelTracks = secondLevelTracks.filter(track => {
+                        const trackArtists = (track.artists || track.artistNames || [])
+                          .map(a => (typeof a === 'string' ? a : a?.name || '').toLowerCase())
+                          .filter(Boolean);
+                        return !trackArtists.some(artist => priorityArtistNamesSet.has(artist));
+                      });
+                      
+                      for (const track of filteredSecondLevelTracks) {
+                        if (allTracksCollected.length >= targetTotal) break;
+                        const capCheck = checkCapInTime(track, artistCounters, nonPriorityCap, false, specialCases, specialCases.onlyArtists || []);
+                        if (capCheck.allowed) {
+                          addTrackWithCap(track, -1, false);
+                        }
+                      }
+                    } catch (err) {
+                      console.warn(`[STREAM:${traceId}] ARTIST_STYLE: Error searching tracks for second-level collaborator "${secondLevelCollab}":`, err);
+                    }
+                  }
+                }
+                
+                // 🚨 CRITICAL: Filtrar tracks de radio que NO sean de priority artists
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Got ${radioTracks.length} radio tracks, filtering priority artists...`);
+                
+                for (const track of radioTracks) {
+                  if (allTracksCollected.length >= targetTotal) break;
+                  
+                  // Verificar todos los artistas del track
+                  const trackArtists = (track.artists || track.artistNames || [])
+                    .map(a => (typeof a === 'string' ? a : a?.name || '').toLowerCase())
+                    .filter(Boolean);
+                  
+                  // El track NO debe tener ningún priority artist
+                  const hasPriorityArtist = trackArtists.some(artist => priorityArtistNamesSet.has(artist));
+                  
+                  if (!hasPriorityArtist) {
+                    const capCheck = checkCapInTime(track, artistCounters, nonPriorityCap, false, specialCases, specialCases.onlyArtists || []);
+                    if (capCheck.allowed) {
+                      addTrackWithCap(track, -1, false);
+                      console.log(`[STREAM:${traceId}] ARTIST_STYLE: Added radio track "${track.name}" by ${trackArtists.join(', ')}`);
+                    }
+                  } else {
+                    console.log(`[STREAM:${traceId}] ARTIST_STYLE: Skipped radio track "${track.name}" (contains priority artist)`);
+                  }
+                }
+                
+                console.log(`[STREAM:${traceId}] ARTIST_STYLE: Compensation complete: ${allTracksCollected.length}/${targetTotal} tracks (radio + second-level collaborators)`);
               }
             }
           }

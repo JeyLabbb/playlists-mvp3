@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { HUB_MODE } from '@/lib/features';
 import { getPleiaServerUser } from '@/lib/auth/serverUser';
 import { createSupabaseRouteClient } from '@/lib/supabase/routeClient';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
@@ -310,7 +309,7 @@ export async function POST(request) {
         displayName: userName,
         image: null,
         bio: "",
-        plan: HUB_MODE ? "hub" : "free",
+        plan: "free",
         founderSince: null,
         updatedAt: new Date().toISOString()
       };

@@ -40,13 +40,12 @@ async function fetchContactsForGroups(
     .in('group_id', groupIds);
   if (error) throw error;
   const contacts: { id: string; email: string }[] = [];
-  (data || []).forEach((row: any) => {
-    const contact = Array.isArray(row.contact) ? row.contact[0] : row.contact;
-    if (!contact) return;
-    if (contact.status !== 'subscribed') return;
+  (data || []).forEach((row) => {
+    if (!row.contact) return;
+    if (row.contact.status !== 'subscribed') return;
     contacts.push({
-      id: contact.id,
-      email: contact.email,
+      id: row.contact.id,
+      email: row.contact.email,
     });
   });
   return contacts;
@@ -156,11 +155,7 @@ export async function POST(request: Request) {
         campaign_id: campaign.id,
         group_id: groupId,
       }));
-      try {
-        await supabase.from('newsletter_campaign_groups').insert(rows);
-      } catch (err) {
-        // Ignore errors when inserting campaign groups
-      }
+      await supabase.from('newsletter_campaign_groups').insert(rows).catch(() => {});
     }
 
     const recipientsMap = new Map<string, { id: string; email: string }>();
@@ -218,22 +213,17 @@ export async function POST(request: Request) {
     const trackingEnabled = payload.trackingEnabled !== false;
 
     if (payload.sendMode === 'immediate') {
-      const content: CampaignContentPayload = {
-        subject: payload.subject,
-        title: payload.title,
-        body: payload.body,
-        ...(payload.primaryCta?.label && payload.primaryCta?.url
-          ? { primaryCta: { label: payload.primaryCta.label, url: payload.primaryCta.url } }
-          : {}),
-        ...(payload.secondaryCta?.label && payload.secondaryCta?.url
-          ? { secondaryCta: { label: payload.secondaryCta.label, url: payload.secondaryCta.url } }
-          : {}),
-      };
       await deliverCampaignNow({
         supabase,
         campaign,
         recipients: recipientRows,
-        content,
+        content: {
+          subject: payload.subject,
+          title: payload.title,
+          body: payload.body,
+          primaryCta: payload.primaryCta,
+          secondaryCta: payload.secondaryCta,
+        },
         trackingEnabled,
       });
     } else if (payload.sendMode === 'scheduled' && payload.scheduledFor) {

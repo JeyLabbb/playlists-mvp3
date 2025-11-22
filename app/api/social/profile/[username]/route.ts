@@ -37,7 +37,7 @@ const memoryStore = globalScope[memoryStoreKey]!;
 
 async function getEmailByUsername(
   username: string,
-  supabase?: Awaited<ReturnType<typeof createSupabaseRouteClient>>,
+  supabase?: ReturnType<typeof createSupabaseRouteClient>,
 ) {
   const normalized = sanitizeUsername(username);
   if (!normalized) return null;
@@ -173,6 +173,24 @@ export async function GET(
       resolvedUsername ??
       normalized;
 
+    // Try to get user image from Supabase auth if profile doesn't have one
+    let userImage = profile?.image ?? null;
+    if (!userImage && finalUserId) {
+      try {
+        const { getSupabaseAdmin } = await import('@/lib/supabase/server');
+        const adminSupabase = getSupabaseAdmin();
+        if (adminSupabase) {
+          const { data: authUser } = await adminSupabase.auth.admin.getUserById(finalUserId);
+          if (authUser?.user?.user_metadata?.avatar_url) {
+            userImage = authUser.user.user_metadata.avatar_url;
+            console.log('[SOCIAL] Found user image from auth:', userImage);
+          }
+        }
+      } catch (authError) {
+        console.warn('[SOCIAL] Could not fetch user image from auth:', authError);
+      }
+    }
+
     if (finalUsername && resolvedEmail) {
       cacheUsernameMapping({
         username: normalizeUsername(finalUsername) || normalized,
@@ -199,14 +217,17 @@ export async function GET(
       }
     }
 
+    // Normalizar el username antes de devolverlo
+    const normalizedFinalUsername = normalizeUsername(finalUsername) || finalUsername;
+    
     return NextResponse.json({
       success: true,
       profile: {
         id: finalUserId,
         email: resolvedEmail,
-        username: finalUsername,
-        displayName: profile?.displayName ?? finalUsername,
-        image: profile?.image ?? null,
+        username: normalizedFinalUsername,
+        displayName: profile?.displayName ?? normalizedFinalUsername,
+        image: userImage,
         bio: profile?.bio ?? null,
         plan: userRow?.plan ?? null,
         lastPromptAt: userRow?.last_prompt_at ?? null,

@@ -19,7 +19,7 @@ export async function POST(request) {
 
     // Get current user profile
     const kv = await import('@vercel/kv');
-    const profileKey = `userprofile:${currentUserEmail}`;
+    const profileKey = `jey_user_profile:${currentUserEmail}`;
     const currentProfile = await kv.kv.get(profileKey) || {};
 
     // Increment playlist count

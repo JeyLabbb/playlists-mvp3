@@ -4,6 +4,7 @@ import { LanguageProvider } from "./contexts/LanguageContext";
 import { Toaster } from "sonner";
 import SessionWatcher from "./components/SessionWatcher";
 import CardNav from "./components/CardNav";
+import PaywallHost from "./PaywallHost";
 import { Analytics } from '@vercel/analytics/react';
 
 export const metadata = {
@@ -44,7 +45,8 @@ export default function RootLayout({ children }) {
                   label: "Explorar",
                   links: [
                     { label: "Crear playlists", href: "/crear-playlists", ariaLabel: "Ir al generador de playlists con IA" },
-                    { label: "Trending", href: "/trending", ariaLabel: "Ver playlists populares" }
+                    { label: "Trending", href: "/trending", ariaLabel: "Ver playlists populares" },
+                    { label: "Amigos", href: "/amigos", ariaLabel: "Ver y gestionar tus amigos" }
                   ]
                 },
                 {
@@ -56,7 +58,7 @@ export default function RootLayout({ children }) {
                   ]
                 },
                 {
-                  label: "JeyLabbb",
+                  label: "MTRYX",
                   links: [
                     { label: "Cómo funciona", href: "/como-funciona", ariaLabel: "Cómo funciona PLEIA" },
                     { label: "FAQ", href: "/faq", ariaLabel: "Preguntas frecuentes" },
@@ -67,6 +69,7 @@ export default function RootLayout({ children }) {
             />
             {children}
             <SessionWatcher />
+            <PaywallHost />
           </Providers>
           <Toaster position="top-right" richColors />
         </LanguageProvider>

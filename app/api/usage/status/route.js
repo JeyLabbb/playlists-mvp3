@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { HUB_MODE } from '@/lib/features';
+// HUB_MODE eliminado - todas las funcionalidades siempre activas
 import { getPleiaServerUser } from '@/lib/auth/serverUser';
 import {
   getUsageSummary,
@@ -33,100 +33,82 @@ export async function GET(request) {
     email = emailParam || pleiaUser.email;
     const identity = { userId: pleiaUser.id, email };
 
-    if (HUB_MODE && process.env.NEXT_PUBLIC_HUB_MODE === '1') {
-      planContext = {
-        plan: 'hub',
-        isFounder: false,
-        isMonthly: false,
-        unlimited: true,
-        since: null,
-        source: 'hub'
-      };
-    } else {
-      const existingUser = await findUsageUser(identity);
-      if (!existingUser) {
-        const defaultLimit = getUsageLimit();
-        return NextResponse.json({
-          success: true,
-          needsAccount: true,
-          usage: {
-            current: 0,
-            limit: defaultLimit,
-            remaining: defaultLimit,
-            hasUnlimitedUses: false,
-            plan: 'free',
-            maxUses: defaultLimit,
-            lastPromptAt: null,
-          },
-          remaining: defaultLimit,
-          used: 0,
-          unlimited: false,
-          plan: 'free',
-          limitPerWindow: defaultLimit,
-          counters: null,
-          termsAccepted: false,
-          termsAcceptedAt: null,
-          marketingOptIn: false,
-        });
-      }
-
-      planContext = await getUserPlan(identity);
-
-      if (planContext?.plan === 'hub') {
-        planContext = {
-          ...planContext,
-          plan: 'free',
-          unlimited: false,
-          source: 'supabase',
-        };
-      }
-    }
-
-    if (HUB_MODE) {
+    // 🚨 OPTIMIZATION: Ejecutar findUsageUser y getUserPlan en paralelo si es posible
+    const [existingUser, planContextResult] = await Promise.all([
+      findUsageUser(identity).catch(() => null),
+      getUserPlan(identity).catch(() => null)
+    ]);
+    
+    if (!existingUser) {
+      const defaultLimit = getUsageLimit();
       return NextResponse.json({
         success: true,
+        needsAccount: true,
         usage: {
           current: 0,
-          limit: null,
-          remaining: 'unlimited',
-          hasUnlimitedUses: true,
-          plan: 'hub',
-          windowDays: null,
-          resetAt: null
+          limit: defaultLimit,
+          remaining: defaultLimit,
+          hasUnlimitedUses: false,
+          plan: 'free',
+          maxUses: defaultLimit,
+          lastPromptAt: null,
         },
-        limit: false,
-        remaining: 'unlimited',
+        remaining: defaultLimit,
         used: 0,
-        unlimited: true,
-        plan: 'hub',
-        profile: {
-          email,
-          plan: 'hub',
-          since: null
-        },
-        source: 'hub'
+        unlimited: false,
+        plan: 'free',
+        limitPerWindow: defaultLimit,
+        counters: null,
+        termsAccepted: false,
+        termsAcceptedAt: null,
+        marketingOptIn: false,
+        isEarlyFounderCandidate: false, // 🚨 CRITICAL: Añadir flag por defecto
       });
     }
 
-    const usageUser = await getOrCreateUsageUser(identity);
-    const usageSummary = await getUsageSummary(identity);
+    planContext = planContextResult;
 
-    const supabase = getSupabaseAdmin();
-    let userRecord = null;
-    if (supabase && pleiaUser?.id) {
-      const { data } = await supabase
-        .from('users')
-        .select(
-          'usage_count, max_uses, plan, newsletter_opt_in, marketing_opt_in, terms_accepted_at, last_prompt_at, updated_at, created_at, username',
-        )
-        .eq('id', pleiaUser.id)
-        .maybeSingle();
-      userRecord = data || null;
+    if (planContext?.plan === 'hub') {
+      planContext = {
+        ...planContext,
+        plan: 'free',
+        unlimited: false,
+        source: 'supabase',
+      };
     }
 
+    // 🚨 OPTIMIZATION: Ejecutar getOrCreateUsageUser, getUsageSummary y consulta a Supabase en paralelo
+    const [usageUser, usageSummary, userRecordResult] = await Promise.all([
+      getOrCreateUsageUser(identity).catch(() => null),
+      getUsageSummary(identity).catch(() => null),
+      (async () => {
+        // 🚨 OPTIMIZATION: Consulta directa y rápida usando id (primary key)
+        const supabase = getSupabaseAdmin();
+        if (supabase && pleiaUser?.id) {
+          try {
+            // 🚨 OPTIMIZATION: Usar solo los campos necesarios y id (más rápido)
+            const { data } = await supabase
+              .from('users')
+              .select('usage_count, max_uses, plan, newsletter_opt_in, marketing_opt_in, terms_accepted_at, last_prompt_at, updated_at, created_at, username, is_early_founder_candidate')
+              .eq('id', pleiaUser.id) // 🚨 OPTIMIZATION: id es primary key, más rápido que email
+              .maybeSingle();
+            return data || null;
+          } catch (error) {
+            console.warn('[USAGE-STATUS] Error fetching user record:', error);
+            return null;
+          }
+        }
+        return null;
+      })()
+    ]);
+    
+    const usageUserResult = usageUser || {};
+    const usageSummaryResult = usageSummary || { used: 0, limit: getUsageLimit(), remaining: getUsageLimit(), unlimited: false, plan: 'free', source: 'fallback' };
+    const userRecord = userRecordResult;
+
     const termsAcceptedAt =
-      usageUser?.terms_accepted_at ?? userRecord?.terms_accepted_at ?? null;
-    const username = usageUser?.username ?? userRecord?.username ?? null;
+      usageUserResult?.terms_accepted_at ?? userRecord?.terms_accepted_at ?? null;
+    const username = usageUserResult?.username ?? userRecord?.username ?? null;
     
     // 🚨 CRITICAL: Log detallado para debugging
     console.log('[USAGE-STATUS] ===== CHECKING ACCOUNT COMPLETENESS =====');
@@ -134,10 +116,10 @@ export async function GET(request) {
     console.log('[USAGE-STATUS] Email:', email);
     console.log('[USAGE-STATUS] Account data:', {
       fromUsageUser: {
-        hasTerms: !!usageUser?.terms_accepted_at,
-        hasUsername: !!usageUser?.username,
-        username: usageUser?.username,
-        terms_accepted_at: usageUser?.terms_accepted_at,
+        hasTerms: !!usageUserResult?.terms_accepted_at,
+        hasUsername: !!usageUserResult?.username,
+        username: usageUserResult?.username,
+        terms_accepted_at: usageUserResult?.terms_accepted_at,
       },
       fromUserRecord: {
         hasTerms: !!userRecord?.terms_accepted_at,
@@ -163,17 +145,17 @@ export async function GET(request) {
     const marketingOptIn =
       typeof userRecord?.marketing_opt_in === 'boolean'
         ? userRecord.marketing_opt_in
-        : !!usageUser?.marketing_opt_in;
+        : !!usageUserResult?.marketing_opt_in;
 
     // CRITICAL: Priorizar datos de Supabase (userRecord) sobre usageSummary para datos más recientes
-    const currentUsageCount = userRecord?.usage_count ?? usageSummary.used ?? 0;
+    const currentUsageCount = userRecord?.usage_count ?? usageSummaryResult.used ?? 0;
 
     // Resolver max_uses: priorizar userRecord > usageSummary > default
     let maxUsesCandidate = getUsageLimit();
     if (typeof userRecord?.max_uses === 'number') {
       maxUsesCandidate = userRecord.max_uses;
-    } else if (typeof usageSummary.limit === 'number') {
-      maxUsesCandidate = usageSummary.limit;
+    } else if (typeof usageSummaryResult.limit === 'number') {
+      maxUsesCandidate = usageSummaryResult.limit;
     }
 
     if (!planContext) {
@@ -183,13 +165,19 @@ export async function GET(request) {
         isMonthly: false,
         unlimited: false,
         since: null,
-        source: usageSummary.source || 'supabase',
+        source: usageSummaryResult.source || 'supabase',
+        isEarlyFounderCandidate: userRecord?.is_early_founder_candidate === true || false,
       };
+    }
+    
+    // 🚨 CRITICAL: Si isEarlyFounderCandidate no está en planContext, obtenerlo de userRecord
+    if (planContext && typeof planContext.isEarlyFounderCandidate !== 'boolean') {
+      planContext.isEarlyFounderCandidate = userRecord?.is_early_founder_candidate === true || false;
     }
 
     const planUnlimited = !!planContext?.unlimited;
-    let usageUnlimited = !!usageSummary.unlimited;
-    if (!planUnlimited && usageSummary.plan === 'hub') {
+    let usageUnlimited = !!usageSummaryResult.unlimited;
+    if (!planUnlimited && usageSummaryResult.plan === 'hub') {
       usageUnlimited = false;
     }
     const isUnlimited = planUnlimited || usageUnlimited;
@@ -221,15 +209,15 @@ export async function GET(request) {
         limit: resolvedMaxUses,
         remaining: resolvedRemaining,
         hasUnlimitedUses: isUnlimited,
-        plan: planContext?.plan || (usageSummary.plan === 'hub' ? 'free' : usageSummary.plan) || 'free',
+        plan: planContext?.plan || (usageSummaryResult.plan === 'hub' ? 'free' : usageSummaryResult.plan) || 'free',
         maxUses: resolvedMaxUses,
-        lastPromptAt: userRecord?.last_prompt_at || usageSummary.lastPromptAt,
+        lastPromptAt: userRecord?.last_prompt_at || usageSummaryResult.lastPromptAt,
       },
       used: currentUsageCount,
       remaining: resolvedRemaining,
       limit: isUnlimited ? false : currentUsageCount >= (resolvedMaxUses ?? getUsageLimit()),
       unlimited: isUnlimited,
-      plan: planContext?.plan || (usageSummary.plan === 'hub' ? 'free' : usageSummary.plan) || 'free',
+      plan: planContext?.plan || (usageSummaryResult.plan === 'hub' ? 'free' : usageSummaryResult.plan) || 'free',
       isFounder: !!planContext?.isFounder,
       isEarlyFounderCandidate, // 🚨 CRITICAL: Añadir flag de early founder candidate
       profile: {
@@ -238,12 +226,12 @@ export async function GET(request) {
         since: planContext?.since || null,
         userId: pleiaUser.id,
       },
-      source: usageSummary.source || planContext?.source || 'supabase',
+      source: usageSummaryResult.source || planContext?.source || 'supabase',
       limitPerWindow: resolvedMaxUses ?? getUsageLimit(),
       counters: {
         usage_count: currentUsageCount,
         max_uses: resolvedMaxUses,
-        last_prompt_at: userRecord?.last_prompt_at || usageSummary.lastPromptAt,
+        last_prompt_at: userRecord?.last_prompt_at || usageSummaryResult.lastPromptAt,
         updated_at: userRecord?.updated_at || null,
       },
       termsAccepted: !!termsAcceptedAt,

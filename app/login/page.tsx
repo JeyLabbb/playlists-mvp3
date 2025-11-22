@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation';
 import LoginView from './LoginView';
 import { createSupabaseServerClient } from '../../lib/supabase/serverClient';
-import { HUB_MODE } from '../../lib/features';
 
 type LoginPageProps = {
   searchParams?: Promise<Record<string, string | string[]>>;

@@ -85,48 +85,67 @@ type ColumnFlags = {
 };
 
 let columnChecks: ColumnFlags | null = null;
+let columnChecksPromise: Promise<ColumnFlags> | null = null;
 
 async function detectColumns(supabase: ReturnType<typeof getSupabaseAdmin>) {
+  // 🚨 OPTIMIZATION: Si ya hay una promesa en curso, esperarla en lugar de hacer otra consulta
+  if (columnChecksPromise) {
+    return columnChecksPromise;
+  }
+  
   if (columnChecks) return columnChecks;
-
-  columnChecks = {
-    is_founder: false,
-    is_early_founder_candidate: false,
-    newsletter_opt_in: false,
-    marketing_opt_in: false,
-    terms_accepted_at: false,
-    last_prompt_at: false,
-    username: false,
-    created_at: false,
-    updated_at: false,
-  };
-  if (!supabase) return columnChecks;
-
-  const check = async (column: keyof ColumnFlags) => {
-    const { error } = await supabase.from('users').select(column).limit(1);
-    if (!error) {
-      columnChecks![column] = true;
-      return;
+  
+  // 🚨 OPTIMIZATION: Cachear la promesa para evitar múltiples consultas simultáneas
+  columnChecksPromise = (async () => {
+    const checks: ColumnFlags = {
+      is_founder: false,
+      is_early_founder_candidate: false,
+      newsletter_opt_in: false,
+      marketing_opt_in: false,
+      terms_accepted_at: false,
+      last_prompt_at: false,
+      username: false,
+      created_at: false,
+      updated_at: false,
+    };
+    
+    if (!supabase) {
+      columnChecks = checks;
+      columnChecksPromise = null;
+      return checks;
     }
-    if (error.code === '42703') {
-      columnChecks![column] = false;
-      return;
-    }
-    columnChecks![column] = false;
-  };
 
-  await Promise.all([
-    check('is_founder'),
-    check('is_early_founder_candidate'),
-    check('newsletter_opt_in'),
-    check('marketing_opt_in'),
-    check('terms_accepted_at'),
-    check('last_prompt_at'),
-    check('username'),
-    check('created_at'),
-    check('updated_at'),
-  ]);
-  return columnChecks;
+    const check = async (column: keyof ColumnFlags) => {
+      const { error } = await supabase.from('users').select(column).limit(1);
+      if (!error) {
+        checks[column] = true;
+        return;
+      }
+      if (error.code === '42703') {
+        checks[column] = false;
+        return;
+      }
+      checks[column] = false;
+    };
+
+    await Promise.all([
+      check('is_founder'),
+      check('is_early_founder_candidate'),
+      check('newsletter_opt_in'),
+      check('marketing_opt_in'),
+      check('terms_accepted_at'),
+      check('last_prompt_at'),
+      check('username'),
+      check('created_at'),
+      check('updated_at'),
+    ]);
+    
+    columnChecks = checks;
+    columnChecksPromise = null;
+    return checks;
+  })();
+  
+  return columnChecksPromise;
 }
 
 function normalizeEmail(email?: string | null) {
@@ -219,9 +238,8 @@ async function ensureUser(
       query = query.eq('email', email);
     }
 
-    const { data, error } = await query.maybeSingle();
-    if (error) throw error;
-    let existingUser = (data ? (data as unknown as UserRow) : null) as UserRow | null;
+    const { data } = await query.maybeSingle();
+    let existingUser = (data ?? null) as UserRow | null;
     if (existingUser) {
       if ((!existingUser.username || existingUser.username.length === 0) && columns?.username && email) {
         const generated = generateUsername(email, userId || existingUser.id);
@@ -313,14 +331,14 @@ async function ensureUser(
           .eq('email', email)
           .maybeSingle();
         if (duplicate) {
-          return duplicate as unknown as UserRow;
+          return duplicate as UserRow;
         }
       }
       console.warn('[USAGE] Failed to insert user row:', insertError);
       return null;
     }
 
-    return (inserted ? (inserted as unknown as UserRow) : null) as UserRow | null;
+    return (inserted ?? null) as UserRow | null;
   } catch (error) {
     console.error('[USAGE] ensureUser error:', error);
     return null;

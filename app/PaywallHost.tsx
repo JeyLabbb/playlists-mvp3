@@ -157,8 +157,9 @@ export default function PaywallHost() {
               remaining: prev.usage.remaining ?? usageStatus.usage?.remaining ?? 0,
               limit: prev.usage.limit ?? usageStatus.usage?.limit ?? 5,
             },
-            // Mantener advantage del payload si ya está calculado
-            advantage: prev.advantage ?? (usageStatus.isEarlyFounderCandidate ? true : undefined),
+            // Mantener canAccessAdvantage del payload si ya está calculado
+            canAccessAdvantage: prev.canAccessAdvantage ?? usageStatus.canAccessAdvantage,
+            advantage: prev.advantage ?? usageStatus.canAccessAdvantage,
             isEarlyFounderCandidate: prev.isEarlyFounderCandidate ?? usageStatus.isEarlyFounderCandidate,
           };
         }
@@ -166,7 +167,8 @@ export default function PaywallHost() {
         return {
           ...(prev || {}),
           usage: usageStatus,
-          advantage: prev?.advantage ?? (usageStatus.isEarlyFounderCandidate ? true : undefined),
+          canAccessAdvantage: prev?.canAccessAdvantage ?? usageStatus.canAccessAdvantage,
+          advantage: prev?.advantage ?? usageStatus.canAccessAdvantage,
           isEarlyFounderCandidate: prev?.isEarlyFounderCandidate ?? usageStatus.isEarlyFounderCandidate,
         };
       });
@@ -202,23 +204,42 @@ export default function PaywallHost() {
     
     const isEarlyCandidate = earlyFromPayload || earlyFromProfile || earlyFromStatus;
 
-    // 🚨 CRITICAL: Priorizar canAccessAdvantage del payload (ya calculado en app/page.js)
-    // Solo calcular si no está presente
-    let advantage =
-      payload?.canAccessAdvantage ??
-      payload?.advantage ??
-      base?.advantage ??
-      (usageStatus?.isEarlyFounderCandidate ? true : undefined) ??
-      false;
+    // 🚨 CRITICAL: Si isEarlyCandidate es true, advantage SIEMPRE debe ser true
+    // Esto es la regla más importante: los primeros 1000 usuarios SIEMPRE tienen ventaja
+    let advantage: boolean;
+    if (isEarlyCandidate) {
+      console.log('[PAYWALL-HOST] ✅ isEarlyCandidate is true, forcing advantage = true');
+      advantage = true;
+    } else {
+      // Solo si NO es early candidate, intentar leer advantage del payload/status
+      let advantageFromSources: boolean | undefined = 
+        payload?.canAccessAdvantage !== undefined ? payload.canAccessAdvantage :
+        payload?.advantage !== undefined ? payload.advantage :
+        base?.canAccessAdvantage !== undefined ? base.canAccessAdvantage :
+        base?.advantage !== undefined ? base.advantage :
+        (usageStatus as any)?.canAccessAdvantage !== undefined ? (usageStatus as any).canAccessAdvantage :
+        undefined;
 
-    // Solo calcular advantage si no está presente y tenemos datos para calcularlo
-    if (advantage === false && REFERRALS_ENABLED && session?.user?.email) {
-      try {
-        advantage = canInvite(session.user.email, { isEarlyCandidate });
-      } catch (error) {
-        console.warn("[PAYWALL-HOST] Failed to evaluate referral advantage:", error);
+      // Si no está definido, calcularlo usando canInvite
+      if (advantageFromSources === undefined && REFERRALS_ENABLED && session?.user?.email) {
+        try {
+          advantageFromSources = canInvite(session.user.email, { isEarlyCandidate: false });
+        } catch (error) {
+          console.warn("[PAYWALL-HOST] Failed to evaluate referral advantage:", error);
+          advantageFromSources = false;
+        }
       }
+      
+      advantage = advantageFromSources ?? false;
     }
+    
+    // 🚨 CRITICAL: Log final para debugging
+    console.log('[PAYWALL-HOST] Final advantage calculation:', {
+      isEarlyCandidate,
+      advantage,
+      fromPayload: payload?.canAccessAdvantage ?? payload?.advantage,
+      fromStatus: (usageStatus as any)?.canAccessAdvantage,
+    });
 
     // 🚨 CRITICAL: Asegurar que el objeto retornado tenga la estructura correcta
     // que PaywallModal espera: usage.usage.current, usage.usage.limit, etc.

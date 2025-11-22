@@ -77,6 +77,7 @@ const requestSchema = z.object({
     }),
   }),
   redirectTo: z.string().optional(),
+  referralEmail: z.string().email().optional().nullable(),
 });
 
 function sanitizeUsername(username: string) {
@@ -110,7 +111,10 @@ export async function POST(request: Request) {
     const supabase = admin ?? (await createSupabaseRouteClient());
 
     const normalizedEmail = pleiaUser.email.toLowerCase();
-    let marketingOptIn = !!parsed.data.marketingOptIn;
+    // 🚨 CRITICAL: marketingOptIn debe ser explícitamente true o false
+    // Si no se proporciona, debe ser false
+    let marketingOptIn = parsed.data.marketingOptIn === true;
+    
     try {
       const { data: existingNewsletter } = await supabase
         .from('newsletter')
@@ -123,6 +127,12 @@ export async function POST(request: Request) {
     } catch (newsletterLookupError) {
       console.warn('[AUTH] Failed to inspect newsletter subscription during onboarding:', newsletterLookupError);
     }
+    
+    console.log('[AUTH-COMPLETE] Marketing opt-in value:', {
+      provided: parsed.data.marketingOptIn,
+      final: marketingOptIn,
+      type: typeof marketingOptIn
+    });
     const redirectTo = parsed.data.redirectTo && parsed.data.redirectTo.startsWith('/')
       ? parsed.data.redirectTo
       : '/';
@@ -239,12 +249,14 @@ export async function POST(request: Request) {
       console.warn('[AUTH-COMPLETE] ⚠️ username column does not exist in database');
     }
 
-    // Actualizar otros campos solo si las columnas existen
+    // 🚨 CRITICAL: Actualizar marketing_opt_in siempre (true o false explícitamente)
     if (columns.marketing_opt_in) {
-      updatePayload.marketing_opt_in = marketingOptIn;
+      updatePayload.marketing_opt_in = marketingOptIn === true; // Asegurar que sea boolean explícito
+      console.log('[AUTH-COMPLETE] ✅ Setting marketing_opt_in to:', updatePayload.marketing_opt_in);
     }
     if (columns.newsletter_opt_in) {
-      updatePayload.newsletter_opt_in = marketingOptIn;
+      updatePayload.newsletter_opt_in = marketingOptIn === true; // Asegurar que sea boolean explícito
+      console.log('[AUTH-COMPLETE] ✅ Setting newsletter_opt_in to:', updatePayload.newsletter_opt_in);
     }
     if (!ensuredUser.plan) {
       updatePayload.plan = 'free';
@@ -541,6 +553,9 @@ export async function POST(request: Request) {
             full_name: parsed.data.displayName,
             name: parsed.data.displayName,
           },
+          data: {
+            full_name: parsed.data.displayName,
+          },
         });
       } catch (metaError) {
         console.warn('[AUTH] Failed to update user metadata during onboarding:', metaError);
@@ -617,6 +632,113 @@ export async function POST(request: Request) {
       }
     } else {
       console.log('[AUTH-COMPLETE] ✅ Account complete from updatedUser');
+    }
+
+    // 🚨 CRITICAL: Track referral si existe cuando se crea la cuenta
+    // Esto se hace después de que la cuenta esté completa para asegurar que el tracking funcione
+    if (finalHasCompleteAccount && parsed.data.referralEmail) {
+      try {
+        const refEmail = parsed.data.referralEmail.toLowerCase().trim();
+        
+        if (refEmail && refEmail !== pleiaUser.email.toLowerCase()) {
+          console.log('[AUTH-COMPLETE] Tracking referral on account creation:', {
+            newUser: pleiaUser.email,
+            referrer: refEmail
+          });
+          
+          // 🚨 CRITICAL: Llamar directamente a la lógica de tracking en lugar de hacer fetch
+          // Esto evita problemas de autenticación y es más eficiente
+          try {
+            const { REFERRALS_ENABLED, canInvite } = await import('@/lib/referrals');
+            const { getUserPlan } = await import('@/lib/billing/usageV2');
+            
+            if (REFERRALS_ENABLED) {
+              // Verificar si el referrer puede invitar
+              let isEarlyFounderCandidate = false;
+              try {
+                const planContext = await getUserPlan(refEmail);
+                isEarlyFounderCandidate = !!planContext?.isEarlyFounderCandidate;
+              } catch (planError) {
+                console.warn('[AUTH-COMPLETE] Could not check referrer plan:', planError);
+              }
+              
+              if (canInvite(refEmail, { isEarlyCandidate: isEarlyFounderCandidate })) {
+                // Actualizar stats del referrer directamente
+                const kv = await import('@vercel/kv');
+                const referrerProfileKey = `jey_user_profile:${refEmail}`;
+                const referrerProfile = await kv.kv.get(referrerProfileKey) || {};
+                
+                const referredQualifiedCount = (referrerProfile.referredQualifiedCount || 0) + 1;
+                const referrals = referrerProfile.referrals || [];
+                
+                if (!referrals.includes(pleiaUser.email.toLowerCase())) {
+                  referrals.push(pleiaUser.email.toLowerCase());
+                }
+                
+                const updatedReferrerProfile = {
+                  ...referrerProfile,
+                  email: refEmail,
+                  referrals,
+                  referredQualifiedCount,
+                  updatedAt: new Date().toISOString()
+                };
+                
+                // 🚨 CRITICAL: Si alcanza 3/3, actualizar a founder
+                const { REF_REQUIRED_COUNT } = await import('@/lib/referrals');
+                if (referredQualifiedCount >= REF_REQUIRED_COUNT) {
+                  const { setUserPlan } = await import('@/lib/billing/usage');
+                  const now = new Date().toISOString();
+                  
+                  updatedReferrerProfile.plan = 'founder';
+                  updatedReferrerProfile.founderSince = now;
+                  
+                  // Actualizar en Supabase
+                  await setUserPlan(refEmail, 'founder', {
+                    isFounder: true,
+                    since: now
+                  });
+                  
+                  // Enviar email de bienvenida
+                  try {
+                    const { sendFounderWelcomeEmail } = await import('@/lib/newsletter/workflows');
+                    await sendFounderWelcomeEmail(refEmail, {
+                      origin: 'referral_founder_upgrade_account_creation'
+                    });
+                  } catch (emailError) {
+                    console.error('[AUTH-COMPLETE] Error sending founder email:', emailError);
+                  }
+                }
+                
+                await kv.kv.set(referrerProfileKey, updatedReferrerProfile);
+                
+                // También actualizar el perfil del nuevo usuario con el referrer
+                const newUserProfileKey = `jey_user_profile:${pleiaUser.email.toLowerCase()}`;
+                const newUserProfile = await kv.kv.get(newUserProfileKey) || {};
+                await kv.kv.set(newUserProfileKey, {
+                  ...newUserProfile,
+                  email: pleiaUser.email.toLowerCase(),
+                  referredBy: refEmail,
+                  updatedAt: new Date().toISOString()
+                });
+                
+                console.log('[AUTH-COMPLETE] ✅ Referral tracked successfully:', {
+                  referrer: refEmail,
+                  newUser: pleiaUser.email,
+                  qualifiedCount: referredQualifiedCount
+                });
+              } else {
+                console.log('[AUTH-COMPLETE] Referrer cannot invite:', refEmail);
+              }
+            }
+          } catch (trackError) {
+            console.error('[AUTH-COMPLETE] ❌ Error tracking referral:', trackError);
+            // No fallar la creación de cuenta si falla el tracking
+          }
+        }
+      } catch (refError) {
+        console.error('[AUTH-COMPLETE] ❌ Error processing referral:', refError);
+        // No fallar la creación de cuenta si falla el tracking
+      }
     }
 
     return NextResponse.json({

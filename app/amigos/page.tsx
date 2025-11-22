@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { usePleiaSession } from "../../lib/auth/usePleiaSession";
 import { useAuthActions } from "../../lib/auth/clientActions";
+import { normalizeUsername, getDisplayName } from "../../lib/social/usernameUtils";
+import { markFriendsNotificationsAsSeen, isNewNotification } from "../../lib/hooks/useFriendsNotifications";
 
 const fetcher = async (url: string) => {
   const res = await fetch(url, { credentials: "include" });
@@ -35,6 +38,7 @@ type RequestEntry = {
 export default function FriendsPage() {
   const { data: session, status } = usePleiaSession();
   const { login } = useAuthActions();
+  const router = useRouter();
 
   const { data, error, isLoading, mutate } = useSWR<{
     success: boolean;
@@ -54,6 +58,23 @@ export default function FriendsPage() {
   const hasFriends = data?.friends?.length ?? 0;
   const hasIncoming = data?.requests?.incoming?.length ?? 0;
   const hasOutgoing = data?.requests?.outgoing?.length ?? 0;
+
+  // 🚨 CRITICAL: Marcar todas las notificaciones como vistas cuando se entra a la página
+  useEffect(() => {
+    if (data && session?.user) {
+      const incomingIds = (data.requests.incoming || []).map(req => req.requestId);
+      const outgoingIds = (data.requests.outgoing || []).map(req => req.requestId);
+      const friendIds = (data.friends || []).map(friend => friend.friendId);
+      
+      console.log('[AMIGOS] Marking notifications as seen:', {
+        incoming: incomingIds.length,
+        outgoing: outgoingIds.length,
+        friends: friendIds.length
+      });
+      
+      markFriendsNotificationsAsSeen(incomingIds, outgoingIds, friendIds);
+    }
+  }, [data, session?.user]);
 
   const handleSendRequest = async () => {
     if (!searchValue.trim()) return;
@@ -104,6 +125,38 @@ export default function FriendsPage() {
       mutate();
     } catch (err) {
       console.error("[SOCIAL] respond error:", err);
+    }
+  };
+
+  const handleRemoveFriend = async (friendId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevenir que se active el click del perfil
+    if (!confirm("¿Estás seguro de que quieres eliminar a este amigo?")) {
+      return;
+    }
+    
+    try {
+      const res = await fetch(`/api/social/friends/remove?friendId=${friendId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(json.error || "No se pudo eliminar el amigo");
+      }
+      mutate();
+    } catch (err: any) {
+      console.error("[SOCIAL] remove friend error:", err);
+      alert(err.message || "Error al eliminar el amigo");
+    }
+  };
+
+  const handleViewProfile = (friend: FriendEntry) => {
+    const username = normalizeUsername(friend.username);
+    if (username) {
+      router.push(`/u/${username}`);
+    } else if (friend.email) {
+      // Si no hay username, intentar usar el email (aunque no es ideal)
+      router.push(`/u/${friend.email.split('@')[0]}`);
     }
   };
 
@@ -214,12 +267,32 @@ export default function FriendsPage() {
                 </h3>
                 {data?.requests?.incoming?.length ? (
                   <ul className="space-y-3">
-                    {data.requests.incoming.map((req) => (
-                      <li key={req.requestId} className="border border-gray-800 rounded-xl p-4 bg-gray-950/60">
+                    {data.requests.incoming.map((req) => {
+                      const isNew = isNewNotification(req.requestId);
+                      return (
+                      <li key={req.requestId} className={`border rounded-xl p-4 ${isNew ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-gray-800 bg-gray-950/60'}`}>
                         <div className="flex items-center justify-between gap-4">
-                          <div>
+                          <div className="flex-1">
+                            {isNew && (
+                              <span className="inline-block mb-1 px-2 py-0.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 rounded-full border border-emerald-500/30">
+                                NEW
+                              </span>
+                            )}
                             <p className="font-medium text-white">
-                              {req.username || req.email || req.senderId}
+                              {(() => {
+                                const displayName = getDisplayName(req.username, req.email);
+                                const normalizedUsername = normalizeUsername(req.username);
+                                return normalizedUsername ? (
+                                  <span className="flex items-center gap-2">
+                                    <span>@{normalizedUsername}</span>
+                                    {req.email && (
+                                      <span className="text-xs text-gray-500">({req.email})</span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400 italic">{displayName}</span>
+                                );
+                              })()}
                             </p>
                             <p className="text-xs text-gray-500">
                               Desde {new Date(req.createdAt).toLocaleString()}
@@ -241,7 +314,8 @@ export default function FriendsPage() {
                           </div>
                         </div>
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 ) : (
                   <p className="text-sm text-gray-500">No tienes nuevas solicitudes.</p>
@@ -255,12 +329,32 @@ export default function FriendsPage() {
                 </h3>
                 {data?.requests?.outgoing?.length ? (
                   <ul className="space-y-3">
-                    {data.requests.outgoing.map((req) => (
-                      <li key={req.requestId} className="border border-gray-800 rounded-xl p-4 bg-gray-950/60">
+                    {data.requests.outgoing.map((req) => {
+                      const isNew = req.status === 'accepted' && isNewNotification(req.requestId);
+                      return (
+                      <li key={req.requestId} className={`border rounded-xl p-4 ${isNew ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-gray-800 bg-gray-950/60'}`}>
                         <div className="flex items-center justify-between gap-4">
-                          <div>
+                          <div className="flex-1">
+                            {isNew && (
+                              <span className="inline-block mb-1 px-2 py-0.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 rounded-full border border-emerald-500/30">
+                                NEW
+                              </span>
+                            )}
                             <p className="font-medium text-white">
-                              {req.username || req.email || req.receiverId}
+                              {(() => {
+                                const displayName = getDisplayName(req.username, req.email);
+                                const normalizedUsername = normalizeUsername(req.username);
+                                return normalizedUsername ? (
+                                  <span className="flex items-center gap-2">
+                                    <span>@{normalizedUsername}</span>
+                                    {req.email && (
+                                      <span className="text-xs text-gray-500">({req.email})</span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400 italic">{displayName}</span>
+                                );
+                              })()}
                             </p>
                             <p className="text-xs text-gray-500">
                               Estado: {req.status === 'accepted' ? 'Aceptada' : req.status === 'declined' ? 'Declinada' : 'Pendiente'}
@@ -268,7 +362,8 @@ export default function FriendsPage() {
                           </div>
                         </div>
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 ) : (
                   <p className="text-sm text-gray-500">No tienes solicitudes pendientes.</p>
@@ -295,26 +390,49 @@ export default function FriendsPage() {
                 </p>
               ) : sortedFriends.length ? (
                 <ul className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-                  {sortedFriends.map((friend) => (
+                  {sortedFriends.map((friend) => {
+                    const isNew = isNewNotification(friend.friendId);
+                    const normalizedUsername = normalizeUsername(friend.username);
+                    const displayName = normalizedUsername 
+                      ? `@${normalizedUsername}` 
+                      : getDisplayName(friend.username, friend.email);
+                    
+                    return (
                     <li
                       key={friend.friendId}
-                      className="border border-gray-800 rounded-xl p-4 bg-gray-950/50"
+                      className={`border rounded-xl p-4 cursor-pointer transition-all hover:bg-gray-900/50 ${isNew ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-gray-800 bg-gray-950/50'}`}
+                      onClick={() => handleViewProfile(friend)}
                     >
                       <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="font-semibold text-white">
-                            {friend.username || friend.email || friend.friendId}
+                        <div className="flex-1">
+                          {isNew && (
+                            <span className="inline-block mb-1 px-2 py-0.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 rounded-full border border-emerald-500/30">
+                              NEW
+                            </span>
+                          )}
+                          <p className="font-semibold text-white hover:text-emerald-400 transition-colors">
+                            {displayName}
                           </p>
                           <p className="text-xs text-gray-500">
                             Amigos desde {new Date(friend.createdAt).toLocaleDateString()}
                           </p>
                         </div>
-                        <span className="text-xs uppercase tracking-wide text-emerald-300/80 border border-emerald-500/30 rounded-full px-3 py-1">
-                          {friend.plan || 'free'}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs uppercase tracking-wide text-emerald-300/80 border border-emerald-500/30 rounded-full px-3 py-1">
+                            {friend.plan || 'free'}
+                          </span>
+                          <button
+                            onClick={(e) => handleRemoveFriend(friend.friendId, e)}
+                            className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-semibold hover:bg-red-500/30 border border-red-500/30 transition-colors"
+                            title="Eliminar amigo"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
                       </div>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               ) : (
                 <p className="text-sm text-gray-500">

@@ -5,7 +5,7 @@ import { usePleiaSession } from "../../lib/auth/usePleiaSession";
 import { useAuthActions } from "../../lib/auth/clientActions";
 import ReferralModule from "../components/ReferralModule";
 import { useProfile } from "../../lib/useProfile";
-import { PUBLIC_HUB_MODE } from "../../lib/features";
+// HUB_MODE eliminado - todas las funcionalidades siempre activas
 import { useUsageStatus } from "../../lib/hooks/useUsageStatus";
 
 const EMPTY_FORM = {
@@ -41,7 +41,6 @@ function deriveForm(profile, sessionUser) {
 }
 
 export default function ProfilePage() {
-  const HUB_MODE = PUBLIC_HUB_MODE;
   const authActions = useAuthActions();
   const { data: sessionData, status } = usePleiaSession();
   const sessionUser = sessionData?.user || null;
@@ -50,9 +49,14 @@ export default function ProfilePage() {
     isFounder,
     founderSince,
     plan,
-    isEarlyFounderCandidate,
+    isEarlyFounderCandidate: profileIsEarly,
     mutate: mutateProfileMeta,
+    data: profileData,
+    loading: profileLoading,
+    ready: profileReady,
   } = useProfile();
+  
+  // 🚨 OPTIMIZATION: Consolidar las dos llamadas a useUsageStatus en una sola
   const {
     data: usageStatus,
     remaining,
@@ -61,10 +65,23 @@ export default function ProfilePage() {
     unlimited: hasUnlimitedUses,
     isLoading: usageLoading,
     refresh: refreshUsage,
+    isEarlyFounderCandidate: usageIsEarly,
+    data: usageStatusData,
   } = useUsageStatus({
-    disabled: HUB_MODE || status !== "authenticated",
+    disabled: status !== "authenticated",
     refreshInterval: 45000,
   });
+  
+  // 🚨 CRITICAL: Usar la misma lógica que pricing - priorizar profileIsEarly, luego usageIsEarly
+  // También verificar directamente en usageStatusData si está disponible
+  const isEarlyFounderCandidate = 
+    profileIsEarly || 
+    usageIsEarly || 
+    usageStatusData?.isEarlyFounderCandidate === true ||
+    profileData?.isEarlyFounderCandidate === true;
+  
+  // 🚨 OPTIMIZATION: Eliminar logs innecesarios para mejor rendimiento
+  // useEffect de logging removido
 
   const userEmail = useMemo(
     () => sessionUser?.email || "",
@@ -124,16 +141,9 @@ export default function ProfilePage() {
     sessionUserRef.current = sessionUser;
   }, [sessionUser]);
 
-  const refreshUsageRef = useRef(refreshUsage);
-  useEffect(() => {
-    refreshUsageRef.current = refreshUsage;
-  }, [refreshUsage]);
-
-  useEffect(() => {
-    if (status === "authenticated" && !HUB_MODE) {
-      refreshUsageRef.current?.();
-    }
-  }, [status, HUB_MODE]);
+  // 🚨 OPTIMIZATION: Eliminar refresh automático innecesario
+  // useUsageStatus ya se actualiza automáticamente con refreshInterval
+  // No necesitamos forzar un refresh adicional al cambiar de status
 
   const applyProfile = useCallback(
     (data, persist = false) => {
@@ -348,6 +358,11 @@ export default function ProfilePage() {
   };
 
   const effectivePlan = useMemo(() => {
+    // 🚨 CRITICAL: Priorizar isFounder para detectar plan founder
+    if (isFounder) {
+      return "founder";
+    }
+    
     const usagePlan =
       usageStatus?.usage?.plan ||
       (typeof usageStatus?.plan === "string" ? usageStatus?.plan : null);
@@ -356,14 +371,14 @@ export default function ProfilePage() {
     const contextPlan =
       typeof plan === "string" && plan?.length > 0 ? plan : null;
 
-    const resolved = usagePlan || contextPlan || profilePlan || (isFounder ? "founder" : "free");
+    const resolved = usagePlan || contextPlan || profilePlan || "free";
 
-    if (!HUB_MODE && resolved === "hub") {
+    if (resolved === "hub") {
       return "free";
     }
 
     return resolved;
-  }, [usageStatus, plan, profile, isFounder, HUB_MODE]);
+  }, [usageStatus, plan, profile, isFounder]);
 
   const planLabel = useMemo(() => {
     switch (effectivePlan) {
@@ -374,19 +389,22 @@ export default function ProfilePage() {
       case "monthly":
         return "PLEIA+ mensual";
       case "hub":
-        return HUB_MODE ? "PLEIA Hub" : "Gratuito";
+        return "Gratuito";
       case "free":
       default:
         return "Gratuito";
     }
-  }, [effectivePlan, HUB_MODE]);
+  }, [effectivePlan]);
 
   const isFounderPlan = effectivePlan === "founder";
   const previewImage = avatarPreview || formData.image || null;
 
-  const profileLoaded = !!sessionUser && (!initializing || !!profile);
+  // 🚨 CRITICAL: profileLoaded debe ser true si tenemos sessionUser, incluso si initializing es true
+  // Esto evita que se oculte el contenido mientras se carga
+  const profileLoaded = !!sessionUser;
 
-  if (status === "loading" || initializing) {
+  // Solo mostrar loading si realmente no tenemos datos y estamos cargando
+  if (status === "loading" && !sessionUser) {
     return (
       <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
         <div className="text-center space-y-4">
@@ -436,12 +454,13 @@ export default function ProfilePage() {
                 Personaliza cómo te ven en PLEIA, gestiona tus datos y mantén tu
                 cuenta segura. Esta información solo se usa para mejorar tu experiencia.
               </p>
-              {!isFounderPlan && isEarlyFounderCandidate && (
-                <p className="mt-3 text-xs text-yellow-200 max-w-2xl">
-                  Por ser de los primeros 1000 usuarios de PLEIA puedes conseguir Founder Pass gratis
-                  invitando a 3 amigos que creen su primera playlist. También puedes comprarlo por 5€
-                  desde la sección de planes.
-                </p>
+              {/* 🚨 CRITICAL: Mostrar mensaje inmediatamente cuando isEarlyFounderCandidate esté disponible, sin esperar a que todo el perfil esté cargado */}
+              {(isEarlyFounderCandidate || profileData?.isEarlyFounderCandidate === true || usageStatusData?.isEarlyFounderCandidate === true) && !isFounder && (
+                <div className="mt-4 p-4 rounded-xl border-2" style={{ backgroundColor: 'rgba(255, 140, 0, 0.05)', borderColor: '#FF8C00' }}>
+                  <p className="text-sm text-yellow-200 max-w-2xl">
+                    🎉 <strong>Eres de los primeros 1000 usuarios de PLEIA.</strong> Puedes conseguir Founder Pass gratis invitando a 3 amigos. <a href="/pricing#ventaja" className="underline hover:text-yellow-100">Revisa tu ventaja aquí</a>.
+                  </p>
+                </div>
               )}
             </div>
             <div
@@ -487,23 +506,32 @@ export default function ProfilePage() {
               >
                 {loggingOut ? "Cerrando sesión..." : "Cerrar sesión"}
               </button>
-              {status === "authenticated" && !HUB_MODE && (
+              {status === "authenticated" && (
                 <div className="mt-4 space-y-2 rounded-xl border border-white/10 bg-black/20 p-4">
+                  {/* 🚨 OPTIMIZATION: Logs removidos para mejor rendimiento */}
                   <div className="flex items-center justify-between text-sm text-gray-300">
                     <span>Usos consumidos</span>
                     <span className="font-semibold text-white">
-                      {hasUnlimitedUses ? "∞" : typeof consumedUses === "number" ? consumedUses : "—"}
-                      {limitUses !== undefined ? (
-                        <span className="text-gray-400 text-xs ml-1">
-                          {hasUnlimitedUses ? "" : `de ${limitUses}`}
-                        </span>
-                      ) : null}
+                      {hasUnlimitedUses ? "∞" : typeof consumedUses === "number" ? consumedUses : (usageLoading ? "Cargando..." : (usageStatus?.usage?.current ?? usageStatus?.used ?? current ?? 0))}
+                      {(() => {
+                        if (hasUnlimitedUses) return null;
+                        if (limitUses !== undefined) {
+                          return <span className="text-gray-400 text-xs ml-1">de {limitUses}</span>;
+                        }
+                        if (usageStatus?.usage?.limit) {
+                          return <span className="text-gray-400 text-xs ml-1">de {usageStatus.usage.limit}</span>;
+                        }
+                        if (maxUses) {
+                          return <span className="text-gray-400 text-xs ml-1">de {maxUses}</span>;
+                        }
+                        return null;
+                      })()}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-sm text-gray-300">
                     <span>Usos restantes</span>
                     <span className="font-semibold text-white">
-                      {remainingUses ?? (hasUnlimitedUses ? "∞" : "—")}
+                      {hasUnlimitedUses ? "∞" : (remainingUses ?? (usageLoading ? "Cargando..." : (usageStatus?.remaining ?? usageStatus?.usage?.remaining ?? remaining ?? "—")))}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-gray-500">
@@ -702,7 +730,10 @@ export default function ProfilePage() {
           )}
 
           {status === "authenticated" && userEmail && (
-            <ReferralModule userEmail={userEmail} />
+            <>
+              {/* 🚨 OPTIMIZATION: Logs removidos para mejor rendimiento */}
+              <ReferralModule userEmail={userEmail} />
+            </>
           )}
 
           <section className="bg-red-500/10 border border-red-500/40 rounded-3xl p-6 space-y-4">

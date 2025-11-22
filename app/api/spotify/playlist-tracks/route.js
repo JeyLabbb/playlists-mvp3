@@ -1,33 +1,91 @@
 import { NextResponse } from 'next/server';
-import { getToken } from 'next-auth/jwt';
+import { getHubAccessToken } from '@/lib/spotify/hubAuth';
+import { getPleiaServerUser } from '@/lib/auth/serverUser';
+import { createSupabaseRouteClient } from '@/lib/supabase/routeClient';
 
 export async function GET(request) {
   try {
-    // Get access token
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
-    
-    // For public playlists, we can use a fallback token or skip auth
-    if (!token?.accessToken) {
-      // Try to use a public token or return limited data
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Authentication required for playlist access',
-        tracks: [] 
-      }, { status: 401 });
-    }
-
-    // Get playlist ID from query params
+    // Get playlist ID and owner email from query params
     const { searchParams } = new URL(request.url);
     const playlistId = searchParams.get('id');
+    const ownerEmail = searchParams.get('ownerEmail'); // Email del dueño de la playlist
     
     if (!playlistId) {
       return NextResponse.json({ error: 'Playlist ID is required' }, { status: 400 });
     }
 
+    // Get current user (if authenticated)
+    const currentUser = await getPleiaServerUser();
+    const currentUserId = currentUser?.id;
+    const currentUserEmail = currentUser?.email?.toLowerCase();
+
+    // Check if user can see full playlist (owner or friend)
+    let canSeeFullPlaylist = false;
+    let ownerUserId = null;
+
+    if (currentUserId) {
+      if (ownerEmail) {
+        // Check if current user is the owner
+        if (currentUserEmail === ownerEmail.toLowerCase()) {
+          canSeeFullPlaylist = true;
+          console.log('[PLAYLIST-TRACKS] User is the owner, showing full playlist');
+        } else {
+          // Check if current user is friends with the owner
+          try {
+            const supabase = await createSupabaseRouteClient();
+            
+            // Get owner's user ID
+            const { data: ownerUser } = await supabase
+              .from('users')
+              .select('id')
+              .eq('email', ownerEmail.toLowerCase())
+              .maybeSingle();
+            
+            if (ownerUser?.id) {
+              ownerUserId = ownerUser.id;
+              
+              // Check if they are friends (bidirectional check)
+              const { data: friendRow } = await supabase
+                .from('friends')
+                .select('id')
+                .or(`and(user_id.eq.${currentUserId},friend_id.eq.${ownerUserId}),and(user_id.eq.${ownerUserId},friend_id.eq.${currentUserId})`)
+                .maybeSingle();
+              
+              if (friendRow) {
+                canSeeFullPlaylist = true;
+                console.log('[PLAYLIST-TRACKS] User is friend with owner, showing full playlist');
+              }
+            }
+          } catch (friendCheckError) {
+            console.warn('[PLAYLIST-TRACKS] Error checking friendship:', friendCheckError);
+          }
+        }
+      } else {
+        // If no ownerEmail provided but user is authenticated, 
+        // assume they can see it (might be their own playlist or public)
+        // We'll show full playlist but this is a fallback
+        console.log('[PLAYLIST-TRACKS] No ownerEmail provided, showing full playlist for authenticated user');
+        canSeeFullPlaylist = true;
+      }
+    }
+
+    // Use hub access token (works for public playlists)
+    let accessToken;
+    try {
+      accessToken = await getHubAccessToken();
+    } catch (tokenError) {
+      console.error('[PLAYLIST-TRACKS] Failed to get hub access token:', tokenError);
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Failed to authenticate with Spotify',
+        tracks: [] 
+      }, { status: 500 });
+    }
+
     // Fetch playlist tracks from Spotify
     const response = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
       headers: {
-        'Authorization': `Bearer ${token.accessToken}`,
+        'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       }
     });
@@ -39,8 +97,8 @@ export async function GET(request) {
 
     const data = await response.json();
     
-    // Extract and format track data - preview_url comes from the track object
-    const tracks = (data.items || []).map(item => {
+    // Extract and format track data
+    const allTracks = (data.items || []).map(item => {
       const track = item.track;
       if (!track) return null;
       
@@ -56,21 +114,33 @@ export async function GET(request) {
       };
     }).filter(Boolean);
 
-    // Log preview availability
-    const withPreview = tracks.filter(t => t.preview_url).length;
-    console.log(`[PLAYLIST-TRACKS] Loaded ${tracks.length} tracks, ${withPreview} with preview_url`);
-    if (tracks.length > 0) {
-      console.log('[PLAYLIST-TRACKS] Sample track:', { 
-        name: tracks[0].name, 
-        preview_url: tracks[0].preview_url ? tracks[0].preview_url.substring(0, 50) + '...' : null,
-        has_preview: !!tracks[0].preview_url 
+    const totalTracks = allTracks.length;
+
+    // If user can't see full playlist, return only preview (5 tracks)
+    if (!canSeeFullPlaylist && totalTracks > 5) {
+      // Shuffle and return only 5 tracks
+      const shuffled = [...allTracks].sort(() => Math.random() - 0.5);
+      const previewTracks = shuffled.slice(0, 5);
+      
+      console.log(`[PLAYLIST-TRACKS] User is not owner/friend, showing preview only: 5 of ${totalTracks} tracks`);
+      
+      return NextResponse.json({
+        success: true,
+        tracks: previewTracks,
+        total: totalTracks,
+        preview: true,
+        remainingCount: totalTracks - 5
       });
     }
 
+    // User can see full playlist (owner or friend)
+    console.log(`[PLAYLIST-TRACKS] Showing full playlist: ${totalTracks} tracks`);
+    
     return NextResponse.json({
       success: true,
-      tracks: tracks,
-      total: tracks.length
+      tracks: allTracks,
+      total: totalTracks,
+      preview: false
     });
 
   } catch (error) {

@@ -1,11 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-
-// Simplified auth options to avoid import circular dependency
-const simpleAuthOptions = {
-  secret: process.env.NEXTAUTH_SECRET,
-  trustHost: true
-};
+import { getPleiaServerUser } from '@/lib/auth/serverUser';
 
 // Check if Vercel KV is available
 function hasKV() {
@@ -104,13 +98,14 @@ async function deleteFromKV(userEmail, playlistId) {
 // GET: Retrieve user playlists
 export async function GET(request) {
   try {
-    const session = await getServerSession(simpleAuthOptions);
+    const pleiaUser = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!pleiaUser?.email) {
+      console.warn('[USERPLAYLISTS] GET: No user email found');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userEmail = session.user.email;
+    const userEmail = pleiaUser.email;
     console.log('[USERPLAYLISTS] GET: Request from user:', userEmail);
 
     let playlists = [];
@@ -151,13 +146,14 @@ export async function GET(request) {
 // POST: Create new playlist
 export async function POST(request) {
   try {
-    const session = await getServerSession(simpleAuthOptions);
+    const pleiaUser = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!pleiaUser?.email) {
+      console.warn('[USERPLAYLISTS] POST: No user email found');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userEmail = session.user.email;
+    const userEmail = pleiaUser.email;
     const playlistData = await request.json();
     
     console.log('[USERPLAYLISTS] POST: Creating playlist for user:', userEmail);
@@ -174,10 +170,10 @@ export async function POST(request) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       public: playlistData.public !== false, // Default to public
-      username: session.user.name || userEmail.split('@')[0],
+      username: pleiaUser.name || pleiaUser.username || userEmail.split('@')[0],
       userEmail: userEmail,
-      userName: session.user.name || 'Usuario',
-      userImage: session.user.image || null
+      userName: pleiaUser.name || pleiaUser.username || 'Usuario',
+      userImage: pleiaUser.image || pleiaUser.avatar_url || null
     };
 
     // Save to KV if available
@@ -209,13 +205,14 @@ export async function POST(request) {
 // PUT: Update playlist
 export async function PUT(request) {
   try {
-    const session = await getServerSession(simpleAuthOptions);
+    const pleiaUser = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!pleiaUser?.email) {
+      console.warn('[USERPLAYLISTS] PUT: No user email found');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userEmail = session.user.email;
+    const userEmail = pleiaUser.email;
     const { playlistId, ...updates } = await request.json();
     
     if (!playlistId) {
@@ -252,13 +249,14 @@ export async function PUT(request) {
 // DELETE: Delete playlist
 export async function DELETE(request) {
   try {
-    const session = await getServerSession(simpleAuthOptions);
+    const pleiaUser = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!pleiaUser?.email) {
+      console.warn('[USERPLAYLISTS] DELETE: No user email found');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userEmail = session.user.email;
+    const userEmail = pleiaUser.email;
     const { searchParams } = new URL(request.url);
     const playlistId = searchParams.get('id');
     

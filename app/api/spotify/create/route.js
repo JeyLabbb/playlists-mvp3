@@ -32,35 +32,14 @@ export async function POST(req) {
     
     let finalName = name;
     
-    // If no name provided, generate one using LLM
-    if (!finalName && prompt) {
-      try {
-        console.log(`[TRACE:${traceId}] Generating playlist title for prompt: "${prompt}"`);
-        
-        const titleResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/intent`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: `Generate a short, catchy playlist title (max 50 characters) for this music request: "${prompt}". The title should be in the same language as the prompt and capture the essence of the music style, mood, or theme. Examples: "Reggaeton Vibes", "Chill Evening", "Workout Energy", "Indie Discoveries". Return only the title, no quotes or extra text.`,
-            target_tracks: 1
-          })
-        });
-        
-        if (titleResponse.ok) {
-          const titleData = await titleResponse.json();
-          if (titleData.intent && titleData.intent.prompt) {
-            finalName = titleData.intent.prompt.trim().slice(0, 50);
-            console.log(`[TRACE:${traceId}] Generated title: "${finalName}"`);
-          }
-        }
-      } catch (error) {
-        console.error(`[TRACE:${traceId}] Title generation failed:`, error);
-      }
-    }
-    
-    // Fallback to default if still no name
+    // Fallback to default if no name provided (skip LLM generation for speed)
     if (!finalName) {
-      finalName = 'Mi playlist';
+      // Simple name from prompt or default
+      if (prompt) {
+        finalName = prompt.slice(0, 50).trim() || 'Mi playlist';
+      } else {
+        finalName = 'Mi playlist';
+      }
     }
     
     // Remove special characters that might cause 400 errors
@@ -74,15 +53,22 @@ export async function POST(req) {
     
     console.log(`[TRACE:${traceId}] Creating playlist: "${safeName}"`);
     
-    // Get session and access token
-    const session = await getServerSession(authOptions);
-    const token = session?.accessToken || session?.user?.accessToken;
+    // Get hub access token (PLEIAHUB account)
+    const { getHubAccessToken } = await import('@/lib/spotify/hubAuth');
+    const { getPleiaServerUser } = await import('@/lib/auth/serverUser');
     
-    // Validations
-    if (!token) {
-      console.log(`[TRACE:${traceId}] No valid session found`);
-      return NextResponse.json({ ok: false, message: 'Missing Spotify access token' }, { status: 401 });
+    let accessToken;
+    try {
+      accessToken = await getHubAccessToken();
+      console.log(`[TRACE:${traceId}] Using hub access token for playlist creation`);
+    } catch (tokenError) {
+      console.error(`[TRACE:${traceId}] Failed to get hub access token:`, tokenError);
+      return NextResponse.json({ ok: false, message: 'Failed to authenticate with Spotify Hub' }, { status: 500 });
     }
+    
+    // Get user email for logging
+    const pleiaUser = await getPleiaServerUser();
+    const userEmail = pleiaUser?.email || 'unknown@example.com';
     
     if (!safeName) {
       return NextResponse.json({ ok: false, message: 'Missing playlist name' }, { status: 400 });
@@ -99,11 +85,11 @@ export async function POST(req) {
     console.log('[CREATE] payload:', JSON.stringify(payload));
     console.log('[CREATE] uris count:', uris.length);
     
-    // Create playlist expecting 201
+    // Create playlist expecting 201 (using hub token)
     const createRes = await fetch('https://api.spotify.com/v1/me/playlists', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
@@ -126,15 +112,20 @@ export async function POST(req) {
     const playlistId = playlist?.id;
     const playlistUrl = playlist?.external_urls?.spotify;
     
-    // Add tracks in batches of 100
+    // Add tracks in batches of 100 (in parallel for speed)
     let added = 0;
     if (uris.length) {
+      const batches = [];
       for (let i = 0; i < uris.length; i += 100) {
-        const chunk = uris.slice(i, i + 100);
+        batches.push(uris.slice(i, i + 100));
+      }
+      
+      // Add all batches in parallel
+      const addPromises = batches.map(async (chunk, batchIndex) => {
         const addRes = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks`, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json',
             'Accept': 'application/json'
           },
@@ -144,49 +135,47 @@ export async function POST(req) {
         if (!addRes.ok) {
           let err; 
           try { err = await addRes.json(); } catch {}
-          console.error('[CREATE] add-tracks failed', { status: addRes.status, error: err, batch: i / 100 });
-          return NextResponse.json({ 
-            ok: false, 
-            message: 'Failed to add tracks', 
-            status: addRes.status, 
-            error: err, 
-            batch: i / 100 
-          }, { status: addRes.status });
+          console.error('[CREATE] add-tracks failed', { status: addRes.status, error: err, batch: batchIndex });
+          throw new Error(`Failed to add tracks batch ${batchIndex}: ${addRes.status}`);
         }
-        added += chunk.length;
+        return chunk.length;
+      });
+      
+      try {
+        const results = await Promise.all(addPromises);
+        added = results.reduce((sum, count) => sum + count, 0);
+      } catch (batchError) {
+        console.error('[CREATE] Error adding tracks:', batchError);
+        // Still return success if playlist was created, tracks can be added later
+        added = 0;
       }
     }
     
     console.log('[CREATE] ok', { id: playlistId, url: playlistUrl, added });
     
-    // Log playlist creation to Supabase
-    console.log(`[CREATE] ===== LOGGING PLAYLIST CREATION TO SUPABASE =====`);
-    try {
-      const logResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'playlist',
-          payload: {
-            email: session?.user?.email || 'unknown@example.com',
-            playlistName: safeName,
-            prompt: prompt || 'Generated from streaming',
-            spotifyUrl: playlistUrl,
-            spotifyId: playlistId,
-            trackCount: added
-          }
-        })
-      });
-      
-      if (logResponse.ok) {
-        const logResult = await logResponse.json();
-        console.log(`[CREATE] ===== PLAYLIST LOGGED TO SUPABASE =====`, logResult);
-      } else {
-        console.error(`[CREATE] Failed to log playlist:`, await logResponse.text());
-      }
-    } catch (logError) {
-      console.error(`[CREATE] Error logging playlist:`, logError);
-    }
+    // Log playlist creation to Supabase asynchronously (don't block response)
+    const logPromise = fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'playlist',
+        payload: {
+          email: userEmail,
+          playlistName: safeName,
+          prompt: prompt || 'Generated from streaming',
+          spotifyUrl: playlistUrl,
+          spotifyId: playlistId,
+          trackCount: added
+        }
+      })
+    }).catch(err => {
+      console.error(`[CREATE] Error logging playlist (non-blocking):`, err);
+    });
+    
+    // Don't await logging - return immediately
+    logPromise.then(() => {
+      console.log(`[CREATE] ===== PLAYLIST LOGGED TO SUPABASE =====`);
+    });
     
     return NextResponse.json({
       ok: true,

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { CHECKOUT_ENABLED, SHOW_MONTHLY } from '../../lib/flags';
 import { useProfile } from '../../lib/useProfile';
 import { usePleiaSession } from '../../lib/auth/usePleiaSession';
+import { useUsageStatus } from '../../lib/hooks/useUsageStatus';
 import { REFERRALS_ENABLED, canInvite, generateReferralLink } from '../../lib/referrals';
 
 export default function PricingPage() {
@@ -12,9 +13,24 @@ export default function PricingPage() {
   const [referralStats, setReferralStats] = useState(null);
   const [isMobile, setIsMobile] = useState(false);
   const { data: session } = usePleiaSession();
-  const { isFounder, plan, isEarlyFounderCandidate, ready: profileReady } = useProfile();
+  const { isFounder, plan, isEarlyFounderCandidate: profileIsEarly, ready: profileReady } = useProfile();
+  const { isEarlyFounderCandidate: usageIsEarly } = useUsageStatus({ disabled: !session?.user });
+  const isEarlyFounderCandidate = profileIsEarly || usageIsEarly; // Usar ambos como respaldo
   const isFounderAccount = profileReady && isFounder;
   const currentPlan = profileReady ? plan : null;
+  
+  // Debug logs
+  useEffect(() => {
+    console.log('[PRICING] Profile state:', {
+      isFounder,
+      plan,
+      isEarlyFounderCandidate,
+      profileReady,
+      isFounderAccount,
+      sessionEmail: session?.user?.email,
+      canInviteResult: session?.user?.email ? canInvite(session.user.email, { isEarlyCandidate: isEarlyFounderCandidate }) : false
+    });
+  }, [isFounder, plan, isEarlyFounderCandidate, profileReady, isFounderAccount, session?.user?.email]);
   
   // Detectar si es móvil (donde Web Share API funciona mejor)
   useEffect(() => {
@@ -86,6 +102,7 @@ export default function PricingPage() {
     }
 
     const loadReferralStats = async () => {
+      // 🚨 CRITICAL: Verificar canInvite antes de hacer la petición para evitar 403
       if (
         REFERRALS_ENABLED &&
         session?.user?.email &&
@@ -97,9 +114,14 @@ export default function PricingPage() {
           if (response.ok) {
             const stats = await response.json();
             setReferralStats(stats);
+          } else if (response.status === 403) {
+            // Usuario no autorizado - no mostrar error, simplemente no cargar stats
+            console.log('[PRICING] User not authorized to invite, skipping stats');
+            setReferralStats(null);
           }
         } catch (error) {
           console.error('[REFERRAL] Error loading stats:', error);
+          // No mostrar error al usuario
         }
       }
     };
@@ -224,7 +246,7 @@ export default function PricingPage() {
         </div>
 
         {/* Founder Advantage Section (early users): izquierda ventaja, derecha Founder 5€, abajo monthly */}
-        {REFERRALS_ENABLED && session?.user?.email && canInvite(session.user.email, { isEarlyCandidate: isEarlyFounderCandidate }) && !isFounderAccount && (
+        {REFERRALS_ENABLED && session?.user?.email && isEarlyFounderCandidate && !isFounderAccount && (
           <div className="mb-12 max-w-4xl mx-auto">
             <div 
               className="rounded-2xl p-8 border-2"
@@ -454,7 +476,7 @@ export default function PricingPage() {
         )}
 
         {/* Pricing Cards - Only show para usuarios sin ventaja early */}
-        {!(REFERRALS_ENABLED && session?.user?.email && canInvite(session.user.email, { isEarlyCandidate: isEarlyFounderCandidate }) && !isFounderAccount) && (
+        {!(REFERRALS_ENABLED && session?.user?.email && isEarlyFounderCandidate && !isFounderAccount) && (
         <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           {/* Founder Pass */}
           <div 

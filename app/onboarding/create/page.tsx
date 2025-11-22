@@ -72,6 +72,9 @@ export default async function CreateAccountPage({ searchParams }: PageProps) {
     '';
 
   const defaultUsername = suggestUsername(user.email, user.id);
+  
+  // 🚨 CRITICAL: Obtener parámetro ref de la URL para tracking de referrals
+  const refEmail = typeof params.ref === 'string' ? params.ref : null;
 
   return (
     <CreateAccountForm
@@ -79,6 +82,7 @@ export default async function CreateAccountPage({ searchParams }: PageProps) {
       defaultName={defaultName}
       defaultUsername={defaultUsername}
       redirectTo={redirectTo}
+      referralEmail={refEmail}
     />
   );
 }

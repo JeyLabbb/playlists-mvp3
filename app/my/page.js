@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { usePleiaSession } from '../../lib/auth/usePleiaSession';
-import { PUBLIC_HUB_MODE } from '../../lib/features';
+// HUB_MODE eliminado - todas las funcionalidades siempre activas
 import { useUsageStatus } from '../../lib/hooks/useUsageStatus';
 import { useAuthActions } from '../../lib/auth/clientActions';
 import Link from 'next/link';
@@ -11,12 +11,11 @@ import AnimatedList from '../components/AnimatedList';
 
 export default function MyPlaylistsPage() {
   const router = useRouter();
-  const HUB_MODE = PUBLIC_HUB_MODE;
   const { data: sessionData, status } = usePleiaSession();
   const sessionUser = sessionData?.user || null;
   const { login } = useAuthActions();
   const userEmail = sessionUser?.email || "";
-  const usageDisabled = HUB_MODE || status !== 'authenticated';
+  const usageDisabled = status !== 'authenticated';
   const {
     data: usageState,
     current: usageCurrent,
@@ -158,8 +157,14 @@ export default function MyPlaylistsPage() {
       
       const playlistId = playlistIdMatch[1];
       
+      // Pass user email as ownerEmail so user can see full playlist
+      const ownerEmail = userEmail || sessionUser?.email || null;
+      const tracksUrl = ownerEmail 
+        ? `/api/spotify/playlist-tracks?id=${playlistId}&ownerEmail=${encodeURIComponent(ownerEmail)}`
+        : `/api/spotify/playlist-tracks?id=${playlistId}`;
+      
       // Fetch playlist tracks
-      const response = await fetch(`/api/spotify/playlist-tracks?id=${playlistId}`, {
+      const response = await fetch(tracksUrl, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

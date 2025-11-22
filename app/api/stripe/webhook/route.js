@@ -95,29 +95,131 @@ export async function POST(req) {
 
     // Check if this is a Founder Pass and mark user accordingly
     if (isFounderPass && session.customer_details?.email) {
+      const userEmail = session.customer_details.email.toLowerCase();
+      const now = new Date().toISOString();
+      
       try {
-        // Mark user as Founder using direct KV access
-        const kv = await import('@vercel/kv');
-        const profileKey = `jey_user_profile:${session.customer_details.email}`;
+        // 🚨 CRITICAL: Actualizar plan en Supabase primero
+        const { getSupabaseAdmin } = await import('@/lib/supabase/server');
+        const supabaseAdmin = getSupabaseAdmin();
         
-        // Get existing profile
-        const existingProfile = await kv.kv.get(profileKey) || {};
+        // Verificar plan actual antes de actualizar
+        const { data: beforeUpdate } = await supabaseAdmin
+          .from('users')
+          .select('id, email, plan, max_uses')
+          .or(`email.eq.${userEmail}`)
+          .maybeSingle();
         
-        // Update with Founder status
-        const updatedProfile = {
-          ...existingProfile,
-          email: session.customer_details.email,
-          plan: 'founder',
-          founderSince: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        };
+        console.log('[STRIPE] Plan BEFORE update:', {
+          email: userEmail,
+          planBefore: beforeUpdate?.plan,
+          needsUpdate: beforeUpdate?.plan !== 'founder'
+        });
         
-        await kv.kv.set(profileKey, updatedProfile);
-        console.info('[STRIPE] User marked as Founder:', session.customer_details.email, updatedProfile);
+        // 🚨 CRITICAL: Actualizar plan en Supabase con founder_source = 'purchase'
+        const { error: updateError } = await supabaseAdmin
+          .from('users')
+          .update({
+            plan: 'founder',
+            max_uses: null, // Unlimited
+            updated_at: now,
+            // 🚨 NEW: Marcar que el founder se obtuvo mediante compra
+            founder_source: 'purchase' // 'purchase' o 'referral'
+          })
+          .or(`email.eq.${userEmail}`);
         
-        // Payment logging moved to AFTER email is sent
+        if (updateError) {
+          console.error('[STRIPE] ❌ Error updating plan in Supabase:', updateError);
+        } else {
+          // Verificar que se actualizó correctamente
+          await new Promise(resolve => setTimeout(resolve, 200));
+          const { data: afterUpdate } = await supabaseAdmin
+            .from('users')
+            .select('id, email, plan, max_uses')
+            .or(`email.eq.${userEmail}`)
+            .maybeSingle();
+          
+          if (afterUpdate?.plan === 'founder' && afterUpdate?.max_uses === null) {
+            console.log('[STRIPE] ✅ Plan updated to founder in Supabase (verified):', {
+              email: userEmail,
+              plan: afterUpdate.plan,
+              max_uses: afterUpdate.max_uses,
+              founder_source: 'purchase'
+            });
+            
+            // 🚨 CRITICAL: Registrar pago en Supabase DESPUÉS de actualizar el plan
+            try {
+              const logResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'payment',
+                  payload: {
+                    email: userEmail,
+                    stripePaymentIntentId: session.payment_intent || session.id,
+                    stripeCustomerId: session.customer || null,
+                    amount: session.amount_total || 500, // 5€ en centavos
+                    plan: 'founder',
+                    status: 'completed'
+                  }
+                })
+              });
+              
+              if (logResponse.ok) {
+                const logResult = await logResponse.json();
+                console.log('[STRIPE] ✅ Payment logged to Supabase:', logResult);
+              } else {
+                console.error('[STRIPE] ⚠️ Failed to log payment to Supabase:', await logResponse.text());
+              }
+            } catch (logError) {
+              console.error('[STRIPE] ❌ Error logging payment to Supabase:', logError);
+            }
+            
+            // 🚨 CRITICAL: Actualizar KV DESPUÉS de Supabase (KV es solo caché, Supabase es la fuente de verdad)
+            const kv = await import('@vercel/kv');
+            const profileKey = `jey_user_profile:${userEmail}`;
+            const existingProfile = await kv.kv.get(profileKey) || {};
+            const updatedProfile = {
+              ...existingProfile,
+              email: userEmail,
+              plan: 'founder',
+              founderSince: now,
+              updatedAt: now
+            };
+            await kv.kv.set(profileKey, updatedProfile);
+            console.info('[STRIPE] ✅ KV updated after Supabase update');
+            
+            // 🚨 CRITICAL: SOLO ENVIAR EMAIL DESPUÉS de verificar que Supabase se actualizó correctamente
+            // Solo enviar si el plan cambió de free a founder
+            if (beforeUpdate?.plan !== 'founder') {
+              try {
+                const { sendFounderWelcomeEmail } = await import('@/lib/newsletter/workflows');
+                const emailSent = await sendFounderWelcomeEmail(userEmail, {
+                  origin: 'stripe_payment_completed'
+                });
+                
+                if (emailSent) {
+                  console.log('[STRIPE] ✅ Founder welcome email sent to:', userEmail);
+                } else {
+                  console.warn('[STRIPE] ⚠️ Failed to send founder welcome email to:', userEmail);
+                }
+              } catch (emailError) {
+                console.error('[STRIPE] ❌ Error sending founder welcome email:', emailError);
+                // No fallar el proceso si falla el email
+              }
+            } else {
+              console.log('[STRIPE] ℹ️ User already had founder plan, skipping welcome email');
+            }
+          } else {
+            console.error('[STRIPE] ❌ Plan not updated correctly in Supabase! Still:', {
+              plan: afterUpdate?.plan,
+              max_uses: afterUpdate?.max_uses
+            });
+          }
+        }
+        
       } catch (error) {
-        console.error('[STRIPE] Error marking user as Founder:', error);
+        console.error('[STRIPE] ❌ Error marking user as Founder:', error);
       }
     }
 
@@ -137,39 +239,7 @@ export async function POST(req) {
         
         if (emailSent) {
           console.info('[MAIL] founder_confirmation sent', session.customer_details.email);
-          
-          // Log payment to Supabase AFTER email is sent
-          console.log(`[STRIPE] ===== LOGGING PAYMENT TO SUPABASE (AFTER EMAIL) =====`);
-          console.log(`[STRIPE] Email: ${session.customer_details.email}`);
-          console.log(`[STRIPE] Amount: ${session.amount_total}`);
-          console.log(`[STRIPE] Plan: founder`);
-          
-          try {
-            const logResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                type: 'payment',
-                payload: {
-                  email: session.customer_details.email,
-                  stripePaymentIntentId: session.payment_intent,
-                  stripeCustomerId: session.customer,
-                  amount: session.amount_total,
-                  plan: 'founder',
-                  status: 'completed'
-                }
-              })
-            });
-            
-            if (logResponse.ok) {
-              const logResult = await logResponse.json();
-              console.log(`[STRIPE] ===== PAYMENT LOGGED TO SUPABASE (AFTER EMAIL) =====`, logResult);
-            } else {
-              console.error(`[STRIPE] Failed to log payment (after email):`, await logResponse.text());
-            }
-          } catch (logError) {
-            console.error(`[STRIPE] Error logging payment (after email):`, logError);
-          }
+          // 🚨 NOTE: El pago ya se registró en Supabase después de actualizar el plan (ver código anterior)
         } else {
           console.error('[EMAIL] Failed to send confirmation email to:', session.customer_details.email);
         }

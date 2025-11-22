@@ -92,7 +92,7 @@ export default function EpicSection() {
         </div>
         
         <a 
-          href="https://jeylabbb.com"
+          href="https://mtryx.com"
           target="_blank"
           rel="noopener noreferrer"
           className="inline-block text-night font-semibold text-lg px-8 py-4 rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-200"
@@ -105,7 +105,7 @@ export default function EpicSection() {
             boxShadow: '0 8px 25px rgba(54, 226, 180, 0.25)'
           }}
         >
-          JeyLabbb
+          by MTRYX
         </a>
       </div>
     </section>

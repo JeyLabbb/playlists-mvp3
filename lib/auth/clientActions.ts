@@ -10,7 +10,15 @@ function buildRedirectPath(base: string, redirectTo: string) {
 }
 
 export function useAuthActions() {
-  const { supabaseClient } = useSessionContext();
+  let supabaseClient = null;
+  try {
+    const context = useSessionContext();
+    supabaseClient = context?.supabaseClient || null;
+  } catch (error) {
+    // If SessionContext is not available, supabaseClient will be null
+    console.warn('[AUTH-ACTIONS] SessionContext not available:', error);
+  }
+  
   const { mutate: mutateProfile } = useProfile();
 
   const login = useCallback(

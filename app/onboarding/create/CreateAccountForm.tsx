@@ -8,6 +8,7 @@ type Props = {
   defaultName?: string | null;
   defaultUsername?: string | null;
   redirectTo: string;
+  referralEmail?: string | null;
 };
 
 function sanitizeUsername(username: string) {
@@ -23,6 +24,7 @@ export default function CreateAccountForm({
   defaultName = '',
   defaultUsername = '',
   redirectTo,
+  referralEmail = null,
 }: Props) {
   const router = useRouter();
   const [displayName, setDisplayName] = useState(defaultName || '');
@@ -47,6 +49,17 @@ export default function CreateAccountForm({
       return;
     }
 
+    // 🚨 CRITICAL: Obtener referralEmail de props, URL o localStorage
+    let finalReferralEmail = referralEmail;
+    if (!finalReferralEmail && typeof window !== 'undefined') {
+      // Intentar obtener de la URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const refFromUrl = urlParams.get('ref');
+      // Intentar obtener de localStorage
+      const refFromStorage = localStorage.getItem('pleia-referral');
+      finalReferralEmail = refFromUrl || refFromStorage || null;
+    }
+
     setSubmitting(true);
     try {
       const response = await fetch('/api/auth/complete', {
@@ -61,6 +74,7 @@ export default function CreateAccountForm({
           marketingOptIn,
           termsAccepted: acceptsTerms,
           redirectTo,
+          referralEmail: finalReferralEmail, // 🚨 CRITICAL: Pasar referralEmail para tracking
         }),
       });
 

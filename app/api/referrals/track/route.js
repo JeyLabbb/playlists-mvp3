@@ -87,7 +87,7 @@ export async function POST(request) {
 
     // Get current user profile
     const kv = await import('@vercel/kv');
-    const profileKey = `userprofile:${currentUserEmail}`;
+    const profileKey = `jey_user_profile:${currentUserEmail}`;
     const currentProfile = await kv.kv.get(profileKey) || {};
 
     // Check if user already has a referrer
@@ -117,7 +117,7 @@ export async function POST(request) {
       const { REF_REQUIRED_COUNT } = await import('@/lib/referrals');
       const { setUserPlan } = await import('@/lib/billing/usage');
       
-      const referrerProfileKey = `userprofile:${referralEmail}`;
+      const referrerProfileKey = `jey_user_profile:${referralEmail}`;
       const referrerProfile = await kv.kv.get(referrerProfileKey) || {};
       
       // Actualizar stats del referrer
@@ -169,146 +169,99 @@ export async function POST(request) {
         upgradedToFounder = true;
         console.log('[REF] 🎉 Referrer reached 3/3 referidos! Upgrading to founder:', referralEmail);
 
-        // 🚨 CRITICAL: Actualizar plan en Supabase automáticamente
-        try {
-          // Verificar estado antes del update
-          const { getSupabaseAdmin } = await import('@/lib/supabase/server');
-          const supabaseAdmin = getSupabaseAdmin();
-          
-          const { data: beforeUpdate } = await supabaseAdmin
-            .from('users')
-            .select('id, email, plan, is_founder')
-            .or(`email.eq.${referralEmail}`)
-            .maybeSingle();
-          
-          console.log('[REF] State BEFORE update:', {
-            email: referralEmail,
-            planBefore: beforeUpdate?.plan,
-            is_founderBefore: beforeUpdate?.is_founder
-          });
-          
-          const planResult = await setUserPlan(referralEmail, 'founder', {
-            isFounder: true,
-            since: now
-          });
-          
-          console.log('[REF] setUserPlan result:', planResult);
-          
-          let planUpdated = false;
-          
-          if (planResult?.ok) {
-            // Verificar que realmente se actualizó
-            await new Promise(resolve => setTimeout(resolve, 200));
+          // 🚨 CRITICAL: Actualizar plan en Supabase automáticamente
+          // HACER ACTUALIZACIÓN DIRECTA PRIMERO (más confiable que setUserPlan)
+          try {
+            const { getSupabaseAdmin } = await import('@/lib/supabase/server');
+            const supabaseAdmin = getSupabaseAdmin();
             
+            // 🚨 CRITICAL: Actualización directa de 'plan', 'max_uses', 'updated_at' y 'founder_source'
+            // 🚨 OPTIMIZATION: Usar email directamente (no tenemos id del referrer)
+            const { error: updateError } = await supabaseAdmin
+              .from('users')
+              .update({
+                plan: 'founder',
+                max_uses: null, // 🚨 CRITICAL: null = infinito
+                updated_at: now,
+                // 🚨 NEW: Marcar que el founder se obtuvo mediante referidos
+                founder_source: 'referral' // 'purchase' o 'referral'
+              })
+              .eq('email', referralEmail); // 🚨 OPTIMIZATION: Usar eq en lugar de or cuando solo hay email
+            
+            if (updateError) {
+              console.error('[REF] ❌ Direct update failed:', updateError);
+              throw updateError;
+            }
+            
+            // 🚨 OPTIMIZATION: Reducir delay - Supabase es rápido
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // 🚨 OPTIMIZATION: Usar eq directamente (más rápido que or)
             const { data: afterUpdate, error: selectError } = await supabaseAdmin
               .from('users')
-              .select('id, email, plan, is_founder, max_uses')
-              .or(`email.eq.${referralEmail}`)
+              .select('id, email, plan, max_uses')
+              .eq('email', referralEmail) // 🚨 OPTIMIZATION: Usar eq en lugar de or
               .maybeSingle();
             
             console.log('[REF] State AFTER update:', {
               email: referralEmail,
               planAfter: afterUpdate?.plan,
-              is_founderAfter: afterUpdate?.is_founder,
+              max_usesAfter: afterUpdate?.max_uses,
               selectError: selectError?.message
             });
             
-            if (afterUpdate?.plan === 'founder') {
-              planUpdated = true;
-              console.log('[REF] ✅ Successfully updated plan to founder in Supabase (verified)');
-            } else {
-              console.error('[REF] ❌ Plan not updated! Still:', afterUpdate?.plan);
-              // Fallback: actualización directa de 'plan', 'max_uses' y 'updated_at'
-              const { error: directError } = await supabaseAdmin
-                .from('users')
-                .update({
-                  plan: 'founder',
-                  max_uses: null,
-                  updated_at: now
-                })
-                .or(`email.eq.${referralEmail}`);
-              
-              if (directError) {
-                console.error('[REF] ❌ Direct update failed:', directError);
-              } else {
-                console.log('[REF] ✅ Direct update succeeded (fallback)');
-                planUpdated = true;
-              }
-            }
-          } else {
-            console.error('[REF] ❌ setUserPlan failed:', planResult?.reason);
-            // Fallback: actualización directa de 'plan', 'max_uses' y 'updated_at'
-            try {
-              const { error: directError } = await supabaseAdmin
-                .from('users')
-                .update({
-                  plan: 'founder',
-                  max_uses: null,
-                  updated_at: now
-                })
-                .or(`email.eq.${referralEmail}`);
-              
-              if (directError) {
-                console.error('[REF] ❌ Direct update failed:', directError);
-              } else {
-                console.log('[REF] ✅ Direct update succeeded (fallback)');
-                planUpdated = true;
-              }
-            } catch (fallbackError) {
-              console.error('[REF] ❌ Fallback update error:', fallbackError);
-            }
-          }
-          
-          // 🚨 CRITICAL: Solo enviar email si el plan se actualizó correctamente
-          if (planUpdated) {
-            // 🚨 CRITICAL: Enviar email de bienvenida a founder
-            try {
-              const { sendFounderWelcomeEmail } = await import('@/lib/newsletter/workflows');
-              const emailSent = await sendFounderWelcomeEmail(referralEmail, {
-                origin: 'referral_founder_upgrade'
+            if (afterUpdate?.plan === 'founder' && afterUpdate?.max_uses === null) {
+              console.log('[REF] ✅ Successfully updated plan to founder in Supabase (verified):', {
+                email: referralEmail,
+                plan: afterUpdate.plan,
+                max_uses: afterUpdate.max_uses
               });
               
-              if (emailSent) {
-                console.log('[REF] ✅ Founder welcome email sent to:', referralEmail);
-              } else {
-                console.warn('[REF] ⚠️ Failed to send founder welcome email to:', referralEmail);
+              // 🚨 CRITICAL: Actualizar KV DESPUÉS de Supabase (KV es solo caché, Supabase es la fuente de verdad)
+              await kv.kv.set(referrerProfileKey, updatedReferrerProfile);
+              console.log('[REF] ✅ KV updated after Supabase update');
+              
+              // 🚨 CRITICAL: SOLO ENVIAR EMAIL DESPUÉS de verificar que Supabase se actualizó correctamente
+              try {
+                const { sendFounderWelcomeEmail } = await import('@/lib/newsletter/workflows');
+                const emailSent = await sendFounderWelcomeEmail(referralEmail, {
+                  origin: 'referral_founder_upgrade'
+                });
+                
+                if (emailSent) {
+                  console.log('[REF] ✅ Founder welcome email sent to:', referralEmail);
+                } else {
+                  console.warn('[REF] ⚠️ Failed to send founder welcome email to:', referralEmail);
+                }
+              } catch (emailError) {
+                console.error('[REF] ❌ Error sending founder welcome email:', emailError);
+                // No fallar el upgrade si falla el email
               }
-            } catch (emailError) {
-              console.error('[REF] ❌ Error sending founder welcome email:', emailError);
-              // No fallar el upgrade si falla el email
+            } else {
+              console.error('[REF] ❌ Plan not updated correctly in Supabase! Still:', {
+                plan: afterUpdate?.plan,
+                max_uses: afterUpdate?.max_uses
+              });
+              throw new Error('Plan update verification failed - Supabase not updated');
             }
+          } catch (planError) {
+            console.error('[REF] ❌ Error updating plan to founder in Supabase:', planError);
+            // No fallar silenciosamente - el error ya se logueó
           }
-        } catch (planError) {
-          console.error('[REF] ❌ Error updating plan to founder in Supabase:', planError);
-          // Último recurso: actualización directa de 'plan', 'max_uses' y 'updated_at'
-          try {
-            const { getSupabaseAdmin } = await import('@/lib/supabase/server');
-            const supabaseAdmin = getSupabaseAdmin();
-            const { error: lastResortError } = await supabaseAdmin
-              .from('users')
-              .update({
-                plan: 'founder',
-                max_uses: null,
-                updated_at: now
-              })
-              .or(`email.eq.${referralEmail}`);
-            
-            if (!lastResortError) {
-              console.log('[REF] ✅ Last resort update succeeded');
-            }
-          } catch (lastError) {
-            console.error('[REF] ❌ Last resort update failed:', lastError);
-          }
-        }
       }
 
-      await kv.kv.set(referrerProfileKey, updatedReferrerProfile);
-      console.log('[REF] Referrer stats updated on account creation:', { 
-        referrerEmail: referralEmail, 
-        referredQualifiedCount,
-        newUser: currentUserEmail,
-        upgradedToFounder
-      });
+      // 🚨 CRITICAL: NO actualizar KV aquí si se hizo upgrade - ya se actualizó después de Supabase
+      // Solo actualizar KV si NO se hizo upgrade
+      if (!upgradedToFounder) {
+        await kv.kv.set(referrerProfileKey, updatedReferrerProfile);
+        console.log('[REF] Referrer stats updated in KV (no upgrade):', { 
+          referrerEmail: referralEmail, 
+          referredQualifiedCount,
+          newUser: currentUserEmail
+        });
+      } else {
+        console.log('[REF] Referrer stats - KV already updated after Supabase upgrade');
+      }
 
       // 🚨 CRITICAL: Retornar información sobre el upgrade para que el cliente pueda mostrar el mensaje
       return NextResponse.json({ 

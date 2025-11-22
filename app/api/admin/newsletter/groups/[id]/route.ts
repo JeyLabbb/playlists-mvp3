@@ -12,14 +12,13 @@ const updateGroupSchema = z.object({
 
 export async function PATCH(
   request: Request,
-  context: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
     if (!adminAccess.ok) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
-    const params = await context.params;
     const payload = updateGroupSchema.parse(await request.json());
     const supabase = await getNewsletterAdminClient();
 
@@ -53,14 +52,13 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  context: { params: Promise<{ id: string }> },
+  { params }: { params: { id: string } },
 ) {
   try {
     const adminAccess = await ensureAdminAccess(request);
     if (!adminAccess.ok) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
-    const params = await context.params;
     const supabase = await getNewsletterAdminClient();
     const { error } = await supabase.from('newsletter_groups').delete().eq('id', params.id);
     if (error) throw error;

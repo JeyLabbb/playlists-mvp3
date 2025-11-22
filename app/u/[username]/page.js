@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, use } from 'react';
 import { usePathname } from 'next/navigation';
 import AnimatedList from '../../components/AnimatedList';
+import { normalizeUsername } from '../../../lib/social/usernameUtils';
+import { usePleiaSession } from '../../../lib/auth/usePleiaSession';
 
 export default function PublicProfilePage({ params }) {
   const pathname = usePathname();
   const resolvedParams = use(params);
   const username = resolvedParams.username || pathname.split('/').pop();
+  const { data: session } = usePleiaSession();
   
   const [profile, setProfile] = useState(null);
   const [publicPlaylists, setPublicPlaylists] = useState([]);
@@ -15,6 +18,7 @@ export default function PublicProfilePage({ params }) {
   const [error, setError] = useState(null);
   const [previewPlaylist, setPreviewPlaylist] = useState(null);
   const [previewTracks, setPreviewTracks] = useState([]);
+  const [previewInfo, setPreviewInfo] = useState({ isPreview: false, remainingCount: 0, total: 0 });
   const [loadingPreview, setLoadingPreview] = useState(false);
 
   const fetchUserProfile = useCallback(async () => {
@@ -59,43 +63,63 @@ export default function PublicProfilePage({ params }) {
       // Extract profile info from the first playlist (they should all have same author)
       const authorInfo = userPlaylists[0].author;
       
-      // Try to get full profile information
+      // Try to get full profile information from API
       let fullProfile = null;
       try {
-        // Look for user profile in localStorage
-        const allProfileKeys = [];
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith('jey_user_profile:')) {
-            allProfileKeys.push(key);
+        const profileResponse = await fetch(`/api/social/profile/${encodeURIComponent(username)}`);
+        if (profileResponse.ok) {
+          const profileData = await profileResponse.json();
+          if (profileData.success && profileData.profile) {
+            fullProfile = profileData.profile;
+            console.log('[USER-PROFILE] Loaded profile from API:', fullProfile);
           }
         }
+      } catch (profileError) {
+        console.warn('[USER-PROFILE] Error fetching profile from API:', profileError);
         
-        // Find profile by username
-        for (const key of allProfileKeys) {
-          try {
-            const profileData = JSON.parse(localStorage.getItem(key) || 'null');
-            if (profileData && profileData.username === username) {
-              fullProfile = profileData;
-              break;
+        // Fallback: Look for user profile in localStorage
+        try {
+          const allProfileKeys = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('jey_user_profile:')) {
+              allProfileKeys.push(key);
             }
-          } catch (parseError) {
-            console.warn(`Error parsing profile key ${key}:`, parseError);
           }
+          
+          // Find profile by username
+          for (const key of allProfileKeys) {
+            try {
+              const profileData = JSON.parse(localStorage.getItem(key) || 'null');
+              if (profileData && normalizeUsername(profileData.username) === normalizeUsername(username)) {
+                fullProfile = profileData;
+                break;
+              }
+            } catch (parseError) {
+              console.warn(`Error parsing profile key ${key}:`, parseError);
+            }
+          }
+        } catch (localStorageError) {
+          console.warn('Error searching for full profile in localStorage:', localStorageError);
         }
-      } catch (error) {
-        console.warn('Error searching for full profile:', error);
       }
       
       // Use full profile if available, otherwise use basic author info
-      setProfile({
-        username: authorInfo.username,
-        displayName: fullProfile?.displayName || authorInfo.displayName,
-        image: fullProfile?.image || authorInfo.image,
-        bio: fullProfile?.bio || null
-      });
+      const finalProfile = {
+        username: normalizeUsername(fullProfile?.username || authorInfo?.username || username),
+        displayName: fullProfile?.displayName || authorInfo?.displayName || username,
+        image: fullProfile?.image || authorInfo?.image || null,
+        bio: fullProfile?.bio || null,
+        email: fullProfile?.email || null // Store email for playlist access control
+      };
+      setProfile(finalProfile);
       
-      setPublicPlaylists(userPlaylists);
+      // Add owner email to each playlist for access control
+      const playlistsWithOwner = userPlaylists.map(playlist => ({
+        ...playlist,
+        ownerEmail: finalProfile.email || playlist.author?.email || playlist.ownerEmail || null
+      }));
+      setPublicPlaylists(playlistsWithOwner);
       
     } catch (error) {
       console.error('Error fetching user profile:', error);
@@ -161,23 +185,65 @@ export default function PublicProfilePage({ params }) {
     }
   };
 
+  // Helper function to update metrics in localStorage
+  const updateMetricsInLocalStorage = async (playlistId, type) => {
+    try {
+      const localStorageKey = `jey_playlist_metrics:${playlistId}`;
+      const currentMetrics = JSON.parse(localStorage.getItem(localStorageKey) || '{"views": 0, "clicks": 0}');
+      
+      if (type === 'view') {
+        currentMetrics.views = (currentMetrics.views || 0) + 1;
+      } else if (type === 'click') {
+        currentMetrics.clicks = (currentMetrics.clicks || 0) + 1;
+      }
+      
+      localStorage.setItem(localStorageKey, JSON.stringify(currentMetrics));
+      console.log(`Updated ${type} metrics in localStorage for playlist ${playlistId}`);
+      
+      // Update local state if needed
+      setPublicPlaylists(prevPlaylists => 
+        prevPlaylists.map(playlist => 
+          playlist.playlistId === playlistId 
+            ? { 
+                ...playlist, 
+                views: currentMetrics.views,
+                clicks: currentMetrics.clicks
+              }
+            : playlist
+        )
+      );
+    } catch (error) {
+      console.error('Error updating metrics in localStorage:', error);
+    }
+  };
+
   const trackClick = async (playlistId, spotifyUrl) => {
     try {
-      await fetch('/api/metrics', {
+      // Try API first
+      const response = await fetch('/api/metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playlistId, type: 'click' })
       });
       
+      const result = await response.json();
+      
+      // If fallback to localStorage, handle client-side
+      if (result.reason === 'fallback-localStorage') {
+        await updateMetricsInLocalStorage(playlistId, 'click');
+      }
+      
+      // Open Spotify URL
       try {
         window.open(spotifyUrl, '_blank', 'noopener,noreferrer');
       } catch (openError) {
         console.error('Error opening Spotify URL:', openError);
-        // Fallback: try to navigate directly
         window.location.href = spotifyUrl;
       }
     } catch (error) {
       console.error('Error tracking click:', error);
+      // Fallback to localStorage
+      await updateMetricsInLocalStorage(playlistId, 'click');
       // Still open the link even if tracking fails
       if (spotifyUrl) {
         try {
@@ -191,13 +257,22 @@ export default function PublicProfilePage({ params }) {
 
   const trackView = async (playlistId) => {
     try {
-      await fetch('/api/metrics', {
+      const response = await fetch('/api/metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ playlistId, type: 'view' })
       });
+      
+      const result = await response.json();
+      
+      // If fallback to localStorage, handle client-side
+      if (result.reason === 'fallback-localStorage') {
+        await updateMetricsInLocalStorage(playlistId, 'view');
+      }
     } catch (error) {
       console.error('Error tracking view:', error);
+      // Fallback to localStorage
+      await updateMetricsInLocalStorage(playlistId, 'view');
     }
   };
 
@@ -208,23 +283,60 @@ export default function PublicProfilePage({ params }) {
       setPreviewTracks([]);
 
       // Track click metric for preview
-      await fetch('/api/metrics', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playlistId: playlist.playlistId, type: 'click' })
-      });
+      try {
+        const metricsResponse = await fetch('/api/metrics', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playlistId: playlist.playlistId, type: 'click' })
+        });
+        
+        const metricsResult = await metricsResponse.json();
+        
+        // If fallback to localStorage, handle client-side
+        if (metricsResult.reason === 'fallback-localStorage') {
+          await updateMetricsInLocalStorage(playlist.playlistId, 'click');
+        }
+      } catch (metricsError) {
+        console.error('Error tracking preview click:', metricsError);
+        // Fallback to localStorage
+        await updateMetricsInLocalStorage(playlist.playlistId, 'click');
+      }
 
-      const response = await fetch(`/api/spotify/playlist-tracks?id=${playlist.playlistId}`);
+      // Extract playlist ID from URL if needed
+      let playlistId = playlist.playlistId;
+      if (playlist.spotifyUrl && !playlistId) {
+        const match = playlist.spotifyUrl.match(/playlist\/([a-zA-Z0-9]+)/);
+        if (match) playlistId = match[1];
+      }
+
+      if (!playlistId) {
+        console.error('No playlist ID available');
+        setPreviewTracks([]);
+        return;
+      }
+
+      // Get owner email from playlist or profile
+      const ownerEmail = playlist.ownerEmail || profile?.email || null;
+      const tracksUrl = ownerEmail 
+        ? `/api/spotify/playlist-tracks?id=${playlistId}&ownerEmail=${encodeURIComponent(ownerEmail)}`
+        : `/api/spotify/playlist-tracks?id=${playlistId}`;
+      
+      const response = await fetch(tracksUrl);
       const data = await response.json();
 
-      if (data.success) {
-        // Shuffle tracks and show 15 random ones
-        const shuffledTracks = [...data.tracks].sort(() => Math.random() - 0.5);
-        setPreviewTracks(shuffledTracks);
+      if (data.success && data.tracks) {
+        setPreviewTracks(data.tracks);
+        // Store preview info
+        setPreviewInfo({
+          isPreview: data.preview || false,
+          remainingCount: data.remainingCount || 0,
+          total: data.total || data.tracks.length
+        });
       } else {
         console.error('Failed to load playlist tracks:', data.error);
         // Set empty tracks to show error state
         setPreviewTracks([]);
+        setPreviewInfo({ isPreview: false, remainingCount: 0, total: 0 });
       }
     } catch (error) {
       console.error('Error loading playlist preview:', error);
@@ -296,6 +408,23 @@ export default function PublicProfilePage({ params }) {
       
       <div className="pt-12 sm:pt-20 pb-4 sm:pb-12 px-6 sm:px-6">
         <div className="max-w-4xl mx-auto">
+          {/* Back Button */}
+          <button
+            onClick={() => {
+              // Check if we came from trending
+              const referrer = document.referrer;
+              if (referrer.includes('/trending')) {
+                window.location.href = '/trending';
+              } else {
+                window.history.back();
+              }
+            }}
+            className="mb-4 flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm"
+          >
+            <span>←</span>
+            <span>Volver</span>
+          </button>
+          
           {/* Profile Header - Mobile optimized */}
           <div className="bg-gradient-to-r from-gray-800/50 to-gray-900/50 border border-gray-700 rounded-2xl p-3 sm:p-8 mb-4 sm:mb-8">
             <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-6">
@@ -306,12 +435,19 @@ export default function PublicProfilePage({ params }) {
                     src={profile.image} 
                     alt={profile.displayName} 
                     className="w-16 h-16 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-gray-600"
+                    onError={(e) => {
+                      // If image fails to load, hide it and show placeholder
+                      e.target.style.display = 'none';
+                      const placeholder = e.target.nextElementSibling;
+                      if (placeholder) placeholder.style.display = 'flex';
+                    }}
                   />
-                ) : (
-                  <div className="w-16 h-16 sm:w-24 sm:h-24 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center border-4 border-gray-600">
-                    <span className="text-white text-2xl sm:text-4xl">👤</span>
-                  </div>
-                )}
+                ) : null}
+                <div 
+                  className={`w-16 h-16 sm:w-24 sm:h-24 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center border-4 border-gray-600 ${profile.image ? 'hidden' : ''}`}
+                >
+                  <span className="text-white text-2xl sm:text-4xl">👤</span>
+                </div>
               </div>
               
               {/* Profile Info */}
@@ -321,7 +457,7 @@ export default function PublicProfilePage({ params }) {
                     {profile.displayName}
                   </h1>
                   <span className="text-gray-400 text-sm sm:text-lg">
-                    @{profile.username}
+                    @{normalizeUsername(profile.username) || profile.username || 'unknown'}
                   </span>
                 </div>
                 
@@ -441,7 +577,7 @@ export default function PublicProfilePage({ params }) {
           {/* Footer */}
           <div className="text-center mt-12 pt-8 border-t border-gray-700">
             <p className="text-gray-500 text-sm">
-              Perfil público de @{username} • Generado con IA JeyLabbb
+              Perfil público de @{username} • Generado con IA • by MTRYX
             </p>
           </div>
         </div>
@@ -457,8 +593,13 @@ export default function PublicProfilePage({ params }) {
                     {previewPlaylist.playlistName}
                   </h2>
                   <p className="text-gray-400 text-xs sm:text-sm">
-                    {previewTracks.length} canciones • Creado por @{previewPlaylist.author?.username || username}
-                    {previewTracks.length > 15 && (
+                    {previewInfo.total > 0 ? previewInfo.total : previewTracks.length} canciones • Creado por @{previewPlaylist.author?.username || username}
+                    {previewInfo.isPreview && previewInfo.remainingCount > 0 && (
+                      <span className="block mt-1 text-xs text-blue-400 font-semibold">
+                        Mostrando {previewTracks.length} de {previewInfo.total} (preview limitado)
+                      </span>
+                    )}
+                    {!previewInfo.isPreview && previewTracks.length > 15 && (
                       <span className="block mt-1 text-xs text-gray-500">
                         Mostrando 15 canciones aleatorias
                       </span>
@@ -488,7 +629,7 @@ export default function PublicProfilePage({ params }) {
                 ) : previewTracks.length > 0 ? (
                   <div className="p-4">
                     <div className="space-y-2">
-                      {previewTracks.slice(0, 15).map((track, index) => (
+                      {previewTracks.map((track, index) => (
                         <div key={`track-${previewPlaylist.playlistId}-${index}-${track.id}`} className="flex items-center gap-3 py-2">
                           <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-br from-green-500 to-cyan-500 rounded flex items-center justify-center">
                             <span className="text-white text-sm">🎵</span>
@@ -498,7 +639,7 @@ export default function PublicProfilePage({ params }) {
                               {track.name}
                             </p>
                             <p className="text-gray-400 text-xs sm:text-sm truncate">
-                              {track.artists?.join(', ') || 'Artista desconocido'}
+                              {track.artistNames || track.artists?.join(', ') || 'Artista desconocido'}
                             </p>
                           </div>
                         </div>

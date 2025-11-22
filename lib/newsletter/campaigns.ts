@@ -20,7 +20,6 @@ export async function deliverCampaignNow({
   campaign: any;
   recipients: any[];
   content: CampaignContentPayload;
-  trackingEnabled?: boolean;
 }) {
   if (!recipients.length) return;
 

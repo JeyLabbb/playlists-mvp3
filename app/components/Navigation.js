@@ -202,7 +202,7 @@ export default function Navigation() {
                   Made with ❤️ for music lovers
                 </p>
                 <p className="text-gray-500 text-xs">
-                  Powered by AI JeyLabbb Engines
+                  Generado con IA • by MTRYX
                 </p>
               </div>
             </div>

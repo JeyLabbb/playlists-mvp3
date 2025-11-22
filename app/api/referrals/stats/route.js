@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { REFERRALS_ENABLED, REF_REQUIRED_COUNT, canInvite } from '@/lib/referrals';
-import { HUB_MODE } from '@/lib/features';
 import { getUserPlan } from '@/lib/billing/usageV2';
 import { getPleiaServerUser } from '@/lib/auth/serverUser';
 
@@ -22,68 +21,77 @@ export async function GET(request) {
 
     const normalizedEmail = userEmail.toLowerCase();
 
-    // 🚨 CRITICAL: Consultamos plan/flags para saber si es early-founder-candidate
-    // Si getUserPlan falla, intentar obtener el flag directamente de la base de datos
+    // 🚨 OPTIMIZATION: Consulta directa a Supabase para obtener solo el flag necesario
+    // Esto es más rápido que getUserPlan que hace múltiples consultas
     let isEarlyFounderCandidate = false;
     let planContext = null;
+    
     try {
-      planContext = await getUserPlan(normalizedEmail);
-      isEarlyFounderCandidate = !!planContext?.isEarlyFounderCandidate;
-      console.log('[REF] getUserPlan result:', {
-        email: normalizedEmail,
-        isEarlyFounderCandidate,
-        planContext: planContext ? { plan: planContext.plan, isEarlyFounderCandidate: planContext.isEarlyFounderCandidate } : null,
-      });
-    } catch (planError) {
-      console.warn('[REF] Failed to load user plan for referrals stats:', planError);
-      // 🚨 CRITICAL: Si getUserPlan falla, intentar obtener el flag directamente de la BD
-      try {
-        const { getSupabaseAdmin } = await import('@/lib/supabase/server');
-        const supabase = getSupabaseAdmin();
-        const { data: userData, error: dbError } = await supabase
-          .from('users')
-          .select('is_early_founder_candidate, plan')
-          .or(`email.eq.${normalizedEmail},id.eq.${pleiaUser.id}`)
-          .maybeSingle();
-        
-        if (!dbError && userData) {
-          isEarlyFounderCandidate = !!userData.is_early_founder_candidate;
-          planContext = { plan: userData.plan || 'free', isEarlyFounderCandidate: !!userData.is_early_founder_candidate };
-          console.log('[REF] Direct DB check result:', {
-            email: normalizedEmail,
-            isEarlyFounderCandidate,
-            plan: userData.plan,
-            userData,
-          });
-        } else {
-          console.warn('[REF] Direct DB check also failed:', dbError);
-        }
-      } catch (dbFallbackError) {
-        console.error('[REF] Error in DB fallback:', dbFallbackError);
+      // 🚨 OPTIMIZATION: Consulta directa y rápida solo para el flag
+      const { getSupabaseAdmin } = await import('@/lib/supabase/server');
+      const supabase = getSupabaseAdmin();
+      
+      // 🚨 OPTIMIZATION: Usar id primero (primary key, más rápido) si está disponible
+      let query = supabase
+        .from('users')
+        .select('is_early_founder_candidate, plan');
+      
+      if (pleiaUser.id) {
+        query = query.eq('id', pleiaUser.id); // 🚨 OPTIMIZATION: id es primary key
+      } else {
+        query = query.eq('email', normalizedEmail);
       }
+      
+      const { data: userData, error: dbError } = await query.maybeSingle();
+      
+      if (!dbError && userData) {
+        isEarlyFounderCandidate = !!userData.is_early_founder_candidate;
+        planContext = { 
+          plan: userData.plan || 'free', 
+          isEarlyFounderCandidate: !!userData.is_early_founder_candidate 
+        };
+        console.log('[REF] Direct DB check result:', {
+          email: normalizedEmail,
+          isEarlyFounderCandidate,
+          plan: userData.plan,
+        });
+      } else {
+        // Fallback a getUserPlan solo si la consulta directa falla
+        console.warn('[REF] Direct DB check failed, trying getUserPlan:', dbError);
+        try {
+          planContext = await getUserPlan(normalizedEmail);
+          isEarlyFounderCandidate = !!planContext?.isEarlyFounderCandidate;
+        } catch (planError) {
+          console.warn('[REF] getUserPlan also failed:', planError);
+          isEarlyFounderCandidate = false;
+        }
+      }
+    } catch (error) {
+      console.error('[REF] Error checking early founder candidate:', error);
+      isEarlyFounderCandidate = false;
     }
 
-    // 🚨 CRITICAL: Log antes de verificar canInvite
+    // 🚨 CRITICAL: Verificar canInvite ANTES de hacer más consultas
+    const canInviteResult = canInvite(normalizedEmail, { isEarlyCandidate: isEarlyFounderCandidate });
     console.log('[REF] Checking canInvite:', {
       email: normalizedEmail,
       isEarlyFounderCandidate,
-      canInviteResult: canInvite(normalizedEmail, { isEarlyCandidate: isEarlyFounderCandidate }),
+      canInviteResult,
     });
 
-    if (!canInvite(normalizedEmail, { isEarlyCandidate: isEarlyFounderCandidate })) {
-      console.error('[REF] User not authorized to invite:', {
+    if (!canInviteResult) {
+      console.log('[REF] User not authorized to invite (early return):', {
         email: normalizedEmail,
         isEarlyFounderCandidate,
         REFERRALS_ENABLED,
-        canInviteResult: canInvite(normalizedEmail, { isEarlyCandidate: isEarlyFounderCandidate }),
       });
       return NextResponse.json({ error: 'User not authorized to invite' }, { status: 403 });
     }
 
     // Get user profile
     const kv = await import('@vercel/kv');
-    // 🚨 CRITICAL: Usar la misma key que en track/route.js
-    const profileKey = `userprofile:${normalizedEmail}`;
+    // 🚨 CRITICAL: Usar la misma key que en track/route.js y otros lugares
+    const profileKey = `jey_user_profile:${normalizedEmail}`;
     const profile = (await kv.kv.get(profileKey)) || {};
 
     const qualifiedReferrals = profile.referredQualifiedCount || 0;
@@ -107,71 +115,93 @@ export async function GET(request) {
         });
         
         try {
-          const { setUserPlan } = await import('@/lib/billing/usage');
           const { getSupabaseAdmin } = await import('@/lib/supabase/server');
           const now = new Date().toISOString();
           
-          // 🚨 CRITICAL: Actualizar directamente solo las columnas que existen: 'plan' y 'max_uses'
+          // 🚨 CRITICAL: Actualización directa de 'plan', 'max_uses' y 'updated_at'
+          // Esto es más confiable que setUserPlan
           const supabaseAdmin = getSupabaseAdmin();
           
-          // Actualización directa de 'plan', 'max_uses' y 'updated_at'
-          const { error: updateError } = await supabaseAdmin
+          // 🚨 OPTIMIZATION: Usar id si está disponible (más rápido)
+          let updateQuery = supabaseAdmin
             .from('users')
             .update({
               plan: 'founder',
-              max_uses: null, // Unlimited
-              updated_at: now
-            })
-            .or(`email.eq.${normalizedEmail}`);
+              max_uses: null, // 🚨 CRITICAL: null = infinito
+              updated_at: now,
+              // 🚨 NEW: Marcar que el founder se obtuvo mediante referidos
+              founder_source: 'referral' // 'purchase' o 'referral'
+            });
+          
+          if (pleiaUser.id) {
+            updateQuery = updateQuery.eq('id', pleiaUser.id); // 🚨 OPTIMIZATION: id es primary key
+          } else {
+            updateQuery = updateQuery.eq('email', normalizedEmail);
+          }
+          
+          const { error: updateError } = await updateQuery;
           
           if (updateError) {
             console.error('[REF-STATS] ❌ Direct update failed:', updateError);
-          } else {
-            // Verificar que se actualizó
-            await new Promise(resolve => setTimeout(resolve, 200));
-            const { data: afterUpdate } = await supabaseAdmin
-              .from('users')
-              .select('id, email, plan, max_uses')
-              .or(`email.eq.${normalizedEmail}`)
-              .maybeSingle();
-            
-            if (afterUpdate?.plan === 'founder') {
-              console.log('[REF-STATS] ✅ Plan updated to founder in Supabase (verified):', {
-                email: normalizedEmail,
-                plan: afterUpdate.plan,
-                max_uses: afterUpdate.max_uses
-              });
-              
-              // 🚨 CRITICAL: Enviar email de bienvenida a founder
-              try {
-                const { sendFounderWelcomeEmail } = await import('@/lib/newsletter/workflows');
-                const emailSent = await sendFounderWelcomeEmail(normalizedEmail, {
-                  origin: 'referral_founder_upgrade_stats'
-                });
-                
-                if (emailSent) {
-                  console.log('[REF-STATS] ✅ Founder welcome email sent to:', normalizedEmail);
-                } else {
-                  console.warn('[REF-STATS] ⚠️ Failed to send founder welcome email to:', normalizedEmail);
-                }
-              } catch (emailError) {
-                console.error('[REF-STATS] ❌ Error sending founder welcome email:', emailError);
-                // No fallar si falla el email
-              }
-            } else {
-              console.error('[REF-STATS] ❌ Plan not updated! Still:', afterUpdate?.plan);
-            }
+            throw updateError;
           }
           
-          // Actualizar también el perfil en KV
-          const updatedProfile = {
-            ...profile,
-            email: normalizedEmail,
-            plan: 'founder',
-            founderSince: profile.founderSince || now,
-            updatedAt: now
-          };
-          await kv.kv.set(profileKey, updatedProfile);
+          // 🚨 OPTIMIZATION: Reducir delay - Supabase es rápido
+          await new Promise(resolve => setTimeout(resolve, 100));
+          // 🚨 OPTIMIZATION: Usar id si está disponible (más rápido)
+          let selectQuery = supabaseAdmin
+            .from('users')
+            .select('id, email, plan, max_uses');
+          
+          if (pleiaUser.id) {
+            selectQuery = selectQuery.eq('id', pleiaUser.id); // 🚨 OPTIMIZATION: id es primary key
+          } else {
+            selectQuery = selectQuery.eq('email', normalizedEmail);
+          }
+          
+          const { data: afterUpdate } = await selectQuery.maybeSingle();
+          
+          if (afterUpdate?.plan === 'founder' && afterUpdate?.max_uses === null) {
+            console.log('[REF-STATS] ✅ Plan updated to founder in Supabase (verified):', {
+              email: normalizedEmail,
+              plan: afterUpdate.plan,
+              max_uses: afterUpdate.max_uses
+            });
+            
+            // 🚨 CRITICAL: Actualizar KV DESPUÉS de Supabase (KV es solo caché, Supabase es la fuente de verdad)
+            const updatedProfile = {
+              ...profile,
+              email: normalizedEmail,
+              plan: 'founder',
+              founderSince: profile.founderSince || now,
+              updatedAt: now
+            };
+            await kv.kv.set(profileKey, updatedProfile);
+            console.log('[REF-STATS] ✅ KV updated after Supabase update');
+            
+            // 🚨 CRITICAL: SOLO ENVIAR EMAIL DESPUÉS de verificar que Supabase se actualizó correctamente
+            try {
+              const { sendFounderWelcomeEmail } = await import('@/lib/newsletter/workflows');
+              const emailSent = await sendFounderWelcomeEmail(normalizedEmail, {
+                origin: 'referral_founder_upgrade_stats'
+              });
+              
+              if (emailSent) {
+                console.log('[REF-STATS] ✅ Founder welcome email sent to:', normalizedEmail);
+              } else {
+                console.warn('[REF-STATS] ⚠️ Failed to send founder welcome email to:', normalizedEmail);
+              }
+            } catch (emailError) {
+              console.error('[REF-STATS] ❌ Error sending founder welcome email:', emailError);
+              // No fallar si falla el email
+            }
+          } else {
+            console.error('[REF-STATS] ❌ Plan not updated correctly in Supabase! Still:', {
+              plan: afterUpdate?.plan,
+              max_uses: afterUpdate?.max_uses
+            });
+            throw new Error('Plan update verification failed - Supabase not updated');
+          }
           
         } catch (upgradeError) {
           console.error('[REF-STATS] ❌ Error auto-upgrading to founder:', upgradeError);

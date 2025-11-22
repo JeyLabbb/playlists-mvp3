@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import useSWR from 'swr';
 
 // Componente Chart simplificado inline
 function SimpleChart({ data, title, color = '#3b82f6' }: { data: ChartData[]; title: string; color?: string }) {
@@ -262,6 +263,205 @@ interface ChartData {
   count: number;
 }
 
+// Componente para listar usuarios
+function UsersList() {
+  const fetcher = (url: string) => fetch(url).then(res => res.json());
+  const { data, error, isLoading } = useSWR('/api/admin/debug/users', fetcher);
+  
+  // 🚨 NEW: Estados para filtros
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterNewsletter, setFilterNewsletter] = useState<'all' | 'yes' | 'no'>('all');
+  const [filterFounder, setFilterFounder] = useState<'all' | 'founder' | 'not_founder'>('all');
+  const [filterEarly, setFilterEarly] = useState<'all' | 'yes' | 'no'>('all');
+  const [filterFounderSource, setFilterFounderSource] = useState<'all' | 'purchase' | 'referral'>('all');
+
+  if (isLoading) {
+    return (
+      <div className="text-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-400 mx-auto"></div>
+        <p className="text-gray-400 mt-2">Cargando usuarios...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-red-400">Error al cargar usuarios: {error.message}</p>
+      </div>
+    );
+  }
+
+  const allUsers = data?.users || [];
+  const hasData = data?.ok === true;
+
+  // 🚨 NEW: Aplicar filtros
+  const filteredUsers = allUsers.filter((user: any) => {
+    // Búsqueda por email o username
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesEmail = user.email?.toLowerCase().includes(query);
+      const matchesUsername = user.username?.toLowerCase().includes(query);
+      if (!matchesEmail && !matchesUsername) return false;
+    }
+    
+    // Filtro de newsletter (marketing_opt_in)
+    if (filterNewsletter !== 'all') {
+      if (filterNewsletter === 'yes' && !user.marketing_opt_in) return false;
+      if (filterNewsletter === 'no' && user.marketing_opt_in) return false;
+    }
+    
+    // Filtro de founder
+    if (filterFounder !== 'all') {
+      if (filterFounder === 'founder' && user.plan !== 'founder') return false;
+      if (filterFounder === 'not_founder' && user.plan === 'founder') return false;
+    }
+    
+    // Filtro de primeros 1000
+    if (filterEarly !== 'all') {
+      if (filterEarly === 'yes' && !user.is_early_founder_candidate) return false;
+      if (filterEarly === 'no' && user.is_early_founder_candidate) return false;
+    }
+    
+    // Filtro de founder_source
+    if (filterFounderSource !== 'all' && user.plan === 'founder') {
+      if (filterFounderSource === 'purchase' && user.founder_source !== 'purchase') return false;
+      if (filterFounderSource === 'referral' && user.founder_source !== 'referral') return false;
+    }
+    
+    return true;
+  });
+
+  return (
+    <div className="space-y-3">
+      {/* 🚨 NEW: Filtros */}
+      <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {/* Búsqueda */}
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Buscar usuario</label>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Email o username..."
+              className="w-full px-3 py-2 bg-gray-700 text-white rounded text-sm border border-gray-600 focus:border-cyan-500 focus:outline-none"
+            />
+          </div>
+          
+          {/* Newsletter */}
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Newsletter (Marketing)</label>
+            <select
+              value={filterNewsletter}
+              onChange={(e) => setFilterNewsletter(e.target.value as 'all' | 'yes' | 'no')}
+              className="w-full px-3 py-2 bg-gray-700 text-white rounded text-sm border border-gray-600 focus:border-cyan-500 focus:outline-none"
+            >
+              <option value="all">Todos</option>
+              <option value="yes">Sí</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+          
+          {/* Founder */}
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Founder</label>
+            <select
+              value={filterFounder}
+              onChange={(e) => setFilterFounder(e.target.value as 'all' | 'founder' | 'not_founder')}
+              className="w-full px-3 py-2 bg-gray-700 text-white rounded text-sm border border-gray-600 focus:border-cyan-500 focus:outline-none"
+            >
+              <option value="all">Todos</option>
+              <option value="founder">Founder</option>
+              <option value="not_founder">No Founder</option>
+            </select>
+          </div>
+          
+          {/* Primeros 1000 */}
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Primeros 1000</label>
+            <select
+              value={filterEarly}
+              onChange={(e) => setFilterEarly(e.target.value as 'all' | 'yes' | 'no')}
+              className="w-full px-3 py-2 bg-gray-700 text-white rounded text-sm border border-gray-600 focus:border-cyan-500 focus:outline-none"
+            >
+              <option value="all">Todos</option>
+              <option value="yes">Sí</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+          
+          {/* Founder Source */}
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Founder obtenido por</label>
+            <select
+              value={filterFounderSource}
+              onChange={(e) => setFilterFounderSource(e.target.value as 'all' | 'purchase' | 'referral')}
+              className="w-full px-3 py-2 bg-gray-700 text-white rounded text-sm border border-gray-600 focus:border-cyan-500 focus:outline-none"
+            >
+              <option value="all">Todos</option>
+              <option value="purchase">Compra</option>
+              <option value="referral">Referidos (3 invitados)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      
+      <div className="text-sm text-gray-400 mb-4">
+        Mostrando: {filteredUsers.length} de {allUsers.length} usuarios {!hasData && data?.error && `(Error: ${data.error})`}
+      </div>
+      {filteredUsers.length > 0 ? (
+        <div className="space-y-2 max-h-[800px] overflow-y-auto" style={{ scrollBehavior: 'smooth' }}>
+          {filteredUsers.map((user: any, index: number) => (
+            <div key={user.id || index} className="bg-gray-700 rounded-lg p-3 sm:p-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="text-white font-medium text-sm sm:text-base">{user.email || 'Sin email'}</span>
+                    {user.is_early_founder_candidate && (
+                      <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs rounded">Primeros 1000</span>
+                    )}
+                    {user.plan === 'founder' && (
+                      <>
+                        <span className="px-2 py-0.5 bg-gradient-to-r from-yellow-600 to-orange-600 text-white text-xs rounded">Founder</span>
+                        {user.founder_source && (
+                          <span className={`px-2 py-0.5 text-white text-xs rounded ${
+                            user.founder_source === 'purchase' 
+                              ? 'bg-green-600' 
+                              : 'bg-blue-600'
+                          }`}>
+                            {user.founder_source === 'purchase' ? '💰 Comprado' : '🎁 Referidos'}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-xs text-gray-400">
+                    {user.username && <span>@{user.username}</span>}
+                    {user.plan && <span>Plan: {user.plan}</span>}
+                    {user.created_at && (
+                      <span>Registrado: {new Date(user.created_at).toLocaleDateString('es-ES')}</span>
+                    )}
+                    {user.marketing_opt_in !== undefined && (
+                      <span className={user.marketing_opt_in ? 'text-green-400' : 'text-gray-500'}>
+                        Marketing: {user.marketing_opt_in ? 'Sí' : 'No'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-gray-400 text-center py-8">
+          No hay usuarios que coincidan con los filtros
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface DebugData {
   counts: {
     prompts: number;
@@ -280,7 +480,7 @@ export default function AdminDebugDB() {
   const [data, setData] = useState<DebugData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'prompts' | 'usage' | 'playlists' | 'payments'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'prompts' | 'usage' | 'playlists' | 'users' | 'payments'>('overview');
   const [chartData, setChartData] = useState<{
     prompts: ChartData[];
     usage: ChartData[];
@@ -423,12 +623,21 @@ export default function AdminDebugDB() {
       setData(result);
       setError(null);
       
-      // Inicializar datos filtrados con los datos originales
+      // 🚨 CRITICAL: Inicializar datos filtrados con los datos originales (ordenados desde los últimos hasta los primeros)
+      // Asegurar que todos los arrays estén ordenados descendente (más recientes primero)
+      const sortByDateDesc = (arr: any[], dateField: string) => {
+        return [...arr].sort((a, b) => {
+          const dateA = new Date(a[dateField] || 0).getTime();
+          const dateB = new Date(b[dateField] || 0).getTime();
+          return dateB - dateA; // Descendente
+        });
+      };
+      
       setFilteredData({
-        prompts: result.recentPrompts || [],
-        usage: result.recentUsageEvents || [],
-        playlists: result.recentPlaylists || [],
-        payments: result.recentPayments || []
+        prompts: sortByDateDesc(result.recentPrompts || [], 'created_at'),
+        usage: sortByDateDesc(result.recentUsageEvents || [], 'occurred_at'),
+        playlists: sortByDateDesc(result.recentPlaylists || [], 'created_at'),
+        payments: sortByDateDesc(result.recentPayments || [], 'created_at')
       });
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -460,17 +669,32 @@ export default function AdminDebugDB() {
         break;
     }
     
+    // 🚨 CRITICAL: Filtrar por fecha exacta o rango (mejorado)
     if (filter.type === 'exact' && filter.exactDate) {
       filteredItems = filteredItems.filter(item => {
-        const itemDate = new Date(item.created_at || item.occurred_at).toISOString().split('T')[0];
-        return itemDate === filter.exactDate;
+        const itemDate = new Date(item.created_at || item.occurred_at);
+        const filterDate = new Date(filter.exactDate);
+        // Comparar solo la fecha (sin hora)
+        return itemDate.toISOString().split('T')[0] === filterDate.toISOString().split('T')[0];
       });
     } else if (filter.type === 'range' && filter.startDate && filter.endDate) {
       filteredItems = filteredItems.filter(item => {
-        const itemDate = new Date(item.created_at || item.occurred_at).toISOString().split('T')[0];
-        return itemDate >= filter.startDate && itemDate <= filter.endDate;
+        const itemDate = new Date(item.created_at || item.occurred_at);
+        const startDate = new Date(filter.startDate);
+        const endDate = new Date(filter.endDate);
+        // Incluir todo el día de inicio y fin
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+        return itemDate >= startDate && itemDate <= endDate;
       });
     }
+    
+    // 🚨 CRITICAL: Mantener orden descendente (más recientes primero) después del filtro
+    filteredItems.sort((a, b) => {
+      const dateA = new Date(a.created_at || a.occurred_at).getTime();
+      const dateB = new Date(b.created_at || b.occurred_at).getTime();
+      return dateB - dateA; // Descendente (más recientes primero)
+    });
     
     setFilteredData(prev => ({
       ...prev,
@@ -478,18 +702,41 @@ export default function AdminDebugDB() {
     }));
   };
 
-  // Función para limpiar filtros
+  // 🚨 CRITICAL: Función mejorada para limpiar filtros y restaurar datos originales
   const clearDateFilter = (tab: 'prompts' | 'usage' | 'playlists' | 'payments') => {
     setDateFilters(prev => ({
       ...prev,
       [tab]: { type: 'exact', exactDate: '', startDate: '', endDate: '' }
     }));
     
-    // Restaurar datos originales
+    // Restaurar datos originales (ordenados desde los últimos hasta los primeros)
     if (data) {
+      let originalData: any[] = [];
+      switch (tab) {
+        case 'prompts':
+          originalData = data.recentPrompts || [];
+          break;
+        case 'usage':
+          originalData = data.recentUsageEvents || [];
+          break;
+        case 'playlists':
+          originalData = data.recentPlaylists || [];
+          break;
+        case 'payments':
+          originalData = data.recentPayments || [];
+          break;
+      }
+      
+      // 🚨 CRITICAL: Asegurar orden descendente (más recientes primero)
+      originalData.sort((a, b) => {
+        const dateA = new Date(a.created_at || a.occurred_at).getTime();
+        const dateB = new Date(b.created_at || b.occurred_at).getTime();
+        return dateB - dateA; // Descendente
+      });
+      
       setFilteredData(prev => ({
         ...prev,
-        [tab]: data[`recent${tab.charAt(0).toUpperCase() + tab.slice(1)}` as keyof DebugData] as any[] || []
+        [tab]: originalData
       }));
     }
   };
@@ -597,6 +844,12 @@ export default function AdminDebugDB() {
                 Última actualización: {new Date().toLocaleTimeString('es-ES')}
               </div>
               <button 
+                onClick={() => router.push('/admin/newsletter')}
+                className="px-4 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700 transition-colors text-sm sm:text-base"
+              >
+                📧 Newsletter HQ
+              </button>
+              <button 
                 onClick={() => router.push('/admin/login')}
                 className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-sm sm:text-base"
               >
@@ -625,6 +878,7 @@ export default function AdminDebugDB() {
               { key: 'prompts', label: 'Prompts', icon: '💬' },
               { key: 'usage', label: 'Uso', icon: '⚡' },
               { key: 'playlists', label: 'Playlists', icon: '🎵' },
+              { key: 'users', label: 'Usuarios', icon: '👥' },
               { key: 'payments', label: 'Pagos', icon: '💳' }
             ].map((tab) => (
               <button
@@ -646,6 +900,85 @@ export default function AdminDebugDB() {
         {/* Tab Content */}
         {activeTab === 'overview' && (
           <div className="space-y-6 sm:space-y-8">
+            {/* 🚨 NEW: Pagos arriba del todo, ocupando ancho completo */}
+            {(() => {
+                const allPayments = data?.recentPayments || [];
+                // 🚨 CRITICAL: Solo contar pagos completed con amount > 0 para cálculos de dinero
+                const completedPayments = allPayments.filter((p: any) => 
+                  p.status === 'completed' && p.amount && p.amount > 0
+                );
+              
+              // Calcular totales: cada pago es 5€, Stripe quita ~0.33€ (entonces neto = 4.67€)
+              const GROSS_PER_PAYMENT = 5.00; // €
+              const STRIPE_FEE = 0.33; // €
+              const NET_PER_PAYMENT = GROSS_PER_PAYMENT - STRIPE_FEE; // 4.67€
+              
+              const totalNet = completedPayments.length * NET_PER_PAYMENT;
+              
+              // Calcular por período
+              const now = new Date();
+              const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+              const thisWeek = new Date(today);
+              thisWeek.setDate(today.getDate() - today.getDay()); // Lunes de esta semana
+              const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+              
+              const paymentsToday = completedPayments.filter((p: any) => {
+                const paymentDate = new Date(p.created_at);
+                return paymentDate >= today;
+              });
+              
+              const paymentsThisWeek = completedPayments.filter((p: any) => {
+                const paymentDate = new Date(p.created_at);
+                return paymentDate >= thisWeek;
+              });
+              
+              const paymentsThisMonth = completedPayments.filter((p: any) => {
+                const paymentDate = new Date(p.created_at);
+                return paymentDate >= thisMonth;
+              });
+              
+              const netToday = paymentsToday.length * NET_PER_PAYMENT;
+              const netThisWeek = paymentsThisWeek.length * NET_PER_PAYMENT;
+              const netThisMonth = paymentsThisMonth.length * NET_PER_PAYMENT;
+              
+              return (
+                <div className="bg-gray-900 rounded-lg border border-gray-700 p-4 sm:p-6">
+                  <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-800">
+                    <h3 className="text-gray-300 text-base sm:text-lg font-semibold uppercase tracking-wider">💳 Pagos e Ingresos</h3>
+                  </div>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-blue-500/30 transition-colors">
+                      <div className="text-gray-400 text-xs mb-2 font-medium uppercase tracking-wider">Total Neto</div>
+                      <div className="text-white text-2xl font-bold mb-1">{totalNet.toFixed(2)} €</div>
+                      <div className="text-gray-500 text-xs">{completedPayments.length} pagos</div>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-blue-500/30 transition-colors">
+                      <div className="text-gray-400 text-xs mb-2 font-medium uppercase tracking-wider">Este Mes</div>
+                      <div className="text-white text-2xl font-bold mb-1">{netThisMonth.toFixed(2)} €</div>
+                      <div className="text-gray-500 text-xs">{paymentsThisMonth.length} pagos</div>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-blue-500/30 transition-colors">
+                      <div className="text-gray-400 text-xs mb-2 font-medium uppercase tracking-wider">Esta Semana</div>
+                      <div className="text-white text-2xl font-bold mb-1">{netThisWeek.toFixed(2)} €</div>
+                      <div className="text-gray-500 text-xs">{paymentsThisWeek.length} pagos</div>
+                    </div>
+                    <div className="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-blue-500/30 transition-colors">
+                      <div className="text-gray-400 text-xs mb-2 font-medium uppercase tracking-wider">Hoy</div>
+                      <div className="text-white text-2xl font-bold mb-1">{netToday.toFixed(2)} €</div>
+                      <div className="text-gray-500 text-xs">{paymentsToday.length} pagos</div>
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <SimpleChart 
+                      data={chartData.payments} 
+                      title="Pagos Registrados" 
+                      color="#60a5fa" 
+                    />
+                  </div>
+                </div>
+              );
+            })()}
+            
             {/* Gráficas */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
               <SimpleChart 
@@ -662,11 +995,6 @@ export default function AdminDebugDB() {
                 data={chartData.playlists} 
                 title="Playlists Creadas" 
                 color="#f97316" 
-              />
-              <SimpleChart 
-                data={chartData.payments} 
-                title="Pagos Registrados" 
-                color="#eab308" 
               />
             </div>
 
@@ -702,9 +1030,9 @@ export default function AdminDebugDB() {
             />
             
             {/* Datos concretos */}
-            <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 space-y-3 sm:space-y-0">
-                <h3 className="text-base sm:text-lg font-semibold text-white">💬 Prompts Recientes</h3>
+            <div className="bg-gray-900 rounded-lg border border-gray-700 p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 space-y-3 sm:space-y-0 pb-4 border-b border-gray-800">
+                <h3 className="text-base sm:text-lg font-semibold text-gray-300 uppercase tracking-wider">💬 Prompts Recientes</h3>
                 <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-3">
                   <div className="flex items-center space-x-2">
                     <label className="text-xs sm:text-sm text-gray-400">Tipo:</label>
@@ -714,7 +1042,7 @@ export default function AdminDebugDB() {
                         ...prev,
                         prompts: { ...prev.prompts, type: e.target.value as 'exact' | 'range' }
                       }))}
-                      className="px-2 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                      className="px-2 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                     >
                       <option value="exact">Día exacto</option>
                       <option value="range">Rango</option>
@@ -729,7 +1057,7 @@ export default function AdminDebugDB() {
                         ...prev,
                         prompts: { ...prev.prompts, exactDate: e.target.value }
                       }))}
-                      className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                      className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                     />
                   ) : (
                     <div className="flex space-x-2">
@@ -740,7 +1068,7 @@ export default function AdminDebugDB() {
                           ...prev,
                           prompts: { ...prev.prompts, startDate: e.target.value }
                         }))}
-                        className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                        className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                         placeholder="Desde"
                       />
                       <input
@@ -750,7 +1078,7 @@ export default function AdminDebugDB() {
                           ...prev,
                           prompts: { ...prev.prompts, endDate: e.target.value }
                         }))}
-                        className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                        className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                         placeholder="Hasta"
                       />
                     </div>
@@ -759,13 +1087,13 @@ export default function AdminDebugDB() {
                   <div className="flex space-x-2">
                     <button 
                       onClick={() => applyDateFilter('prompts')}
-                      className="px-2 sm:px-3 py-1 bg-blue-600 text-white rounded text-xs sm:text-sm hover:bg-blue-700"
+                      className="px-2 sm:px-3 py-1 bg-blue-600/80 text-white rounded text-xs sm:text-sm hover:bg-blue-600 border border-blue-500/30 transition-all"
                     >
                       Filtrar
                     </button>
                     <button 
                       onClick={() => clearDateFilter('prompts')}
-                      className="px-2 sm:px-3 py-1 bg-gray-600 text-white rounded text-xs sm:text-sm hover:bg-gray-700"
+                      className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm hover:bg-gray-600 border border-gray-600 transition-all"
                     >
                       Limpiar
                     </button>
@@ -775,7 +1103,7 @@ export default function AdminDebugDB() {
               
               <div className="space-y-3">
                 {filteredData.prompts?.map((prompt, index) => (
-                  <div key={prompt.id || index} className="bg-gray-700 rounded-lg p-3 sm:p-4">
+                  <div key={prompt.id || index} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-gray-600 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 space-y-1 sm:space-y-0">
                       <span className="text-xs sm:text-sm text-gray-400">
                         {new Date(prompt.created_at).toLocaleString('es-ES')}
@@ -804,9 +1132,9 @@ export default function AdminDebugDB() {
             />
             
             {/* Datos concretos */}
-            <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 space-y-3 sm:space-y-0">
-                <h3 className="text-base sm:text-lg font-semibold text-white">⚡ Eventos de Uso Recientes</h3>
+            <div className="bg-gray-900 rounded-lg border border-gray-700 p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 space-y-3 sm:space-y-0 pb-4 border-b border-gray-800">
+                <h3 className="text-base sm:text-lg font-semibold text-gray-300 uppercase tracking-wider">⚡ Eventos de Uso Recientes</h3>
                 <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-3">
                   <div className="flex items-center space-x-2">
                     <label className="text-xs sm:text-sm text-gray-400">Tipo:</label>
@@ -816,7 +1144,7 @@ export default function AdminDebugDB() {
                         ...prev,
                         usage: { ...prev.usage, type: e.target.value as 'exact' | 'range' }
                       }))}
-                      className="px-2 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                      className="px-2 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                     >
                       <option value="exact">Día exacto</option>
                       <option value="range">Rango</option>
@@ -831,7 +1159,7 @@ export default function AdminDebugDB() {
                         ...prev,
                         usage: { ...prev.usage, exactDate: e.target.value }
                       }))}
-                      className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                      className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                     />
                   ) : (
                     <div className="flex space-x-2">
@@ -842,7 +1170,7 @@ export default function AdminDebugDB() {
                           ...prev,
                           usage: { ...prev.usage, startDate: e.target.value }
                         }))}
-                        className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                        className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                         placeholder="Desde"
                       />
                       <input
@@ -852,7 +1180,7 @@ export default function AdminDebugDB() {
                           ...prev,
                           usage: { ...prev.usage, endDate: e.target.value }
                         }))}
-                        className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                        className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                         placeholder="Hasta"
                       />
                     </div>
@@ -861,13 +1189,13 @@ export default function AdminDebugDB() {
                   <div className="flex space-x-2">
                     <button 
                       onClick={() => applyDateFilter('usage')}
-                      className="px-2 sm:px-3 py-1 bg-purple-600 text-white rounded text-xs sm:text-sm hover:bg-purple-700"
+                      className="px-2 sm:px-3 py-1 bg-purple-600/80 text-white rounded text-xs sm:text-sm hover:bg-purple-600 border border-purple-500/30 transition-all"
                     >
                       Filtrar
                     </button>
                     <button 
                       onClick={() => clearDateFilter('usage')}
-                      className="px-2 sm:px-3 py-1 bg-gray-600 text-white rounded text-xs sm:text-sm hover:bg-gray-700"
+                      className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm hover:bg-gray-600 border border-gray-600 transition-all"
                     >
                       Limpiar
                     </button>
@@ -875,9 +1203,9 @@ export default function AdminDebugDB() {
                 </div>
               </div>
               
-              <div className="space-y-3">
+              <div className="space-y-3 max-h-[800px] overflow-y-auto" style={{ scrollBehavior: 'smooth' }}>
                 {filteredData.usage?.map((event, index) => (
-                  <div key={event.id || index} className="bg-gray-700 rounded-lg p-3 sm:p-4">
+                  <div key={event.id || index} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-gray-600 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 space-y-1 sm:space-y-0">
                       <span className="text-xs sm:text-sm text-gray-400">
                         {new Date(event.occurred_at).toLocaleString('es-ES')}
@@ -908,9 +1236,9 @@ export default function AdminDebugDB() {
             />
             
             {/* Datos concretos */}
-            <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 space-y-3 sm:space-y-0">
-                <h3 className="text-base sm:text-lg font-semibold text-white">🎵 Playlists Recientes</h3>
+            <div className="bg-gray-900 rounded-lg border border-gray-700 p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 space-y-3 sm:space-y-0 pb-4 border-b border-gray-800">
+                <h3 className="text-base sm:text-lg font-semibold text-gray-300 uppercase tracking-wider">🎵 Playlists Recientes</h3>
                 <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-3">
                   <div className="flex items-center space-x-2">
                     <label className="text-xs sm:text-sm text-gray-400">Tipo:</label>
@@ -920,7 +1248,7 @@ export default function AdminDebugDB() {
                         ...prev,
                         playlists: { ...prev.playlists, type: e.target.value as 'exact' | 'range' }
                       }))}
-                      className="px-2 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                      className="px-2 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                     >
                       <option value="exact">Día exacto</option>
                       <option value="range">Rango</option>
@@ -935,7 +1263,7 @@ export default function AdminDebugDB() {
                         ...prev,
                         playlists: { ...prev.playlists, exactDate: e.target.value }
                       }))}
-                      className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                      className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                     />
                   ) : (
                     <div className="flex space-x-2">
@@ -946,7 +1274,7 @@ export default function AdminDebugDB() {
                           ...prev,
                           playlists: { ...prev.playlists, startDate: e.target.value }
                         }))}
-                        className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                        className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                         placeholder="Desde"
                       />
                       <input
@@ -956,7 +1284,7 @@ export default function AdminDebugDB() {
                           ...prev,
                           playlists: { ...prev.playlists, endDate: e.target.value }
                         }))}
-                        className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                        className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                         placeholder="Hasta"
                       />
                     </div>
@@ -965,13 +1293,13 @@ export default function AdminDebugDB() {
                   <div className="flex space-x-2">
                     <button 
                       onClick={() => applyDateFilter('playlists')}
-                      className="px-2 sm:px-3 py-1 bg-orange-600 text-white rounded text-xs sm:text-sm hover:bg-orange-700"
+                      className="px-2 sm:px-3 py-1 bg-orange-600/80 text-white rounded text-xs sm:text-sm hover:bg-orange-600 border border-orange-500/30 transition-all"
                     >
                       Filtrar
                     </button>
                     <button 
                       onClick={() => clearDateFilter('playlists')}
-                      className="px-2 sm:px-3 py-1 bg-gray-600 text-white rounded text-xs sm:text-sm hover:bg-gray-700"
+                      className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm hover:bg-gray-600 border border-gray-600 transition-all"
                     >
                       Limpiar
                     </button>
@@ -979,9 +1307,9 @@ export default function AdminDebugDB() {
                 </div>
               </div>
               
-              <div className="space-y-3">
+              <div className="space-y-3 max-h-[800px] overflow-y-auto" style={{ scrollBehavior: 'smooth' }}>
                 {filteredData.playlists?.map((playlist, index) => (
-                  <div key={playlist.id || index} className="bg-gray-700 rounded-lg p-3 sm:p-4">
+                  <div key={playlist.id || index} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-gray-600 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 space-y-1 sm:space-y-0">
                       <span className="text-xs sm:text-sm text-gray-400">
                         {new Date(playlist.created_at).toLocaleString('es-ES')}
@@ -1009,19 +1337,158 @@ export default function AdminDebugDB() {
           </div>
         )}
 
+        {activeTab === 'users' && (
+          <div className="space-y-4 sm:space-y-6">
+            <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 sm:p-6">
+              <h3 className="text-base sm:text-lg font-semibold text-white mb-4">👥 Todos los Usuarios</h3>
+              <UsersList />
+            </div>
+          </div>
+        )}
+
         {activeTab === 'payments' && (
           <div className="space-y-4 sm:space-y-6">
-            {/* Gráfica específica */}
-            <SimpleChart 
-              data={chartData.payments} 
-              title="Pagos Registrados" 
-              color="#eab308" 
-            />
+            {/* 🚨 NEW: Contadores de dinero */}
+            {(() => {
+              // 🚨 CRITICAL: Usar data?.recentPayments directamente (todos los pagos de Supabase)
+              // filteredData.payments puede estar vacío si no se ha aplicado filtro
+              const allPayments = data?.recentPayments || [];
+              // 🚨 CRITICAL: Solo contar pagos completed con amount > 0 para cálculos de dinero
+              const completedPayments = allPayments.filter((p: any) => 
+                p.status === 'completed' && p.amount && p.amount > 0
+              );
+              
+              console.log('[PAYMENTS] Total payments from Supabase:', allPayments.length);
+              console.log('[PAYMENTS] Completed payments:', completedPayments.length);
+              
+              // Calcular totales: cada pago es 5€, Stripe quita ~0.33€ (entonces neto = 4.67€)
+              const GROSS_PER_PAYMENT = 5.00; // €
+              const STRIPE_FEE = 0.33; // €
+              const NET_PER_PAYMENT = GROSS_PER_PAYMENT - STRIPE_FEE; // 4.67€
+              
+              const totalGross = completedPayments.length * GROSS_PER_PAYMENT;
+              const totalFees = completedPayments.length * STRIPE_FEE;
+              const totalNet = completedPayments.length * NET_PER_PAYMENT;
+              
+              // Calcular por período
+              const now = new Date();
+              const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+              const thisWeek = new Date(today);
+              thisWeek.setDate(today.getDate() - today.getDay()); // Lunes de esta semana
+              const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+              
+              const paymentsToday = completedPayments.filter((p: any) => {
+                const paymentDate = new Date(p.created_at);
+                return paymentDate >= today;
+              });
+              
+              const paymentsThisWeek = completedPayments.filter((p: any) => {
+                const paymentDate = new Date(p.created_at);
+                return paymentDate >= thisWeek;
+              });
+              
+              const paymentsThisMonth = completedPayments.filter((p: any) => {
+                const paymentDate = new Date(p.created_at);
+                return paymentDate >= thisMonth;
+              });
+              
+              const netToday = paymentsToday.length * NET_PER_PAYMENT;
+              const netThisWeek = paymentsThisWeek.length * NET_PER_PAYMENT;
+              const netThisMonth = paymentsThisMonth.length * NET_PER_PAYMENT;
+              
+              return (
+                <div className="space-y-6">
+                  {/* Contadores principales con estilo tech */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-gray-900 rounded-lg p-5 border border-gray-700 hover:border-blue-500/50 transition-all relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-all"></div>
+                      <div className="relative">
+                        <div className="text-gray-400 text-xs mb-2 font-medium uppercase tracking-wider">Total Neto</div>
+                        <div className="text-white text-3xl font-bold mb-1">{totalNet.toFixed(2)} €</div>
+                        <div className="text-gray-500 text-xs">
+                          {completedPayments.length} pagos × {NET_PER_PAYMENT.toFixed(2)}€
+                        </div>
+                        <div className="absolute top-0 right-0 w-1 h-full bg-gradient-to-b from-blue-500/0 via-blue-500/30 to-blue-500/0"></div>
+                      </div>
+                    </div>
+                    <div className="bg-gray-900 rounded-lg p-5 border border-gray-700 hover:border-blue-500/50 transition-all relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-all"></div>
+                      <div className="relative">
+                        <div className="text-gray-400 text-xs mb-2 font-medium uppercase tracking-wider">Este Mes</div>
+                        <div className="text-white text-3xl font-bold mb-1">{netThisMonth.toFixed(2)} €</div>
+                        <div className="text-gray-500 text-xs">{paymentsThisMonth.length} pagos</div>
+                        <div className="absolute top-0 right-0 w-1 h-full bg-gradient-to-b from-blue-500/0 via-blue-500/30 to-blue-500/0"></div>
+                      </div>
+                    </div>
+                    <div className="bg-gray-900 rounded-lg p-5 border border-gray-700 hover:border-blue-500/50 transition-all relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-all"></div>
+                      <div className="relative">
+                        <div className="text-gray-400 text-xs mb-2 font-medium uppercase tracking-wider">Esta Semana</div>
+                        <div className="text-white text-3xl font-bold mb-1">{netThisWeek.toFixed(2)} €</div>
+                        <div className="text-gray-500 text-xs">{paymentsThisWeek.length} pagos</div>
+                        <div className="absolute top-0 right-0 w-1 h-full bg-gradient-to-b from-blue-500/0 via-blue-500/30 to-blue-500/0"></div>
+                      </div>
+                    </div>
+                    <div className="bg-gray-900 rounded-lg p-5 border border-gray-700 hover:border-blue-500/50 transition-all relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500/5 rounded-full blur-2xl group-hover:bg-blue-500/10 transition-all"></div>
+                      <div className="relative">
+                        <div className="text-gray-400 text-xs mb-2 font-medium uppercase tracking-wider">Hoy</div>
+                        <div className="text-white text-3xl font-bold mb-1">{netToday.toFixed(2)} €</div>
+                        <div className="text-gray-500 text-xs">{paymentsToday.length} pagos</div>
+                        <div className="absolute top-0 right-0 w-1 h-full bg-gradient-to-b from-blue-500/0 via-blue-500/30 to-blue-500/0"></div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Gráfica y desglose técnico */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Gráfica */}
+                    <div className="lg:col-span-2 bg-gray-900 rounded-lg border border-gray-700 p-6">
+                      <SimpleChart 
+                        data={chartData.payments} 
+                        title="Pagos Registrados" 
+                        color="#60a5fa" 
+                      />
+                    </div>
+                    
+                    {/* Desglose técnico */}
+                    <div className="bg-gray-900 rounded-lg border border-gray-700 p-6 space-y-4">
+                      <div className="text-gray-300 text-sm font-semibold mb-4 uppercase tracking-wider border-b border-gray-700 pb-2">
+                        Desglose Financiero
+                      </div>
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center pb-3 border-b border-gray-800">
+                          <div>
+                            <div className="text-gray-400 text-xs mb-1">Total Bruto</div>
+                            <div className="text-gray-300 text-lg font-semibold">{totalGross.toFixed(2)} €</div>
+                          </div>
+                          <div className="w-2 h-2 rounded-full bg-blue-500/30"></div>
+                        </div>
+                        <div className="flex justify-between items-center pb-3 border-b border-gray-800">
+                          <div>
+                            <div className="text-gray-400 text-xs mb-1">Comisiones</div>
+                            <div className="text-gray-400 text-lg font-semibold">-{totalFees.toFixed(2)} €</div>
+                          </div>
+                          <div className="w-2 h-2 rounded-full bg-red-500/30"></div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="text-gray-400 text-xs mb-1">Total Neto</div>
+                            <div className="text-white text-xl font-bold">{totalNet.toFixed(2)} €</div>
+                          </div>
+                          <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             
             {/* Datos concretos */}
-            <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 space-y-3 sm:space-y-0">
-                <h3 className="text-base sm:text-lg font-semibold text-white">💳 Pagos Recientes</h3>
+            <div className="bg-gray-900 rounded-lg border border-gray-700 p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 space-y-3 sm:space-y-0 pb-4 border-b border-gray-800">
+                <h3 className="text-base sm:text-lg font-semibold text-gray-300 uppercase tracking-wider">💳 Pagos Recientes</h3>
                 <div className="flex flex-col sm:flex-row sm:items-center space-y-2 sm:space-y-0 sm:space-x-3">
                   <div className="flex items-center space-x-2">
                     <label className="text-xs sm:text-sm text-gray-400">Tipo:</label>
@@ -1031,7 +1498,7 @@ export default function AdminDebugDB() {
                         ...prev,
                         payments: { ...prev.payments, type: e.target.value as 'exact' | 'range' }
                       }))}
-                      className="px-2 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                      className="px-2 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                     >
                       <option value="exact">Día exacto</option>
                       <option value="range">Rango</option>
@@ -1046,7 +1513,7 @@ export default function AdminDebugDB() {
                         ...prev,
                         payments: { ...prev.payments, exactDate: e.target.value }
                       }))}
-                      className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                      className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                     />
                   ) : (
                     <div className="flex space-x-2">
@@ -1057,7 +1524,7 @@ export default function AdminDebugDB() {
                           ...prev,
                           payments: { ...prev.payments, startDate: e.target.value }
                         }))}
-                        className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                        className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                         placeholder="Desde"
                       />
                       <input
@@ -1067,7 +1534,7 @@ export default function AdminDebugDB() {
                           ...prev,
                           payments: { ...prev.payments, endDate: e.target.value }
                         }))}
-                        className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm border border-gray-600"
+                        className="px-2 sm:px-3 py-1 bg-gray-800 text-white rounded text-xs sm:text-sm border border-gray-700 hover:border-blue-500/50 transition-colors"
                         placeholder="Hasta"
                       />
                     </div>
@@ -1076,13 +1543,13 @@ export default function AdminDebugDB() {
                   <div className="flex space-x-2">
                     <button 
                       onClick={() => applyDateFilter('payments')}
-                      className="px-2 sm:px-3 py-1 bg-yellow-600 text-white rounded text-xs sm:text-sm hover:bg-yellow-700"
+                      className="px-2 sm:px-3 py-1 bg-blue-600/80 text-white rounded text-xs sm:text-sm hover:bg-blue-600 border border-blue-500/30 transition-all"
                     >
                       Filtrar
                     </button>
                     <button 
                       onClick={() => clearDateFilter('payments')}
-                      className="px-2 sm:px-3 py-1 bg-gray-600 text-white rounded text-xs sm:text-sm hover:bg-gray-700"
+                      className="px-2 sm:px-3 py-1 bg-gray-700 text-white rounded text-xs sm:text-sm hover:bg-gray-600 border border-gray-600 transition-all"
                     >
                       Limpiar
                     </button>
@@ -1090,28 +1557,34 @@ export default function AdminDebugDB() {
                 </div>
               </div>
               
-              <div className="space-y-3">
-                {filteredData.payments?.map((payment, index) => (
-                  <div key={payment.id || index} className="bg-gray-700 rounded-lg p-3 sm:p-4">
+              <div className="space-y-3 max-h-[800px] overflow-y-auto" style={{ scrollBehavior: 'smooth' }}>
+                {(filteredData.payments && filteredData.payments.length > 0 ? filteredData.payments : data?.recentPayments || []).map((payment, index) => (
+                  <div key={payment.id || index} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-blue-500/30 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 space-y-1 sm:space-y-0">
                       <span className="text-xs sm:text-sm text-gray-400">
-                        {new Date(payment.created_at).toLocaleString('es-ES')}
+                        {payment.created_at ? new Date(payment.created_at).toLocaleString('es-ES') : 'Sin fecha'}
                       </span>
-                      <span className="text-xs text-gray-500">{payment.user_email}</span>
+                      <span className="text-xs text-gray-500">{payment.user_email || 'Sin email'}</span>
                     </div>
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
                       <div>
-                        <p className="text-white font-medium text-sm sm:text-base">{payment.plan}</p>
+                        <p className="text-white font-medium text-sm sm:text-base">{payment.plan || 'N/A'}</p>
                         <p className="text-gray-300 text-xs sm:text-sm">
-                          {(payment.amount / 100).toFixed(2)} {payment.currency.toUpperCase()}
+                          {payment.amount && payment.amount > 0 
+                            ? (payment.amount / 100).toFixed(2) 
+                            : '0.00'} {payment.currency?.toUpperCase() || 'EUR'}
+                          {payment.amount === 0 && (
+                            <span className="ml-2 text-gray-500 text-xs">(manual/granted)</span>
+                          )}
                         </p>
                       </div>
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        payment.status === 'completed' ? 'bg-green-600 text-white' :
-                        payment.status === 'pending' ? 'bg-yellow-600 text-white' :
-                        'bg-red-600 text-white'
+                        payment.status === 'completed' ? 'bg-green-600/80 text-white border border-green-500/30' :
+                        payment.status === 'granted' ? 'bg-blue-600/80 text-white border border-blue-500/30' :
+                        payment.status === 'pending' ? 'bg-yellow-600/80 text-white border border-yellow-500/30' :
+                        'bg-gray-600/80 text-white border border-gray-500/30'
                       }`}>
-                        {payment.status}
+                        {payment.status || 'unknown'}
                       </span>
                     </div>
                   </div>

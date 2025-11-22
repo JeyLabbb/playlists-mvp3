@@ -5,8 +5,11 @@ import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
 import { GoArrowUpRight } from "react-icons/go";
 import styles from "./CardNav.module.css";
-import { useSession, signIn } from "next-auth/react";
+import { usePleiaSession } from "../../lib/auth/usePleiaSession";
+import { useAuthActions } from "../../lib/auth/clientActions";
 import { useProfile } from "../../lib/useProfile";
+import { useUsageStatus } from "../../lib/hooks/useUsageStatus";
+import { useFriendsNotifications } from "../../lib/hooks/useFriendsNotifications";
 
 type NavLink = { label: string; href: string; ariaLabel?: string };
 type NavSection = { label: string; links: NavLink[] };
@@ -30,11 +33,29 @@ export default function CardNav({
               buttonBgColor = "var(--gradient-primary)",
               buttonTextColor = "var(--color-night)",
 }: Props) {
-  const { data: session } = useSession();
+  const { data: sessionData } = usePleiaSession();
+  const session = sessionData?.user ? { user: sessionData.user } : null;
+  
+  // 🚨 DEBUG: Log session state
+  useEffect(() => {
+    console.log('[CARDNAV] Session state:', {
+      hasSession: !!session?.user,
+      sessionUser: session?.user?.email
+    });
+  }, [session]);
+  const { login } = useAuthActions();
   const router = useRouter();
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const { isFounder } = useProfile();
+  const { isFounder, ready: profileReady, data: profileData, plan } = useProfile();
+  const { remaining, hasUnlimitedUses, loading: usageLoading, maxUses } = useUsageStatus({ disabled: !session?.user });
+  const { count: friendsNotificationsCount, isLoading: notificationsLoading } = useFriendsNotifications();
+  const isFounderPlan = isFounder || profileData?.isFounder || plan === 'founder';
+  
+  // 🚨 DEBUG: Log para verificar el count
+  useEffect(() => {
+    console.log('[CARDNAV] Friends notifications count:', friendsNotificationsCount, 'loading:', notificationsLoading);
+  }, [friendsNotificationsCount, notificationsLoading]);
   const navRef = useRef<HTMLDivElement | null>(null);
   const cardsRef = useRef<HTMLDivElement[]>([]);
   const tlRef = useRef<gsap.core.Timeline | null>(null);
@@ -158,27 +179,24 @@ export default function CardNav({
     if (el) cardsRef.current[i] = el;
   };
 
-  const ctaClick = async () => {
+  const ctaClick = useCallback((e?: React.MouseEvent) => {
+    // Prevenir comportamiento por defecto si es un evento
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
     if (session?.user) {
       router.push("/me");
     } else {
-      // Función para leer cookie ea_snooze
-      const getEaSnoozeCookie = () => {
-        if (typeof window === 'undefined') return false;
-        const cookies = document.cookie.split(';');
-        const eaSnoozeCookie = cookies.find(cookie => 
-          cookie.trim().startsWith('ea_snooze=')
-        );
-        return eaSnoozeCookie?.trim().split('=')[1] === '1';
-      };
-
-      // Usar signIn de NextAuth
-      await signIn('spotify', { 
-        callbackUrl: '/',
-        redirect: true 
-      });
+      // Usar el sistema de autenticación de PLEIA
+      // Usar window.location.href directamente para asegurar que funcione en el primer clic
+      const path = `/login?redirect=${encodeURIComponent('/')}`;
+      if (typeof window !== 'undefined') {
+        window.location.href = path;
+      }
     }
-  };
+  }, [session?.user, router]);
 
   return (
     <div className={`${styles.container} ${className}`}>
@@ -233,7 +251,7 @@ export default function CardNav({
             type="button"
             className={styles.cta}
             style={{ 
-              background: isFounder 
+              background: isFounderPlan
                 ? 'linear-gradient(135deg, #FF8C00, #FFA500)' 
                 : 'linear-gradient(135deg, #47C8D1, #5B8CFF)', 
               color: buttonTextColor,
@@ -243,15 +261,23 @@ export default function CardNav({
           >
             {session?.user ? (
               <div className="flex items-center gap-2">
-                <span>Mi perfil</span>
-                {isFounder && (
-                  <span 
-                    className="ml-1"
-                    style={{ color: '#FF8C00' }}
-                    title="Founder"
-                  >
-                    👑
+                {isFounderPlan ? (
+                  <>
+                    <span>Mi perfil</span>
+                    <span 
+                      className="ml-1"
+                      style={{ color: '#FF8C00' }}
+                      title="Founder"
+                    >
+                      👑
+                    </span>
+                  </>
+                ) : !usageLoading && !hasUnlimitedUses && remaining !== undefined && typeof remaining === 'number' && maxUses !== undefined && typeof maxUses === 'number' ? (
+                  <span title={`${remaining} de ${maxUses} usos restantes`}>
+                    Mi perfil ({remaining}/{maxUses})
                   </span>
+                ) : (
+                  <span>Mi perfil</span>
                 )}
               </div>
             ) : (
@@ -269,28 +295,62 @@ export default function CardNav({
             >
               <div className={styles.cardLabel}>{sec.label}</div>
               <div className={styles.links}>
-                {sec.links?.map((lnk, i) => (
-                  <a 
-                    key={`${lnk.label}-${i}`} 
-                    className={styles.link} 
-                    href={lnk.href} 
-                    aria-label={lnk.ariaLabel || lnk.label}
-                    onClick={(e) => {
-                      // Si es un enlace mailto, dejarlo funcionar normalmente
-                      if (lnk.href.startsWith('mailto:')) {
-                        return;
-                      }
-                      
-                      // Para enlaces internos, prevenir default y navegar programáticamente
-                      e.preventDefault();
-                      closeMenu();
-                      router.push(lnk.href);
-                    }}
-                  >
-                    <GoArrowUpRight className={styles.icon} aria-hidden="true" />
-                    {lnk.label}
-                  </a>
-                ))}
+                {sec.links?.map((lnk, i) => {
+                  // Verificar si es el enlace de "Amigos" y tiene notificaciones
+                  const isAmigosLink = lnk.href === '/amigos';
+                  const hasNotifications = isAmigosLink && friendsNotificationsCount > 0;
+                  
+                  // 🚨 DEBUG: Log para verificar
+                  if (isAmigosLink) {
+                    console.log('[CARDNAV] Amigos link found, notifications:', friendsNotificationsCount, 'hasNotifications:', hasNotifications);
+                  }
+                  
+                  return (
+                    <a 
+                      key={`${lnk.label}-${i}`} 
+                      className={styles.link} 
+                      href={lnk.href} 
+                      aria-label={lnk.ariaLabel || lnk.label}
+                      onClick={(e) => {
+                        // Si es un enlace mailto, dejarlo funcionar normalmente
+                        if (lnk.href.startsWith('mailto:')) {
+                          return;
+                        }
+                        
+                        // Para enlaces internos, prevenir default y navegar programáticamente
+                        e.preventDefault();
+                        closeMenu();
+                        router.push(lnk.href);
+                      }}
+                    >
+                      <GoArrowUpRight className={styles.icon} aria-hidden="true" />
+                      <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        {lnk.label}
+                        {hasNotifications && (
+                          <span
+                            style={{
+                              backgroundColor: '#36E2B4',
+                              color: '#0B0F14',
+                              borderRadius: '10px',
+                              padding: '2px 6px',
+                              fontSize: '11px',
+                              fontWeight: '700',
+                              minWidth: '18px',
+                              textAlign: 'center',
+                              lineHeight: '14px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+                            }}
+                          >
+                            {friendsNotificationsCount}
+                          </span>
+                        )}
+                      </span>
+                    </a>
+                  );
+                })}
               </div>
             </div>
           ))}

@@ -58,7 +58,7 @@ async function getEmailByUsername(username: string) {
   return null;
 }
 
-async function resolveTarget(supabase: Awaited<ReturnType<typeof createSupabaseRouteClient>>, { friendId, friendEmail, username }: { friendId?: string | null; friendEmail?: string | null; username?: string | null }) {
+async function resolveTarget(supabase: ReturnType<typeof createSupabaseRouteClient>, { friendId, friendEmail, username }: { friendId?: string | null; friendEmail?: string | null; username?: string | null }) {
   if (friendId) return friendId;
 
   let email = friendEmail?.toLowerCase() ?? null;

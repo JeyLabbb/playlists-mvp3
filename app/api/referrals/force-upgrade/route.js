@@ -21,7 +21,7 @@ export async function POST(request) {
 
     // Get referral stats from KV
     const kv = await import('@vercel/kv');
-    const profileKey = `userprofile:${userEmail}`;
+    const profileKey = `jey_user_profile:${userEmail}`;
     const profile = await kv.kv.get(profileKey) || {};
     
     const referredQualifiedCount = profile.referredQualifiedCount || 0;

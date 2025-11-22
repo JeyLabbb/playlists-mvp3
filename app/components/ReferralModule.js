@@ -27,26 +27,55 @@ export default function ReferralModule({ userEmail }) {
   }, []);
 
   useEffect(() => {
+    console.log('[REFERRAL-MODULE] Effect triggered:', { 
+      status, 
+      userEmail, 
+      isEarlyFounderCandidate,
+      canInviteResult: canInvite(userEmail, { isEarlyCandidate: isEarlyFounderCandidate })
+    });
+    
     if (status !== 'authenticated') {
       setReferralStats(null);
       setLoading(false);
       return;
     }
 
-    if (canInvite(userEmail, { isEarlyCandidate: isEarlyFounderCandidate })) {
+    // 🚨 CRITICAL: Solo cargar stats si el usuario puede invitar
+    // Esto evita el error 403 para usuarios que no son early founder candidates
+    const canInviteResult = canInvite(userEmail, { isEarlyCandidate: isEarlyFounderCandidate });
+    if (canInviteResult) {
+      console.log('[REFERRAL-MODULE] ✅ User can invite, loading stats...');
       loadReferralStats();
       const interval = setInterval(loadReferralStats, 10000);
       return () => clearInterval(interval);
+    } else {
+      console.log('[REFERRAL-MODULE] ❌ User cannot invite, skipping stats load:', { 
+        REFERRALS_ENABLED, 
+        isEarlyFounderCandidate,
+        canInviteResult
+      });
+      setReferralStats(null);
     }
 
     setLoading(false);
   }, [userEmail, status, isEarlyFounderCandidate]);
 
   const loadReferralStats = async () => {
+    // 🚨 CRITICAL: Verificar canInvite antes de hacer la petición para evitar 403
+    const canInviteResult = canInvite(userEmail, { isEarlyCandidate: isEarlyFounderCandidate });
+    if (!canInviteResult) {
+      console.log('[REFERRAL-MODULE] Skipping stats load - user cannot invite');
+      setReferralStats(null);
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await fetch('/api/referrals/stats', { credentials: 'include' });
-      if (response.status === 401) {
+      if (response.status === 401 || response.status === 403) {
+        console.warn('[REFERRAL] Stats response unauthorized/forbidden:', response.status);
         setReferralStats(null);
+        setLoading(false);
         return;
       }
 
@@ -55,10 +84,16 @@ export default function ReferralModule({ userEmail }) {
         console.log('[REFERRAL] Stats received:', stats);
         setReferralStats(stats);
       } else {
-        console.error('[REFERRAL] Stats response not ok:', response.status, await response.text());
+        const errorText = await response.text();
+        console.error('[REFERRAL] Stats response not ok:', response.status, errorText);
+        // No mostrar error al usuario si es 403 - simplemente no mostrar stats
+        if (response.status !== 403) {
+          setReferralStats(null);
+        }
       }
     } catch (error) {
       console.error('[REFERRAL] Error loading stats:', error);
+      // No mostrar error al usuario - simplemente no mostrar stats
     } finally {
       setLoading(false);
     }
@@ -114,9 +149,24 @@ export default function ReferralModule({ userEmail }) {
     }
   };
 
-  if (!REFERRALS_ENABLED || !canInvite(userEmail, { isEarlyCandidate: isEarlyFounderCandidate })) {
+  // 🚨 CRITICAL: Siempre intentar renderizar si REFERRALS_ENABLED es true
+  // El módulo se ocultará internamente si no puede invitar
+  const canInviteResult = canInvite(userEmail, { isEarlyCandidate: isEarlyFounderCandidate });
+  console.log('[REFERRAL-MODULE] Render check:', { 
+    REFERRALS_ENABLED, 
+    isEarlyFounderCandidate,
+    canInviteResult,
+    userEmail,
+    status,
+    profileData: { isEarlyFounderCandidate }
+  });
+  
+  // Solo ocultar si REFERRALS_ENABLED es false
+  if (!REFERRALS_ENABLED) {
     return null;
   }
+  
+  console.log('[REFERRAL-MODULE] ✅ Rendering module');
 
   if (status === 'loading') {
     return (

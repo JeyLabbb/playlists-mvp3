@@ -228,38 +228,23 @@ function InvitePageContent() {
 
             {/* CTA Button */}
             {sessionUser ? (
-              <div className="space-y-3">
-                <button
-                  onClick={() => {
-                    refreshUsage();
-                    window.location.href = '/';
-                  }}
-                  className="w-full font-semibold py-4 px-6 rounded-xl transition-all duration-200 hover:shadow-[0_8px_30px_rgba(54,226,180,0.3)] hover:scale-[1.02] active:scale-[0.98]"
-                  style={{
-                    background: 'linear-gradient(135deg, #36E2B4 0%, #2BC49A 100%)',
-                    color: '#0B0F14',
-                    fontFamily: 'Inter, sans-serif',
-                    fontWeight: 600,
-                    border: 'none',
-                    boxShadow: '0 4px 20px rgba(54, 226, 180, 0.25)',
-                  }}
-                >
-                  Ir a crear playlists
-                </button>
-                <button
-                  onClick={() => refreshUsage()}
-                  disabled={usageLoading}
-                  className="w-full font-medium py-3 px-6 rounded-xl border transition-all duration-200 hover:border-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{
-                    borderColor: 'rgba(255, 255, 255, 0.15)',
-                    color: 'rgba(234, 242, 255, 0.7)',
-                    fontFamily: 'Inter, sans-serif',
-                    backgroundColor: 'rgba(255, 255, 255, 0.02)',
-                  }}
-                >
-                  {usageLoading ? 'Actualizando usos…' : 'Actualizar contador'}
-                </button>
-              </div>
+              <button
+                onClick={() => {
+                  refreshUsage();
+                  window.location.href = '/';
+                }}
+                className="w-full font-semibold py-4 px-6 rounded-xl transition-all duration-200 hover:shadow-[0_8px_30px_rgba(54,226,180,0.3)] hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                  background: 'linear-gradient(135deg, #36E2B4 0%, #2BC49A 100%)',
+                  color: '#0B0F14',
+                  fontFamily: 'Inter, sans-serif',
+                  fontWeight: 600,
+                  border: 'none',
+                  boxShadow: '0 4px 20px rgba(54, 226, 180, 0.25)',
+                }}
+              >
+                Ir a crear playlists con la IA de PLEIA
+              </button>
             ) : (
               <button
                 onClick={handleSignIn}

@@ -67,33 +67,40 @@ export async function GET(request: NextRequest) {
       .from('payments')
       .select('*', { count: 'exact', head: true });
 
-    // Get recent prompts
+    // 🚨 CRITICAL: Aumentar límite para permitir scrolling y ver todos los registros
+    // Get recent prompts (ordenados desde los últimos hasta los primeros)
     const { data: recentPrompts } = await supabase
       .from('prompts')
       .select('id, user_email, text, created_at')
       .order('created_at', { ascending: false })
-      .limit(10);
+      .limit(500); // Aumentado de 10 a 500 para permitir scrolling
 
     // Get recent usage events
     const { data: recentUsageEvents } = await supabase
       .from('usage_events')
       .select('id, user_email, action, occurred_at')
       .order('occurred_at', { ascending: false })
-      .limit(10);
+      .limit(500); // Aumentado de 10 a 500
 
     // Get recent playlists
     const { data: recentPlaylists } = await supabase
       .from('playlists')
       .select('id, user_email, playlist_name, prompt, spotify_url, track_count, created_at')
       .order('created_at', { ascending: false })
-      .limit(10);
+      .limit(500); // Aumentado de 10 a 500
 
-    // Get recent payments
-    const { data: recentPayments } = await supabase
+    // 🚨 CRITICAL: Get ALL payments from Supabase (no filters, todos los pagos)
+    const { data: recentPayments, error: paymentsError } = await supabase
       .from('payments')
       .select('id, user_email, amount, currency, plan, status, created_at')
       .order('created_at', { ascending: false })
-      .limit(10);
+      .limit(500); // Aumentado de 10 a 500
+    
+    if (paymentsError) {
+      console.error('[DB] Error fetching payments:', paymentsError);
+    } else {
+      console.log(`[DB] Fetched ${recentPayments?.length || 0} payments from Supabase`);
+    }
 
     return NextResponse.json({
       ok: true,

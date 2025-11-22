@@ -126,7 +126,7 @@ export default function TermsPage() {
             </p>
             <p className="mb-6">
               <strong>Email:</strong> <a href="mailto:legal@jeylabbb.com" style={{ color: '#36E2B4' }}>legal@jeylabbb.com</a><br />
-              <strong>Soporte:</strong> <a href="/support" style={{ color: '#36E2B4' }}>hola@jeylabbb.com</a>
+              <strong>Soporte:</strong> <a href="mailto:hola@jeylabbb.com" style={{ color: '#36E2B4' }}>hola@jeylabbb.com</a>
             </p>
 
             <div 

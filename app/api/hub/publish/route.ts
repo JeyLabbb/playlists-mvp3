@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getPleiaServerUser } from '@/lib/auth/serverUser';
-import { HUB_MODE } from '@/lib/features';
 import { hubAddTracks, hubCreatePlaylist } from '@/lib/spotify/hubClient';
 
 export const runtime = 'nodejs';
@@ -8,9 +7,8 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export async function POST(request: Request) {
-  if (!HUB_MODE) {
-    return NextResponse.json({ ok: false, error: 'Hub mode disabled' }, { status: 400 });
-  }
+  // HUB_MODE eliminado - esta ruta ya no está disponible
+  return NextResponse.json({ ok: false, error: 'Hub mode has been removed' }, { status: 400 });
 
   try {
     const pleiaUser = await getPleiaServerUser();

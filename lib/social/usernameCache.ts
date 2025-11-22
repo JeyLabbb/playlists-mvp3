@@ -11,7 +11,22 @@ export type UsernameCachePayload = {
 
 export function normalizeUsername(username?: string | null) {
   if (!username) return '';
-  return username.toLowerCase().replace(/[^a-z0-9._-]/g, '').substring(0, 30);
+  
+  // Primero sanitizar (lowercase, quitar caracteres inválidos)
+  const sanitized = username.toLowerCase().replace(/[^a-z0-9._-]/g, '').substring(0, 30);
+  
+  // Luego quitar el sufijo generado automáticamente (formato: nombre-xxxxx)
+  // Buscar el último guion seguido de 6-8 caracteres alfanuméricos al final
+  const suffixPattern = /-([a-z0-9]{6,8})$/i;
+  const match = sanitized.match(suffixPattern);
+  
+  if (match) {
+    // Si coincide con el patrón, extraer la parte antes del guion
+    return sanitized.substring(0, sanitized.lastIndexOf('-'));
+  }
+  
+  // Si no coincide, devolver el username sanitizado
+  return sanitized;
 }
 
 function hasKvSupport() {

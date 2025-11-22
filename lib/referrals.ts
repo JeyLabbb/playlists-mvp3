@@ -41,10 +41,6 @@ export const FOUNDER_WHITELIST = [
 export const REF_REQUIRED_COUNT = 3;
 export const REF_QUALIFY_RULE = 'hasCreatedPlaylist >= 1';
 
-// 🚨 PRODUCTION URL: URL de producción para enlaces de invitación
-// NUNCA cambiar esto sin verificar que todos los enlaces funcionen
-export const PRODUCTION_REFERRAL_BASE_URL = 'https://playlists.jeylabbb.com';
-
 // Helper functions
 export function isFounderWhitelisted(email: string): boolean {
   return FOUNDER_WHITELIST.includes(email.toLowerCase());
@@ -60,88 +56,36 @@ export function canInvite(email: string, options?: { isEarlyCandidate?: boolean 
   return isFounderWhitelisted(email);
 }
 
-/**
- * Genera un enlace de invitación. 
- * 🚨 CRITICAL: En producción SIEMPRE usa playlists.jeylabbb.com
- * Solo usa localhost si estamos EXPLÍCITAMENTE en localhost en el navegador
- */
 export function generateReferralLink(email: string): string {
-  // 🚨 PRODUCTION DEFAULT: Siempre usar playlists.jeylabbb.com por defecto
-  const PRODUCTION_URL = PRODUCTION_REFERRAL_BASE_URL;
-  let baseUrl = PRODUCTION_URL;
+  // Siempre usar el dominio de producción para enlaces de invitación
+  // Solo usar localhost si estamos explícitamente en desarrollo local
+  let baseUrl = 'https://playlists.jeylabbb.com';
   
-  // Solo en el cliente (navegador) podemos verificar la URL actual
   if (typeof window !== 'undefined') {
     const origin = window.location.origin;
-    const hostname = window.location.hostname;
-    
-    // 🚨 SEGURIDAD: Solo usar localhost si estamos EXPLÍCITAMENTE en localhost
-    // Verificar tanto origin como hostname para estar seguros
-    const isLocalhost = 
-      hostname === 'localhost' || 
-      hostname === '127.0.0.1' ||
-      origin.includes('localhost') || 
-      origin.includes('127.0.0.1');
-    
-    if (isLocalhost) {
-      // Solo en desarrollo local explícito usar localhost
+    // Solo usar localhost si estamos en desarrollo local explícito
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      // En desarrollo local, usar localhost
       baseUrl = origin;
-      console.log('[REFERRAL] Using localhost for referral link (development):', baseUrl);
     } else {
-      // En cualquier otro caso (producción, staging, vercel preview, etc.), usar SIEMPRE producción
-      baseUrl = PRODUCTION_URL;
-      if (origin !== PRODUCTION_URL) {
-        console.log('[REFERRAL] Using production URL for referral link (current origin:', origin, '->', baseUrl);
-      }
+      // En cualquier otro caso (producción, staging, etc.), usar siempre playlists.jeylabbb.com
+      baseUrl = 'https://playlists.jeylabbb.com';
     }
   } else {
-    // En servidor (SSR), NUNCA usar localhost a menos que sea explícitamente desarrollo
+    // En servidor, verificar si estamos en desarrollo
     const isDev = process.env.NODE_ENV === 'development';
     const envUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXTAUTH_URL;
     
-    // 🚨 SEGURIDAD: Solo usar localhost si TODAS estas condiciones se cumplen:
-    // 1. Estamos en desarrollo
-    // 2. La URL de entorno existe
-    // 3. La URL de entorno es explícitamente localhost
-    const canUseLocalhost = isDev && 
-                            envUrl && 
-                            (envUrl.includes('localhost') || envUrl.includes('127.0.0.1'));
-    
-    if (canUseLocalhost) {
+    if (isDev && envUrl && (envUrl.includes('localhost') || envUrl.includes('127.0.0.1'))) {
+      // Solo en desarrollo explícito usar localhost
       baseUrl = envUrl;
-      console.log('[REFERRAL] Using localhost for referral link (server-side development):', baseUrl);
     } else {
-      // En producción o sin configuración clara, usar SIEMPRE producción
-      baseUrl = PRODUCTION_URL;
-      if (envUrl && envUrl !== PRODUCTION_URL) {
-        console.log('[REFERRAL] Using production URL for referral link (env URL:', envUrl, '->', baseUrl);
-      }
+      // En producción o sin configuración, usar siempre playlists.jeylabbb.com
+      baseUrl = 'https://playlists.jeylabbb.com';
     }
   }
   
-  // 🚨 VALIDACIÓN FINAL: Asegurar que nunca devolvamos localhost en producción
-  // Si por alguna razón llegamos aquí con localhost y no estamos en desarrollo, forzar producción
-  if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
-    const isDefinitelyDev = typeof window !== 'undefined' 
-      ? (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-      : (process.env.NODE_ENV === 'development');
-    
-    if (!isDefinitelyDev) {
-      console.warn('[REFERRAL] ⚠️ WARNING: Detected localhost in non-dev environment, forcing production URL');
-      baseUrl = PRODUCTION_URL;
-    }
-  }
-  
-  const referralLink = `${baseUrl}/invite?ref=${encodeURIComponent(email)}`;
-  
-  // 🚨 LOGGING: En producción, loggear si detectamos algo raro
-  if (typeof window !== 'undefined' && !baseUrl.includes('localhost') && !baseUrl.includes('127.0.0.1')) {
-    if (baseUrl !== PRODUCTION_URL) {
-      console.warn('[REFERRAL] ⚠️ Using non-standard URL for referral:', baseUrl);
-    }
-  }
-  
-  return referralLink;
+  return `${baseUrl}/invite?ref=${encodeURIComponent(email)}`;
 }
 
 // Types

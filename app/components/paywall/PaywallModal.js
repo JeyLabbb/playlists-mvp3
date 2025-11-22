@@ -5,6 +5,8 @@ import { useMemo } from 'react';
 const DEFAULT_LIMIT = 5;
 
 export default function PaywallModal({ isOpen, onClose, usage, onBuyFounder }) {
+  if (!isOpen) return null;
+
   const summary = useMemo(() => {
     // 🚨 CRITICAL: Usar EXACTAMENTE la misma estructura que devuelve /api/usage/status y useUsageStatus
     // Esto asegura que los datos coincidan con lo que se muestra en el perfil
@@ -167,8 +169,6 @@ export default function PaywallModal({ isOpen, onClose, usage, onBuyFounder }) {
       handleClose(event);
     }
   };
-
-  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4 md:px-6">

@@ -205,19 +205,53 @@ export async function POST(request) {
 
 MODOS
 - NORMAL: Tú (LLM) generas ~70% de los temas (reales), y Spotify rellenará ~30% con radios de tus temas (prioriza recientes). Usa contextos brújula solo como sesgo, no como lista cerrada. Respeta exclusiones y cap por artista (3 por defecto; si el prompt muestra preferencia por un artista/género, sube cap a 5–10).
-- VIRAL: Delegas TODO a Spotify. Caso “tiktok/viral/charts/… + año/mes”: construye queries que SIEMPRE combinen nombre+añ o/edición (no separar). NO generes tracks.
+- VIRAL: Delegas TODO a Spotify. Caso "tiktok/viral/charts/… + año/mes": construye queries que SIEMPRE combinen nombre+añ o/edición (no separar). NO generes tracks.
 - FESTIVAL: Delegas TODO a Spotify. SIEMPRE combina {nombreFestival}+{año/edición} en las queries; variantes que mantengan unidos nombre+año. NO generes tracks.
-- ARTIST_STYLE (“como X”, “estilo de X”): Delegas TODO a Spotify con “radio + artista exacto”. NO generes tracks (tracks=[]).
+- ARTIST_STYLE ("como X", "estilo de X"): Delegas TODO a Spotify con "radio + artista exacto". NO generes tracks (tracks=[]).
 - SINGLE_ARTIST (prompt es SOLO un artista): Delegas TODO a Spotify para traer catálogo y colaboraciones de ese artista. NO generes tracks (tracks=[]).
-- UNDERGROUND_STRICT (si prompt incluye “underground” en España): Usa ÚNICAMENTE los artistas del whitelist 'underground_es' (match exacto tolerante a tildes/case). Máx 3 temas por artista. Subconjunto aleatorio de artistas del whitelist. Si un artista no aparece, se omite (no sustituyas por similares). Delegas la búsqueda a Spotify con la lista filtrada.
+- UNDERGROUND_STRICT (si prompt incluye "underground" en España): Usa ÚNICAMENTE los artistas del whitelist 'underground_es' (match exacto tolerante a tildes/case). Máx 3 temas por artista. Subconjunto aleatorio de artistas del whitelist. Si un artista no aparece, se omite (no sustituyas por similares). Delegas la búsqueda a Spotify con la lista filtrada.
+
+🚨 CRÍTICO: INTERPRETACIÓN DE PROMPTS POCO ESPECÍFICOS
+Cuando el prompt es vago o contiene información irrelevante, debes distinguir qué es OBLIGATORIO vs qué es IRRELEVANTE:
+
+INFORMACIÓN OBLIGATORIA (siempre respetar):
+- Años/rangos de años: "años 70-2025", "de los 80", "del 2000" → OBLIGATORIO filtrar por año
+- Actividades/contextos musicales: "para bailar", "para estudiar", "para correr", "para dedicar" → OBLIGATORIO buscar canciones que encajen con esa actividad/contexto
+- Géneros explícitos: "reggaeton", "rock", "pop" → OBLIGATORIO respetar
+- Exclusiones: "sin X", "sin canciones de Y" → OBLIGATORIO excluir
+
+INFORMACIÓN IRRELEVANTE (ignorar completamente):
+- Profesión: "es médico", "es profesor", "trabaja en..." → IRRELEVANTE para selección musical
+- Edad (a menos que se mencione música de esa época): "tiene 55 años", "es joven" → IRRELEVANTE a menos que se pida música de esa época
+- Características físicas del destinatario (a menos que se pida dedicar): "es guapa", "es rubia", "es bajita" → Solo relevante si se pide "dedicar" o "regalar"
+- Ubicación geográfica (a menos que se pida música de ese lugar): "vive en Madrid", "es de Barcelona" → IRRELEVANTE
+
+PROMPTS DE DEDICACIÓN/REGALO:
+Si el prompt menciona "dedicar", "regalar", "para mi novia/novio/amigo", etc.:
+- Busca canciones con LYRICS que mencionen características del destinatario (guapa, rubia, bajita, etc.)
+- Busca TÍTULOS de canciones que resuman esas características
+- MEZCLA diferentes estrategias: algunas por lyrics, otras por título, otras por temática general
+- NO uses solo una estrategia (no todas por título, no todas por lyrics)
+- Ten libertad creativa: piensa en diferentes formas de interpretar el prompt
+
+EJEMPLOS:
+- "canciones para bailar para una madre de 55 años que le gustan canciones nuevas pero también viejas, es médico, y quiere canciones de entre los años 70 y 2025"
+  → OBLIGATORIO: "para bailar" (danceability alta), "años 70-2025" (filtrar por año)
+  → IRRELEVANTE: "es médico", "55 años" (a menos que se pida música de los 70 específicamente)
+  → Estrategia: Mezclar canciones bailables de diferentes épocas (70s, 80s, 90s, 2000s, 2010s, 2020s)
+
+- "canciones para dedicarle a mi novia es muy guapa rubia bajita"
+  → OBLIGATORIO: "dedicar" (buscar canciones románticas/dedicadas)
+  → RELEVANTE: "guapa rubia bajita" (buscar en lyrics y títulos)
+  → Estrategia: MEZCLAR canciones con lyrics que mencionen "guapa", "rubia", "bajita", títulos relevantes, y canciones románticas generales
 
 REGLAS TRANSVERSALES
-- Exclusiones: “sin X” → añade X a exclusions.banned_artists; jamás devuelvas ese artista.
-- Nunca devuelvas “Track 1/2…”. Siempre temas reales.
+- Exclusiones: "sin X" → añade X a exclusions.banned_artists; jamás devuelvas ese artista.
+- Nunca devuelvas "Track 1/2…". Siempre temas reales.
 - Cap por artista por defecto 3; si el prompt prefiere un artista/género, cap 5–10.
 - Devuelve arrays coherentes: si proporcionas 'tracks', cada item tiene {title, artist}. Si el modo delega (VIRAL/FESTIVAL/ARTIST_STYLE/SINGLE_ARTIST/UNDERGROUND_STRICT), entonces 'tracks' puede ser [] y debes pasar los campos guía (priority_artists, filtered_artists, queries).
 - Campos guía para Spotify:
-  - VIRAL/FESTIVAL: 'search_queries' con variantes que SIEMPRE unan nombre+añ o/edición (p.ej. “riverland 2025”, “2025 riverland” pero nunca “riverland” solo).
+  - VIRAL/FESTIVAL: 'search_queries' con variantes que SIEMPRE unan nombre+añ o/edición (p.ej. "riverland 2025", "2025 riverland" pero nunca "riverland" solo).
   - ARTIST_STYLE: 'priority_artists: ["Nombre Exacto"]'.
   - SINGLE_ARTIST: 'restricted_artists: ["Nombre Exacto"]'.
   - UNDERGROUND_STRICT: 'filtered_artists: ["Artista1 exacto", ...]' (subconjunto aleatorio del whitelist).
