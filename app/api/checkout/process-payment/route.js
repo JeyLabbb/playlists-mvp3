@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { stripe } from '../../../../lib/stripe';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../../../lib/auth/config';
 
 /**
- * 🚨 CRITICAL: Este endpoint procesa el pago directamente desde el session_id de Stripe
- * NO requiere autenticación porque usa el email de Stripe directamente
+ * 🚨 CRITICAL: Este endpoint procesa el pago desde el session_id de Stripe
+ * PRIORIDAD: Usa el email del usuario autenticado (si existe), sino usa el email de Stripe
  * Se llama desde la página de success cuando el usuario completa el pago
  */
 export async function POST(request) {
@@ -23,18 +25,37 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Stripe session not found' }, { status: 404 });
     }
 
-    // 🚨 CRITICAL: Usar el email de Stripe directamente (no requiere autenticación)
-    const userEmail = stripeSession.customer_details?.email || stripeSession.customer_email;
+    // 🚨 CRITICAL: PRIORIDAD 1 - Intentar obtener el usuario autenticado
+    let userEmail = null;
+    let isAuthenticatedUser = false;
     
+    try {
+      const session = await getServerSession(authOptions);
+      if (session?.user?.email) {
+        userEmail = session.user.email.toLowerCase();
+        isAuthenticatedUser = true;
+        console.log('[PROCESS-PAYMENT] ✅ Using authenticated user email:', userEmail);
+      }
+    } catch (authError) {
+      console.log('[PROCESS-PAYMENT] No authenticated session found, will use Stripe email');
+    }
+    
+    // 🚨 CRITICAL: PRIORIDAD 2 - Si no hay usuario autenticado, usar email de Stripe como fallback
     if (!userEmail) {
-      return NextResponse.json({ error: 'No email found in Stripe session' }, { status: 400 });
+      userEmail = (stripeSession.customer_details?.email || stripeSession.customer_email)?.toLowerCase();
+      if (!userEmail) {
+        return NextResponse.json({ error: 'No email found in Stripe session and user not authenticated' }, { status: 400 });
+      }
+      console.log('[PROCESS-PAYMENT] ⚠️ Using Stripe email (no authenticated user):', userEmail);
     }
 
-    const normalizedEmail = userEmail.toLowerCase();
+    const normalizedEmail = userEmail;
 
-    console.log('[PROCESS-PAYMENT] Stripe session details:', {
+    console.log('[PROCESS-PAYMENT] Payment details:', {
       id: stripeSession.id,
       email: normalizedEmail,
+      isAuthenticatedUser: isAuthenticatedUser,
+      stripeEmail: stripeSession.customer_details?.email || stripeSession.customer_email,
       amount_total: stripeSession.amount_total,
       payment_status: stripeSession.payment_status
     });
