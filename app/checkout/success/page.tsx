@@ -14,9 +14,11 @@ function CheckoutSuccessContent() {
   const processWebhook = useCallback(async () => {
     if (!sessionId) return;
     
+    setLoading(true);
     try {
-      console.log('[SUCCESS-PAGE] Associating purchase with current user for session:', sessionId);
-      const webhookResponse = await fetch('/api/associate-purchase', {
+      console.log('[SUCCESS-PAGE] Processing purchase for session:', sessionId);
+      // 🚨 CRITICAL: Usar endpoint que NO requiere autenticación, usa el email de Stripe directamente
+      const webhookResponse = await fetch('/api/checkout/process-payment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -26,19 +28,22 @@ function CheckoutSuccessContent() {
       
       if (webhookResponse.ok) {
         const result = await webhookResponse.json();
-        console.log('[SUCCESS-PAGE] Purchase associated successfully:', result);
+        console.log('[SUCCESS-PAGE] Purchase processed successfully:', result);
         setWebhookProcessed(true);
         
-        if (result.isFounder) {
+        if (result.success && result.isFounder) {
           console.log('[SUCCESS-PAGE] User is now founder, refreshing profile data...');
           await mutate('/api/me');
           console.log('[SUCCESS-PAGE] Profile data refreshed');
         }
       } else {
-        console.error('[SUCCESS-PAGE] Purchase association failed');
+        const errorData = await webhookResponse.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('[SUCCESS-PAGE] Purchase processing failed:', errorData);
       }
     } catch (error) {
-      console.error('[SUCCESS-PAGE] Error associating purchase:', error);
+      console.error('[SUCCESS-PAGE] Error processing purchase:', error);
+    } finally {
+      setLoading(false);
     }
   }, [sessionId]);
 
@@ -139,6 +144,30 @@ function CheckoutSuccessContent() {
               >
                 {sessionId}
               </p>
+              {loading && (
+                <p 
+                  className="text-sm mt-2"
+                  style={{ 
+                    color: '#36E2B4',
+                    fontFamily: 'Inter, sans-serif',
+                    opacity: 0.8
+                  }}
+                >
+                  Procesando pago...
+                </p>
+              )}
+              {webhookProcessed && (
+                <p 
+                  className="text-sm mt-2"
+                  style={{ 
+                    color: '#36E2B4',
+                    fontFamily: 'Inter, sans-serif',
+                    opacity: 0.8
+                  }}
+                >
+                  ✅ Pago procesado correctamente
+                </p>
+              )}
             </div>
           )}
 
