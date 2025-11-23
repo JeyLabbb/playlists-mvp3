@@ -279,6 +279,31 @@ export default async function CheckoutSuccessPage({
           >
             ✅ Pago completado. Tu cuenta se ha actualizado automáticamente.
           </p>
+          
+          {result && !result.success && (
+            <div 
+              className="rounded-lg p-4 mb-6"
+              style={{ 
+                backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                border: '1px solid rgba(255, 193, 7, 0.3)'
+              }}
+            >
+              <p 
+                className="text-sm"
+                style={{ 
+                  color: '#FFC107',
+                  fontFamily: 'Inter, sans-serif',
+                  opacity: 0.9
+                }}
+              >
+                ⚠️ Nota: {result.error === 'Not a Founder Pass purchase' 
+                  ? 'Este pago no es un Founder Pass.' 
+                  : result.error === 'No email found'
+                  ? 'No se encontró email en la sesión.'
+                  : 'El procesamiento tuvo un problema, pero tu pago fue exitoso. Si no recibes el email, contacta con soporte.'}
+              </p>
+            </div>
+          )}
 
           {sessionId && (
             <div 
