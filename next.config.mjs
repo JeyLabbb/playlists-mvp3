@@ -17,6 +17,19 @@ const nextConfig = {
       },
     ];
   },
+  // Deshabilitar cache de webpack en desarrollo si hay problemas
+  webpack: (config, { dev, isServer }) => {
+    if (dev) {
+      // Limpiar cache de webpack si hay problemas
+      config.cache = {
+        type: 'filesystem',
+        buildDependencies: {
+          config: [__filename],
+        },
+      };
+    }
+    return config;
+  },
 };
 
 export default nextConfig;
