@@ -154,6 +154,17 @@ export async function POST(req) {
       });
     }
 
+    // 🚨 CRITICAL: Log detallado antes de verificar Founder Pass
+    console.log('[STRIPE WEBHOOK] 🔍🔍🔍 VERIFICACIÓN FINAL ANTES DE ACTUALIZAR:', {
+      isFounderPass,
+      userEmail: userEmail || 'NO EMAIL',
+      hasUserEmail: !!userEmail,
+      willUpdate: isFounderPass && userEmail,
+      lineItemsCount: lineItems?.data?.length || 0,
+      founderPriceId: process.env.STRIPE_PRICE_FOUNDER,
+      foundPriceIds: lineItems?.data?.map(item => item.price?.id) || []
+    });
+
     // Check if this is a Founder Pass and mark user accordingly
     if (isFounderPass && userEmail) {
       console.log('[STRIPE WEBHOOK] ✅✅✅ ES FOUNDER PASS - Iniciando actualización...');
@@ -364,6 +375,19 @@ export async function POST(req) {
       } catch (error) {
         console.error('[STRIPE] ❌ Error marking user as Founder:', error);
       }
+    }
+
+    // 🚨 CRITICAL: Si no se actualizó el plan, log el motivo
+    if (!isFounderPass) {
+      console.log('[STRIPE WEBHOOK] ⚠️⚠️⚠️ NO ES FOUNDER PASS - No se actualizará el plan:', {
+        isFounderPass,
+        founderPriceId: process.env.STRIPE_PRICE_FOUNDER,
+        foundPriceIds: lineItems?.data?.map(item => item.price?.id) || [],
+        lineItemsCount: lineItems?.data?.length || 0
+      });
+    }
+    if (!userEmail) {
+      console.error('[STRIPE WEBHOOK] ❌❌❌ NO HAY EMAIL - No se actualizará el plan ni se enviará email');
     }
 
     // Send confirmation email

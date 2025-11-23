@@ -106,9 +106,23 @@ async function processPaymentOnServer(sessionId: string) {
       return { success: false, error: updateError.message };
     }
     
-    console.log('[SUCCESS-PAGE-SERVER] ✅✅✅ Supabase actualizado:', {
-      rowsAffected: updateData?.length || 0,
-      plan: updateData?.[0]?.plan
+    if (!updateData || updateData.length === 0) {
+      console.error('[SUCCESS-PAGE-SERVER] ❌❌❌ NO SE ACTUALIZÓ NINGÚN REGISTRO EN SUPABASE');
+      console.error('[SUCCESS-PAGE-SERVER] Email usado:', userEmail);
+      console.error('[SUCCESS-PAGE-SERVER] Datos de actualización:', {
+        plan: 'founder',
+        max_uses: null,
+        founder_source: 'purchase'
+      });
+      return { success: false, error: 'No se encontró usuario para actualizar' };
+    }
+    
+    console.log('[SUCCESS-PAGE-SERVER] ✅✅✅ Supabase actualizado EXITOSAMENTE:', {
+      rowsAffected: updateData.length,
+      plan: updateData[0]?.plan,
+      max_uses: updateData[0]?.max_uses,
+      founder_source: updateData[0]?.founder_source,
+      email: updateData[0]?.email
     });
     
     // 5. Registrar pago en telemetry
