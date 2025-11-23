@@ -218,8 +218,20 @@ export default function PublicProfilePage({ params }) {
   };
 
   const trackClick = async (playlistId, spotifyUrl) => {
+    // 🚨 CRITICAL: Open Spotify URL immediately, track in background
+    if (spotifyUrl) {
+      try {
+        const opened = window.open(spotifyUrl, '_blank', 'noopener,noreferrer');
+        if (!opened || opened.closed || typeof opened.closed === 'undefined') {
+          window.location.href = spotifyUrl;
+        }
+      } catch (error) {
+        window.location.href = spotifyUrl;
+      }
+    }
+    
+    // Track click in background (non-blocking)
     try {
-      // Try API first
       const response = await fetch('/api/metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -228,30 +240,24 @@ export default function PublicProfilePage({ params }) {
       
       const result = await response.json();
       
-      // If fallback to localStorage, handle client-side
       if (result.reason === 'fallback-localStorage') {
         await updateMetricsInLocalStorage(playlistId, 'click');
-      }
-      
-      // Open Spotify URL
-      try {
-        window.open(spotifyUrl, '_blank', 'noopener,noreferrer');
-      } catch (openError) {
-        console.error('Error opening Spotify URL:', openError);
-        window.location.href = spotifyUrl;
+      } else if (result.ok) {
+        // Update local state
+        setPublicPlaylists(prevPlaylists => 
+          prevPlaylists.map(playlist => 
+            playlist.playlistId === playlistId 
+              ? { 
+                  ...playlist, 
+                  clicks: (playlist.clicks || 0) + 1
+                }
+              : playlist
+          )
+        );
       }
     } catch (error) {
       console.error('Error tracking click:', error);
-      // Fallback to localStorage
       await updateMetricsInLocalStorage(playlistId, 'click');
-      // Still open the link even if tracking fails
-      if (spotifyUrl) {
-        try {
-          window.open(spotifyUrl, '_blank', 'noopener,noreferrer');
-        } catch (openError) {
-          window.location.href = spotifyUrl;
-        }
-      }
     }
   };
 
@@ -265,13 +271,23 @@ export default function PublicProfilePage({ params }) {
       
       const result = await response.json();
       
-      // If fallback to localStorage, handle client-side
       if (result.reason === 'fallback-localStorage') {
         await updateMetricsInLocalStorage(playlistId, 'view');
+      } else if (result.ok) {
+        // Update local state
+        setPublicPlaylists(prevPlaylists => 
+          prevPlaylists.map(playlist => 
+            playlist.playlistId === playlistId 
+              ? { 
+                  ...playlist, 
+                  views: (playlist.views || 0) + 1
+                }
+              : playlist
+          )
+        );
       }
     } catch (error) {
       console.error('Error tracking view:', error);
-      // Fallback to localStorage
       await updateMetricsInLocalStorage(playlistId, 'view');
     }
   };
@@ -504,41 +520,35 @@ export default function PublicProfilePage({ params }) {
                 </p>
               </div>
             ) : (
-              <div className="grid gap-3 sm:gap-6 md:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
                 {publicPlaylists.map((playlist) => (
                   <div
                     key={playlist.playlistId}
-                    className="bg-gray-800/50 border border-gray-700 rounded-xl p-3 sm:p-6 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70 group"
+                    className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 sm:p-6 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70 group"
                     onMouseEnter={() => trackView(playlist.playlistId)}
                   >
-                    <div className="flex items-start gap-2 sm:gap-4 mb-2 sm:mb-4">
+                    <div className="flex items-start gap-3 sm:gap-4 mb-3 sm:mb-4">
                       {/* Album Art Placeholder */}
-                      <div className="flex-shrink-0 w-10 h-10 sm:w-16 sm:h-16 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
+                      <div className="flex-shrink-0 w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
                         <span className="text-white text-lg sm:text-2xl">🎵</span>
                       </div>
 
                       {/* Content */}
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 overflow-hidden">
                         <h3 className="text-sm sm:text-lg font-bold text-white mb-1 sm:mb-2 truncate">
                           {playlist.playlistName}
                         </h3>
                         
-                        <p className="text-gray-400 text-xs sm:text-sm mb-1 sm:mb-3 line-clamp-2">
+                        <p className="text-gray-400 text-xs sm:text-sm mb-2 line-clamp-2">
                           &ldquo;{anonymizePrompt(playlist.prompt)}&rdquo;
                         </p>
                         
-                        <div className="flex items-center gap-1 sm:gap-4 text-xs text-gray-500 flex-wrap">
+                        <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
                           <span>{playlist.trackCount} canciones</span>
                           <span className="hidden sm:inline">👀</span>
-                          <span>{playlist.views || 0}</span>
+                          <span className="hidden sm:inline">{playlist.views || 0}</span>
                           <span className="hidden sm:inline">🔗</span>
-                          <span>{playlist.clicks || 0}</span>
-                          <span className="hidden sm:inline truncate">
-                            {new Date(playlist.createdAt).toLocaleDateString('es-ES', {
-                              month: 'short',
-                              day: 'numeric'
-                            })}
-                          </span>
+                          <span className="hidden sm:inline">{playlist.clicks || 0}</span>
                         </div>
                       </div>
                     </div>

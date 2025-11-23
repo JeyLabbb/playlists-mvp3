@@ -218,10 +218,23 @@ export default function TrendingPage() {
   };
 
   const trackClick = async (playlistId, spotifyUrl) => {
+    // 🚨 CRITICAL: Open Spotify URL immediately, track in background
+    if (spotifyUrl) {
+      try {
+        // Try to open in new tab first
+        const opened = window.open(spotifyUrl, '_blank', 'noopener,noreferrer');
+        // If popup blocked, navigate directly
+        if (!opened || opened.closed || typeof opened.closed === 'undefined') {
+          window.location.href = spotifyUrl;
+        }
+      } catch (error) {
+        // Fallback: navigate directly
+        window.location.href = spotifyUrl;
+      }
+    }
+    
+    // Track click in background (non-blocking)
     try {
-      console.log('trackClick called with:', { playlistId, spotifyUrl });
-      
-      // Track click in our new metrics system
       const response = await fetch('/api/metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -232,33 +245,33 @@ export default function TrendingPage() {
       
       // If fallback to localStorage, handle client-side
       if (result.reason === 'fallback-localStorage') {
-        console.log('Handling click tracking in localStorage');
         await updateMetricsInLocalStorage(playlistId, 'click');
-      }
-      
-      // Open Spotify link
-      if (spotifyUrl) {
-        console.log('Opening Spotify URL:', spotifyUrl);
-        try {
-          window.open(spotifyUrl, '_blank', 'noopener,noreferrer');
-        } catch (error) {
-          console.error('Error opening Spotify URL:', error);
-          // Fallback: try to navigate directly
-          window.location.href = spotifyUrl;
-        }
-      } else {
-        console.error('No Spotify URL provided');
+      } else if (result.ok) {
+        // Update local state with new click count
+        setPlaylists(prevPlaylists => 
+          prevPlaylists.map(playlist => 
+            playlist.playlistId === playlistId 
+              ? { 
+                  ...playlist, 
+                  clicks: (playlist.clicks || 0) + 1
+                }
+              : playlist
+          )
+        );
       }
     } catch (error) {
       console.error('Error tracking click:', error);
-      // Still open the link even if tracking fails
-      if (spotifyUrl) {
-        window.open(spotifyUrl, '_blank');
-      }
+      // Fallback to localStorage
+      await updateMetricsInLocalStorage(playlistId, 'click');
     }
   };
 
   const trackView = useCallback(async (playlistId) => {
+    // Only track if not already viewed in this session
+    if (hasViewedInSession(playlistId)) {
+      return;
+    }
+    
     try {
       const response = await fetch('/api/metrics', {
         method: 'POST',
@@ -270,11 +283,29 @@ export default function TrendingPage() {
       
       // If fallback to localStorage, handle client-side
       if (result.reason === 'fallback-localStorage') {
-        console.log('Handling view tracking in localStorage');
-        await updateMetricsInLocalStorage(playlistId, 'view');
+        if (markAsViewedInSession(playlistId)) {
+          await updateMetricsInLocalStorage(playlistId, 'view');
+        }
+      } else if (result.ok) {
+        // Mark as viewed and update local state
+        markAsViewedInSession(playlistId);
+        setPlaylists(prevPlaylists => 
+          prevPlaylists.map(playlist => 
+            playlist.playlistId === playlistId 
+              ? { 
+                  ...playlist, 
+                  views: (playlist.views || 0) + 1
+                }
+              : playlist
+          )
+        );
       }
     } catch (error) {
       console.error('Error tracking view:', error);
+      // Fallback to localStorage
+      if (markAsViewedInSession(playlistId)) {
+        await updateMetricsInLocalStorage(playlistId, 'view');
+      }
     }
   }, []);
 
@@ -474,17 +505,17 @@ export default function TrendingPage() {
               {playlists.map((playlist) => (
                 <div
                   key={playlist.id}
-                  className="bg-gray-800/50 border border-gray-700 rounded-xl p-3 sm:p-6 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70"
+                  className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 sm:p-6 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70"
                   onMouseEnter={() => trackView(playlist.playlistId)}
                 >
-                  <div className="flex items-start gap-2 sm:gap-4">
+                  <div className="flex items-start gap-3 sm:gap-4">
                     {/* Album Art Placeholder */}
-                    <div className="flex-shrink-0 w-10 h-10 sm:w-16 sm:h-16 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
+                    <div className="flex-shrink-0 w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
                       <span className="text-white text-lg sm:text-2xl">🎵</span>
                     </div>
 
                     {/* Content */}
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 overflow-hidden">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <h3 className="text-base sm:text-xl font-bold text-white mb-1 sm:mb-2 truncate">
