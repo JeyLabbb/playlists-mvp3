@@ -286,10 +286,12 @@ export async function sendNewsletterEmail(
   }
 
   const resendApiKey = process.env.RESEND_API_KEY;
-  const fromAddress =
+  // 🚨 CRITICAL: Limpiar comillas dobles del from (pueden venir de variables de entorno)
+  const rawFrom =
     process.env.RESEND_NEWSLETTER_FROM ||
     process.env.RESEND_FROM ||
     'PLEIA <pleia@jeylabbb.com>';
+  const fromAddress = rawFrom.replace(/^["']|["']$/g, '').trim(); // Eliminar comillas al inicio y final
 
   const subject = options.subject?.trim() || defaultSubject;
   const { html, text } = formatMessageBlocks(options.message);

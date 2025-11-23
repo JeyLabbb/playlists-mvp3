@@ -7,7 +7,9 @@ type SendEmailParams = {
 
 export async function sendEmail({ to, subject, html, text }: SendEmailParams) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM || 'PLEIA <onboarding@resend.dev>';
+  // 🚨 CRITICAL: Limpiar comillas dobles del from (pueden venir de variables de entorno)
+  const rawFrom = process.env.RESEND_FROM || 'PLEIA <onboarding@resend.dev>';
+  const from = rawFrom.replace(/^["']|["']$/g, '').trim(); // Eliminar comillas al inicio y final
   const replyTo = process.env.CONTACT_EMAIL || undefined;
 
   if (!apiKey) {
