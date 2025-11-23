@@ -62,12 +62,27 @@ async function processPaymentOnServer(sessionId: string) {
     }
     
     // 3. Verificar si es Founder Pass
+    console.log('[SUCCESS-PAGE-SERVER] 🔍 Verificando si es Founder Pass...');
     const lineItems = await stripe.checkout.sessions.listLineItems(sessionId);
     const founderPriceId = process.env.STRIPE_PRICE_FOUNDER;
+    
+    console.log('[SUCCESS-PAGE-SERVER] 🔍 Datos de verificación:', {
+      founderPriceId: founderPriceId,
+      lineItemsCount: lineItems.data.length,
+      priceIds: lineItems.data.map(item => item.price?.id),
+      descriptions: lineItems.data.map(item => item.description)
+    });
+    
     const isFounderPass = lineItems.data.some(item => item.price?.id === founderPriceId);
     
+    console.log('[SUCCESS-PAGE-SERVER] 🔍 ¿Es Founder Pass?', {
+      isFounderPass,
+      founderPriceId,
+      foundPriceIds: lineItems.data.map(item => item.price?.id)
+    });
+    
     if (!isFounderPass) {
-      console.log('[SUCCESS-PAGE-SERVER] ⚠️ No es Founder Pass');
+      console.log('[SUCCESS-PAGE-SERVER] ⚠️ No es Founder Pass - Price IDs no coinciden');
       return { success: false, error: 'Not a Founder Pass purchase' };
     }
     
@@ -195,32 +210,54 @@ export default async function CheckoutSuccessPage({
   
   // 🚨 CRITICAL: Procesar pago EN EL SERVIDOR antes de renderizar
   console.log('[SUCCESS-PAGE-SERVER] ===== INICIANDO PROCESAMIENTO =====');
+  console.log('[SUCCESS-PAGE-SERVER] Session ID recibido:', sessionId);
   let result;
   
   try {
     result = await processPaymentOnServer(sessionId);
+    console.log('[SUCCESS-PAGE-SERVER] Resultado del procesamiento:', {
+      success: result.success,
+      error: result.error,
+      email: result.email,
+      sessionId: result.sessionId
+    });
   } catch (error: any) {
     // Si es un NEXT_REDIRECT, re-lanzarlo (es una excepción especial de Next.js)
     if (error?.digest === 'NEXT_REDIRECT' || error?.message?.includes('NEXT_REDIRECT')) {
       throw error;
     }
-    console.error('[SUCCESS-PAGE-SERVER] ❌❌❌ ERROR AL PROCESAR:', error);
+    console.error('[SUCCESS-PAGE-SERVER] ❌❌❌ ERROR AL PROCESAR:', {
+      error: error,
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     // En caso de error, mostrar la página de todas formas (puede que ya se procesó)
     result = { success: false, error: error.message || 'Unknown error' };
   }
   
-  if (!result.success) {
-    console.error('[SUCCESS-PAGE-SERVER] ❌ Procesamiento falló:', result.error);
+  if (!result || !result.success) {
+    const errorMsg = result?.error || 'Unknown error';
+    console.error('[SUCCESS-PAGE-SERVER] ❌❌❌ PROCESAMIENTO FALLÓ:', {
+      success: result?.success,
+      error: errorMsg,
+      errorType: typeof errorMsg,
+      isFounderPassError: errorMsg === 'Not a Founder Pass purchase',
+      isNoEmailError: errorMsg === 'No email found',
+      isStripeError: errorMsg === 'Stripe session not found'
+    });
+    
     // Si el error es que no es Founder Pass o no hay email, mostrar página de éxito igual
-    // (puede ser que ya se procesó antes o que no es un Founder Pass)
-    if (result.error === 'Not a Founder Pass purchase' || result.error === 'No email found') {
+    if (errorMsg === 'Not a Founder Pass purchase' || errorMsg === 'No email found') {
       console.log('[SUCCESS-PAGE-SERVER] ⚠️ Error no crítico, mostrando página de éxito de todas formas');
-      // Continuar y mostrar la página
     } else {
-      // Error crítico, pero NO usar redirect dentro de try-catch
-      // En su lugar, mostrar página con mensaje de error
-      console.error('[SUCCESS-PAGE-SERVER] ⚠️ Error crítico, pero mostrando página de todas formas para evitar NEXT_REDIRECT');
-      // Continuar y mostrar la página con indicador de error
+      // Error crítico - log detallado
+      console.error('[SUCCESS-PAGE-SERVER] ❌❌❌ ERROR CRÍTICO DETECTADO:', {
+        error: errorMsg,
+        sessionId: sessionId,
+        timestamp: new Date().toISOString()
+      });
+      console.error('[SUCCESS-PAGE-SERVER] ⚠️ Mostrando página con advertencia (no redirigiendo para evitar NEXT_REDIRECT)');
     }
   }
   
