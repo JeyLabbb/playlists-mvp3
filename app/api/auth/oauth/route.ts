@@ -15,9 +15,20 @@ export async function POST(request: Request) {
 
     // 🚨 CRITICAL: SIEMPRE usar URL de producción en producción
     // Detectar entorno de forma más robusta
-    const headersList = await headers();
-    const host = headersList.get('host');
-    const protocol = headersList.get('x-forwarded-proto') || 'https';
+    let headersList;
+    let host: string | null = null;
+    let protocol = 'https';
+    
+    try {
+      headersList = await headers();
+      host = headersList?.get('host') || null;
+      protocol = headersList?.get('x-forwarded-proto') || 'https';
+    } catch (headersError) {
+      console.error('[AUTH] Error getting headers:', headersError);
+      // Fallback: usar variables de entorno
+      host = null;
+      protocol = 'https';
+    }
     const vercelUrl = process.env.VERCEL_URL;
     const isVercel = !!vercelUrl;
     const isProduction = process.env.NODE_ENV === 'production' || isVercel;
