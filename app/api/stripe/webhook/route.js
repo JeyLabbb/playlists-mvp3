@@ -3,10 +3,18 @@ import { stripe } from '../../../../lib/stripe';
 import { CHECKOUT_ENABLED } from '../../../../lib/flags';
 import { sendConfirmationEmail } from '../../../../lib/resend';
 
+// Helper to get base URL for internal API calls
+function getBaseUrl() {
+  return process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXTAUTH_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://playlists.jeylabbb.com');
+}
+
 // Helper to log payments to Supabase via telemetry API
 async function logPayment(userEmail, stripePaymentIntentId, stripeCustomerId, amount, plan, status = 'completed') {
   try {
-    const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
+    const baseUrl = getBaseUrl();
+    const response = await fetch(`${baseUrl}/api/telemetry/ingest`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -106,8 +114,8 @@ export async function POST(req) {
         // Verificar plan actual antes de actualizar
         const { data: beforeUpdate } = await supabaseAdmin
           .from('users')
-          .select('id, email, plan, max_uses')
-          .or(`email.eq.${userEmail}`)
+          .select('id, email, plan, max_uses, founder_source')
+          .eq('email', userEmail)
           .maybeSingle();
         
         console.log('[STRIPE] Plan BEFORE update:', {
@@ -126,7 +134,7 @@ export async function POST(req) {
             // 🚨 NEW: Marcar que el founder se obtuvo mediante compra
             founder_source: 'purchase' // 'purchase' o 'referral'
           })
-          .or(`email.eq.${userEmail}`);
+          .eq('email', userEmail);
         
         if (updateError) {
           console.error('[STRIPE] ❌ Error updating plan in Supabase:', updateError);
@@ -135,21 +143,22 @@ export async function POST(req) {
           await new Promise(resolve => setTimeout(resolve, 200));
           const { data: afterUpdate } = await supabaseAdmin
             .from('users')
-            .select('id, email, plan, max_uses')
-            .or(`email.eq.${userEmail}`)
+            .select('id, email, plan, max_uses, founder_source')
+            .eq('email', userEmail)
             .maybeSingle();
           
-          if (afterUpdate?.plan === 'founder' && afterUpdate?.max_uses === null) {
+            if (afterUpdate?.plan === 'founder' && afterUpdate?.max_uses === null) {
             console.log('[STRIPE] ✅ Plan updated to founder in Supabase (verified):', {
               email: userEmail,
               plan: afterUpdate.plan,
               max_uses: afterUpdate.max_uses,
-              founder_source: 'purchase'
+              founder_source: afterUpdate.founder_source || 'purchase'
             });
             
             // 🚨 CRITICAL: Registrar pago en Supabase DESPUÉS de actualizar el plan
             try {
-              const logResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
+              const baseUrl = getBaseUrl();
+              const logResponse = await fetch(`${baseUrl}/api/telemetry/ingest`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
