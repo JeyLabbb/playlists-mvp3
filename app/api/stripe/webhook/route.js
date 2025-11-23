@@ -86,14 +86,32 @@ export async function POST(req) {
   if (event.type === 'checkout.session.completed') {
     console.log('[STRIPE WEBHOOK] 🎯 Procesando evento: checkout.session.completed');
     const session = event.data.object;
+    
+    // 🚨 CRITICAL: Obtener email del usuario autenticado desde metadata (prioridad) o Stripe (fallback)
+    const authenticatedUserEmail = session.metadata?.user_email?.toLowerCase();
+    const stripeEmail = session.customer_details?.email?.toLowerCase() || session.customer_email?.toLowerCase();
+    const userEmail = authenticatedUserEmail || stripeEmail;
+    
     console.log('[STRIPE WEBHOOK] 📋 Detalles de la sesión:', {
       id: session.id,
+      authenticatedUserEmail: authenticatedUserEmail || 'N/A',
+      stripeEmail: stripeEmail || 'N/A',
+      userEmail: userEmail || 'N/A',
+      metadata: session.metadata,
       customer_email: session.customer_email,
       customer_details_email: session.customer_details?.email,
       payment_status: session.payment_status,
       amount_total: session.amount_total,
       currency: session.currency
     });
+    
+    if (!userEmail) {
+      console.error('[STRIPE WEBHOOK] ❌❌❌ NO HAY EMAIL DISPONIBLE (ni metadata ni Stripe)');
+    } else if (authenticatedUserEmail) {
+      console.log('[STRIPE WEBHOOK] ✅✅✅ Usando email del usuario autenticado (metadata):', authenticatedUserEmail);
+    } else {
+      console.log('[STRIPE WEBHOOK] ⚠️ Usando email de Stripe (fallback):', stripeEmail);
+    }
 
     // Get line items once for both Founder marking and email
     console.log('[STRIPE WEBHOOK] 🛒 Obteniendo line items de Stripe...');
@@ -137,9 +155,9 @@ export async function POST(req) {
     }
 
     // Check if this is a Founder Pass and mark user accordingly
-    if (isFounderPass && session.customer_details?.email) {
+    if (isFounderPass && userEmail) {
       console.log('[STRIPE WEBHOOK] ✅✅✅ ES FOUNDER PASS - Iniciando actualización...');
-      const userEmail = session.customer_details.email.toLowerCase();
+      console.log('[STRIPE WEBHOOK] 📧 Email a usar para actualización:', userEmail);
       const now = new Date().toISOString();
       
       console.log('[STRIPE WEBHOOK] 📧 Email del usuario:', userEmail);
@@ -351,7 +369,7 @@ export async function POST(req) {
     }
 
     // Send confirmation email
-    if (session.customer_details?.email) {
+    if (userEmail) {
       console.log('[STRIPE WEBHOOK] 📧 Enviando email de confirmación de pago...');
       try {
         const planName = isFounderPass ? 'Founder Pass' : isMonthly ? 'PLEIA Monthly' : 'Plan';
@@ -359,14 +377,15 @@ export async function POST(req) {
         const date = new Date(session.created * 1000).toLocaleDateString('es-ES');
         
         console.log('[STRIPE WEBHOOK] 📧 Datos del email de confirmación:', {
-          to: session.customer_details.email,
+          to: userEmail,
           planName,
           amount,
           date,
-          sessionId: session.id
+          sessionId: session.id,
+          isAuthenticatedUserEmail: !!authenticatedUserEmail
         });
         
-        const emailSent = await sendConfirmationEmail(session.customer_details.email, {
+        const emailSent = await sendConfirmationEmail(userEmail, {
           planName,
           amount,
           date,
@@ -374,10 +393,10 @@ export async function POST(req) {
         });
         
         if (emailSent) {
-          console.log('[STRIPE WEBHOOK] ✅✅✅ EMAIL DE CONFIRMACIÓN ENVIADO A:', session.customer_details.email);
+          console.log('[STRIPE WEBHOOK] ✅✅✅ EMAIL DE CONFIRMACIÓN ENVIADO A:', userEmail);
           // 🚨 NOTE: El pago ya se registró en Supabase después de actualizar el plan (ver código anterior)
         } else {
-          console.error('[STRIPE WEBHOOK] ⚠️ FALLO AL ENVIAR EMAIL DE CONFIRMACIÓN A:', session.customer_details.email);
+          console.error('[STRIPE WEBHOOK] ⚠️ FALLO AL ENVIAR EMAIL DE CONFIRMACIÓN A:', userEmail);
         }
       } catch (emailError) {
         console.error('[STRIPE WEBHOOK] ❌ ERROR AL ENVIAR EMAIL DE CONFIRMACIÓN:', {
