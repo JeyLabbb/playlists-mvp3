@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { stripe, PRICES, URLS } from '../../../../lib/stripe';
 import { CHECKOUT_ENABLED } from '../../../../lib/flags';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../../lib/auth/config';
+import { getPleiaServerUser } from '../../../../lib/auth/serverUser';
 
 export async function POST(req) {
   if (!CHECKOUT_ENABLED) {
@@ -20,19 +19,18 @@ export async function POST(req) {
     return NextResponse.json({ ok: false, reason: 'stripe_not_configured' }, { status: 503 });
   }
 
-  // 🚨 CRITICAL: Obtener email del usuario autenticado
+  // 🚨 CRITICAL: Obtener email del usuario autenticado desde Supabase (no NextAuth)
   let userEmail = null;
   try {
-    // @ts-ignore - NextAuth types issue
-    const session = await getServerSession(authOptions);
-    if (session?.user?.email) {
-      userEmail = session.user.email.toLowerCase();
-      console.log('[CHECKOUT SESSION] ✅ Usuario autenticado:', userEmail);
+    const pleiaUser = await getPleiaServerUser();
+    if (pleiaUser?.email) {
+      userEmail = pleiaUser.email.toLowerCase();
+      console.log('[CHECKOUT SESSION] ✅ Usuario autenticado (Supabase):', userEmail);
     } else {
-      console.log('[CHECKOUT SESSION] ⚠️ No hay usuario autenticado');
+      console.log('[CHECKOUT SESSION] ⚠️ No hay usuario autenticado en Supabase');
     }
   } catch (authError) {
-    console.error('[CHECKOUT SESSION] ⚠️ Error obteniendo sesión:', authError);
+    console.error('[CHECKOUT SESSION] ⚠️ Error obteniendo sesión de Supabase:', authError);
   }
 
   try {

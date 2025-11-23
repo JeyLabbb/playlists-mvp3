@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { stripe } from '@/lib/stripe';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth/config';
+import { getPleiaServerUser } from '@/lib/auth/serverUser';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 
 // 🚨 CRITICAL: Forzar renderizado dinámico porque usamos searchParams y procesamos pagos
@@ -34,20 +33,19 @@ async function processPaymentOnServer(sessionId: string) {
       customer_email: stripeSession.customer_details?.email || stripeSession.customer_email
     });
     
-    // 2. Obtener email del usuario (prioridad: autenticado > Stripe)
+    // 2. Obtener email del usuario (prioridad: autenticado Supabase > Stripe)
     let userEmail = null;
     let isAuthenticatedUser = false;
     
     try {
-      // @ts-ignore - NextAuth types issue
-      const session = await getServerSession(authOptions);
-      if (session?.user?.email) {
-        userEmail = session.user.email.toLowerCase();
+      const pleiaUser = await getPleiaServerUser();
+      if (pleiaUser?.email) {
+        userEmail = pleiaUser.email.toLowerCase();
         isAuthenticatedUser = true;
-        console.log('[SUCCESS-PAGE-SERVER] ✅ Usuario autenticado:', userEmail);
+        console.log('[SUCCESS-PAGE-SERVER] ✅ Usuario autenticado (Supabase):', userEmail);
       }
     } catch (authError) {
-      console.error('[SUCCESS-PAGE-SERVER] ⚠️ Error obteniendo sesión:', authError);
+      console.error('[SUCCESS-PAGE-SERVER] ⚠️ Error obteniendo sesión de Supabase:', authError);
     }
     
     if (!userEmail) {
