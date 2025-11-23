@@ -50,82 +50,141 @@ async function logPayment(userEmail, stripePaymentIntentId, stripeCustomerId, am
 export const config = { api: { bodyParser: false } }; // si hiciera falta, en app router usa buffer
 
 export async function POST(req) {
-  console.log('[STRIPE WEBHOOK] ===== WEBHOOK RECEIVED =====');
+  const startTime = Date.now();
+  console.log('[STRIPE WEBHOOK] ===== WEBHOOK RECIBIDO =====');
+  console.log('[STRIPE WEBHOOK] Timestamp:', new Date().toISOString());
   
   if (!CHECKOUT_ENABLED) {
-    console.log('[STRIPE WEBHOOK] Checkout disabled');
+    console.log('[STRIPE WEBHOOK] ❌ Checkout disabled');
     return NextResponse.json({}, { status: 403 });
   }
 
+  console.log('[STRIPE WEBHOOK] ✅ Checkout enabled, procesando webhook...');
   const sig = req.headers.get('stripe-signature');
   const whsec = process.env.STRIPE_WEBHOOK_SECRET;
+  console.log('[STRIPE WEBHOOK] 🔐 Verificando firma de webhook...');
+  console.log('[STRIPE WEBHOOK] 🔐 Webhook secret configurado:', !!whsec);
+  
   const buf = Buffer.from(await req.arrayBuffer());
 
   let event;
   try {
     event = stripe.webhooks.constructEvent(buf, sig, whsec);
-    console.log('[STRIPE WEBHOOK] Event type:', event.type);
+    console.log('[STRIPE WEBHOOK] ✅ Firma verificada correctamente');
+    console.log('[STRIPE WEBHOOK] 📋 Tipo de evento:', event.type);
+    console.log('[STRIPE WEBHOOK] 📋 ID del evento:', event.id);
   } catch (err) {
-    console.error('[STRIPE WEBHOOK] Webhook signature failed', err.message);
+    console.error('[STRIPE WEBHOOK] ❌❌❌ ERROR: Firma de webhook inválida:', {
+      error: err.message,
+      hasSignature: !!sig,
+      hasSecret: !!whsec
+    });
     return new Response('Invalid signature', { status: 400 });
   }
 
   // Handle checkout completion
   if (event.type === 'checkout.session.completed') {
+    console.log('[STRIPE WEBHOOK] 🎯 Procesando evento: checkout.session.completed');
     const session = event.data.object;
-    console.info('[STRIPE] checkout.session.completed', session.customer_details?.email || session.customer_email);
+    console.log('[STRIPE WEBHOOK] 📋 Detalles de la sesión:', {
+      id: session.id,
+      customer_email: session.customer_email,
+      customer_details_email: session.customer_details?.email,
+      payment_status: session.payment_status,
+      amount_total: session.amount_total,
+      currency: session.currency
+    });
 
     // Get line items once for both Founder marking and email
+    console.log('[STRIPE WEBHOOK] 🛒 Obteniendo line items de Stripe...');
     let lineItems = null;
     let isFounderPass = false;
     let isMonthly = false;
     
     try {
       lineItems = await stripe.checkout.sessions.listLineItems(session.id);
+      console.log('[STRIPE WEBHOOK] 🛒 Line items obtenidos:', {
+        count: lineItems.data.length,
+        items: lineItems.data.map(item => ({
+          price_id: item.price?.id,
+          description: item.description,
+          amount: item.amount_total
+        }))
+      });
+      
+      const founderPriceId = process.env.STRIPE_PRICE_FOUNDER;
+      const monthlyPriceId = process.env.STRIPE_PRICE_MONTHLY;
+      
       isFounderPass = lineItems.data.some(item => 
-        item.price?.id === process.env.STRIPE_PRICE_FOUNDER
+        item.price?.id === founderPriceId
       );
       isMonthly = lineItems.data.some(item => 
-        item.price?.id === process.env.STRIPE_PRICE_MONTHLY
+        item.price?.id === monthlyPriceId
       );
+      
+      console.log('[STRIPE WEBHOOK] 🎯 Verificación de plan:', {
+        isFounderPass,
+        isMonthly,
+        founderPriceId,
+        monthlyPriceId,
+        foundPriceIds: lineItems.data.map(item => item.price?.id)
+      });
     } catch (error) {
-      console.error('[STRIPE] Error fetching line items:', error);
+      console.error('[STRIPE WEBHOOK] ❌ Error al obtener line items:', {
+        error: error.message,
+        stack: error.stack
+      });
     }
-
-    // Debug logging
-    console.log('[STRIPE] Debug info:', {
-      isFounderPass,
-      isMonthly,
-      customerEmail: session.customer_details?.email,
-      lineItemsCount: lineItems?.data?.length || 0,
-      founderPriceId: process.env.STRIPE_PRICE_FOUNDER
-    });
 
     // Check if this is a Founder Pass and mark user accordingly
     if (isFounderPass && session.customer_details?.email) {
+      console.log('[STRIPE WEBHOOK] ✅✅✅ ES FOUNDER PASS - Iniciando actualización...');
       const userEmail = session.customer_details.email.toLowerCase();
       const now = new Date().toISOString();
       
+      console.log('[STRIPE WEBHOOK] 📧 Email del usuario:', userEmail);
+      console.log('[STRIPE WEBHOOK] ⏰ Timestamp:', now);
+      
       try {
         // 🚨 CRITICAL: Actualizar plan en Supabase primero
+        console.log('[STRIPE WEBHOOK] 🔄 Obteniendo cliente de Supabase Admin...');
         const { getSupabaseAdmin } = await import('@/lib/supabase/server');
         const supabaseAdmin = getSupabaseAdmin();
+        console.log('[STRIPE WEBHOOK] ✅ Cliente de Supabase Admin obtenido');
         
         // Verificar plan actual antes de actualizar
-        const { data: beforeUpdate } = await supabaseAdmin
+        console.log('[STRIPE WEBHOOK] 🔍 Verificando plan actual en Supabase para:', userEmail);
+        const { data: beforeUpdate, error: beforeError } = await supabaseAdmin
           .from('users')
           .select('id, email, plan, max_uses, founder_source')
           .eq('email', userEmail)
           .maybeSingle();
         
-        console.log('[STRIPE] Plan BEFORE update:', {
+        if (beforeError) {
+          console.error('[STRIPE WEBHOOK] ❌ Error al verificar plan actual:', beforeError);
+        }
+        
+        console.log('[STRIPE WEBHOOK] 📊 ESTADO ANTES DE ACTUALIZAR:', {
           email: userEmail,
-          planBefore: beforeUpdate?.plan,
+          userFound: !!beforeUpdate,
+          userId: beforeUpdate?.id,
+          planBefore: beforeUpdate?.plan || 'N/A',
+          maxUsesBefore: beforeUpdate?.max_uses ?? 'N/A',
+          founderSourceBefore: beforeUpdate?.founder_source || 'N/A',
           needsUpdate: beforeUpdate?.plan !== 'founder'
         });
         
         // 🚨 CRITICAL: Actualizar plan en Supabase con founder_source = 'purchase'
-        const { error: updateError } = await supabaseAdmin
+        console.log('[STRIPE WEBHOOK] 🔄 ACTUALIZANDO SUPABASE...');
+        console.log('[STRIPE WEBHOOK] 📝 Datos a actualizar:', {
+          email: userEmail,
+          plan: 'founder',
+          max_uses: null,
+          updated_at: now,
+          founder_source: 'purchase'
+        });
+        
+        const { data: updateData, error: updateError } = await supabaseAdmin
           .from('users')
           .update({
             plan: 'founder',
@@ -134,21 +193,47 @@ export async function POST(req) {
             // 🚨 NEW: Marcar que el founder se obtuvo mediante compra
             founder_source: 'purchase' // 'purchase' o 'referral'
           })
-          .eq('email', userEmail);
+          .eq('email', userEmail)
+          .select();
         
         if (updateError) {
-          console.error('[STRIPE] ❌ Error updating plan in Supabase:', updateError);
+          console.error('[STRIPE WEBHOOK] ❌❌❌ ERROR AL ACTUALIZAR SUPABASE:', {
+            error: updateError,
+            message: updateError.message,
+            details: updateError.details,
+            hint: updateError.hint
+          });
         } else {
+          console.log('[STRIPE WEBHOOK] ✅ UPDATE EJECUTADO EN SUPABASE:', {
+            rowsAffected: updateData?.length || 0,
+            updatedRows: updateData
+          });
           // Verificar que se actualizó correctamente
+          console.log('[STRIPE WEBHOOK] ⏳ Esperando 200ms para que Supabase procese la actualización...');
           await new Promise(resolve => setTimeout(resolve, 200));
-          const { data: afterUpdate } = await supabaseAdmin
+          
+          console.log('[STRIPE WEBHOOK] 🔍 VERIFICANDO ACTUALIZACIÓN EN SUPABASE...');
+          const { data: afterUpdate, error: afterError } = await supabaseAdmin
             .from('users')
             .select('id, email, plan, max_uses, founder_source')
             .eq('email', userEmail)
             .maybeSingle();
           
-            if (afterUpdate?.plan === 'founder' && afterUpdate?.max_uses === null) {
-            console.log('[STRIPE] ✅ Plan updated to founder in Supabase (verified):', {
+          if (afterError) {
+            console.error('[STRIPE WEBHOOK] ❌ Error al verificar actualización:', afterError);
+          }
+          
+          console.log('[STRIPE WEBHOOK] 📊 ESTADO DESPUÉS DE ACTUALIZAR:', {
+            email: userEmail,
+            userFound: !!afterUpdate,
+            plan: afterUpdate?.plan || 'N/A',
+            maxUses: afterUpdate?.max_uses ?? 'N/A',
+            founderSource: afterUpdate?.founder_source || 'N/A',
+            isValid: afterUpdate?.plan === 'founder' && afterUpdate?.max_uses === null
+          });
+          
+          if (afterUpdate?.plan === 'founder' && afterUpdate?.max_uses === null) {
+            console.log('[STRIPE WEBHOOK] ✅✅✅ PLAN ACTUALIZADO CORRECTAMENTE A FOUNDER:', {
               email: userEmail,
               plan: afterUpdate.plan,
               max_uses: afterUpdate.max_uses,
@@ -176,48 +261,81 @@ export async function POST(req) {
               
               if (logResponse.ok) {
                 const logResult = await logResponse.json();
-                console.log('[STRIPE] ✅ Payment logged to Supabase:', logResult);
+                console.log('[STRIPE WEBHOOK] ✅✅✅ PAGO REGISTRADO EN SUPABASE:', logResult);
               } else {
-                console.error('[STRIPE] ⚠️ Failed to log payment to Supabase:', await logResponse.text());
+                const errorText = await logResponse.text();
+                console.error('[STRIPE WEBHOOK] ⚠️ FALLO AL REGISTRAR PAGO:', {
+                  status: logResponse.status,
+                  statusText: logResponse.statusText,
+                  error: errorText
+                });
               }
             } catch (logError) {
-              console.error('[STRIPE] ❌ Error logging payment to Supabase:', logError);
+              console.error('[STRIPE WEBHOOK] ❌ ERROR AL REGISTRAR PAGO:', {
+                error: logError,
+                message: logError.message,
+                stack: logError.stack
+              });
             }
             
             // 🚨 CRITICAL: Actualizar KV DESPUÉS de Supabase (KV es solo caché, Supabase es la fuente de verdad)
-            const kv = await import('@vercel/kv');
-            const profileKey = `jey_user_profile:${userEmail}`;
-            const existingProfile = await kv.kv.get(profileKey) || {};
-            const updatedProfile = {
-              ...existingProfile,
-              email: userEmail,
-              plan: 'founder',
-              founderSince: now,
-              updatedAt: now
-            };
-            await kv.kv.set(profileKey, updatedProfile);
-            console.info('[STRIPE] ✅ KV updated after Supabase update');
+            console.log('[STRIPE WEBHOOK] 💾 Actualizando KV (caché)...');
+            try {
+              const kv = await import('@vercel/kv');
+              const profileKey = `jey_user_profile:${userEmail}`;
+              console.log('[STRIPE WEBHOOK] 💾 Profile key:', profileKey);
+              
+              const existingProfile = await kv.kv.get(profileKey) || {};
+              console.log('[STRIPE WEBHOOK] 💾 Profile existente:', existingProfile);
+              
+              const updatedProfile = {
+                ...existingProfile,
+                email: userEmail,
+                plan: 'founder',
+                founderSince: now,
+                updatedAt: now
+              };
+              
+              await kv.kv.set(profileKey, updatedProfile);
+              console.log('[STRIPE WEBHOOK] ✅✅✅ KV ACTUALIZADO:', updatedProfile);
+            } catch (kvError) {
+              console.error('[STRIPE WEBHOOK] ❌ ERROR AL ACTUALIZAR KV:', kvError);
+              // No fallar si KV falla, es solo caché
+            }
             
             // 🚨 CRITICAL: SOLO ENVIAR EMAIL DESPUÉS de verificar que Supabase se actualizó correctamente
             // Solo enviar si el plan cambió de free a founder
-            if (beforeUpdate?.plan !== 'founder') {
+            const shouldSendWelcomeEmail = beforeUpdate?.plan !== 'founder';
+            console.log('[STRIPE WEBHOOK] 📧 ¿Enviar email de bienvenida?', {
+              shouldSend: shouldSendWelcomeEmail,
+              planBefore: beforeUpdate?.plan
+            });
+            
+            if (shouldSendWelcomeEmail) {
+              console.log('[STRIPE WEBHOOK] 📧 Enviando email de bienvenida a founder...');
               try {
                 const { sendFounderWelcomeEmail } = await import('@/lib/newsletter/workflows');
+                console.log('[STRIPE WEBHOOK] 📧 Función sendFounderWelcomeEmail importada');
+                
                 const emailSent = await sendFounderWelcomeEmail(userEmail, {
-                  origin: 'stripe_payment_completed'
+                  origin: 'stripe_webhook'
                 });
                 
                 if (emailSent) {
-                  console.log('[STRIPE] ✅ Founder welcome email sent to:', userEmail);
+                  console.log('[STRIPE WEBHOOK] ✅✅✅ EMAIL DE BIENVENIDA ENVIADO A:', userEmail);
                 } else {
-                  console.warn('[STRIPE] ⚠️ Failed to send founder welcome email to:', userEmail);
+                  console.warn('[STRIPE WEBHOOK] ⚠️ FALLO AL ENVIAR EMAIL DE BIENVENIDA A:', userEmail);
                 }
               } catch (emailError) {
-                console.error('[STRIPE] ❌ Error sending founder welcome email:', emailError);
+                console.error('[STRIPE WEBHOOK] ❌ ERROR AL ENVIAR EMAIL DE BIENVENIDA:', {
+                  error: emailError,
+                  message: emailError.message,
+                  stack: emailError.stack
+                });
                 // No fallar el proceso si falla el email
               }
             } else {
-              console.log('[STRIPE] ℹ️ User already had founder plan, skipping welcome email');
+              console.log('[STRIPE WEBHOOK] ⏭️ Saltando email de bienvenida (usuario ya era founder)');
             }
           } else {
             console.error('[STRIPE] ❌ Plan not updated correctly in Supabase! Still:', {
@@ -234,10 +352,19 @@ export async function POST(req) {
 
     // Send confirmation email
     if (session.customer_details?.email) {
+      console.log('[STRIPE WEBHOOK] 📧 Enviando email de confirmación de pago...');
       try {
         const planName = isFounderPass ? 'Founder Pass' : isMonthly ? 'PLEIA Monthly' : 'Plan';
         const amount = (session.amount_total / 100).toFixed(2);
         const date = new Date(session.created * 1000).toLocaleDateString('es-ES');
+        
+        console.log('[STRIPE WEBHOOK] 📧 Datos del email de confirmación:', {
+          to: session.customer_details.email,
+          planName,
+          amount,
+          date,
+          sessionId: session.id
+        });
         
         const emailSent = await sendConfirmationEmail(session.customer_details.email, {
           planName,
@@ -247,20 +374,30 @@ export async function POST(req) {
         });
         
         if (emailSent) {
-          console.info('[MAIL] founder_confirmation sent', session.customer_details.email);
+          console.log('[STRIPE WEBHOOK] ✅✅✅ EMAIL DE CONFIRMACIÓN ENVIADO A:', session.customer_details.email);
           // 🚨 NOTE: El pago ya se registró en Supabase después de actualizar el plan (ver código anterior)
         } else {
-          console.error('[EMAIL] Failed to send confirmation email to:', session.customer_details.email);
+          console.error('[STRIPE WEBHOOK] ⚠️ FALLO AL ENVIAR EMAIL DE CONFIRMACIÓN A:', session.customer_details.email);
         }
       } catch (emailError) {
-        console.error('[EMAIL] Error sending confirmation email:', emailError);
+        console.error('[STRIPE WEBHOOK] ❌ ERROR AL ENVIAR EMAIL DE CONFIRMACIÓN:', {
+          error: emailError,
+          message: emailError.message,
+          stack: emailError.stack
+        });
       }
+    } else {
+      console.log('[STRIPE WEBHOOK] ⚠️ No hay email en customer_details, saltando email de confirmación');
     }
   }
   
   if (event.type === 'invoice.payment_succeeded') {
-    console.info('[STRIPE] invoice.payment_succeeded', event.data.object['id']);
+    console.log('[STRIPE WEBHOOK] 📋 Evento: invoice.payment_succeeded', event.data.object['id']);
   }
 
+  const elapsedTime = Date.now() - startTime;
+  console.log('[STRIPE WEBHOOK] ===== WEBHOOK PROCESADO =====');
+  console.log('[STRIPE WEBHOOK] ⏱️ Tiempo total:', `${elapsedTime}ms`);
+  
   return NextResponse.json({ received: true });
 }
