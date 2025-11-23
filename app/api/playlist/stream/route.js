@@ -2752,17 +2752,73 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
             console.log(`[STREAM:${traceId}] NORMAL: Found ${priorityTracks.length} tracks from priority artist`);
             
             if (priorityTracks.length > 0) {
-              // Use priority artist tracks for radio generation (this will find "sus oyentes también escuchan")
-              const trackIds = priorityTracks.map(t => t.id).filter(Boolean);
-              console.log(`[STREAM:${traceId}] NORMAL: Using priority artist track IDs for radio:`, trackIds.slice(0, 5));
-              spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, trackIds, remaining));
+              // 🚨 ROTATION: Agrupar por artista y alternar para variedad (aunque sea priority)
+              const tracksByArtist = new Map();
+              for (const track of priorityTracks) {
+                const mainArtist = track.artists?.[0]?.name || track.artistNames?.[0] || 'Unknown';
+                if (!tracksByArtist.has(mainArtist)) {
+                  tracksByArtist.set(mainArtist, []);
+                }
+                tracksByArtist.get(mainArtist).push(track);
+              }
+              
+              const artistNames = Array.from(tracksByArtist.keys());
+              const shuffledArtists = [...artistNames].sort(() => Math.random() - 0.5);
+              const rotatedTrackIds = [];
+              
+              let artistIndex = 0;
+              while (rotatedTrackIds.length < Math.min(remaining * 2, priorityTracks.length) && artistIndex < artistNames.length * 10) {
+                const artistName = shuffledArtists[artistIndex % shuffledArtists.length];
+                const artistTracks = tracksByArtist.get(artistName) || [];
+                
+                if (artistTracks.length > 0) {
+                  const randomIndex = Math.floor(Math.random() * artistTracks.length);
+                  const selectedTrack = artistTracks[randomIndex];
+                  if (selectedTrack.id && !rotatedTrackIds.includes(selectedTrack.id)) {
+                    rotatedTrackIds.push(selectedTrack.id);
+                  }
+                }
+                artistIndex++;
+              }
+              
+              console.log(`[STREAM:${traceId}] NORMAL: Using rotated priority track IDs (${rotatedTrackIds.length} tracks from ${artistNames.length} artists)`);
+              spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, rotatedTrackIds.slice(0, 20), remaining));
             } else {
-              // Fallback to LLM tracks if priority artist search fails
-              console.log(`[STREAM:${traceId}] NORMAL: Priority artist search failed, using LLM tracks`);
+              // Fallback to LLM tracks if priority artist search fails - with ROTATION
+              console.log(`[STREAM:${traceId}] NORMAL: Priority artist search failed, using LLM tracks with rotation`);
               const resolvedLLMTracks = await resolveTracksBySearch(accessToken, llmTracks, { exclusions: intent.exclusions });
               if (resolvedLLMTracks.length > 0) {
-                const trackIds = resolvedLLMTracks.map(t => t.id).filter(Boolean);
-                spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, trackIds, remaining));
+                // 🚨 ROTATION: Agrupar por artista y alternar
+                const tracksByArtist = new Map();
+                for (const track of resolvedLLMTracks) {
+                  const mainArtist = track.artists?.[0]?.name || track.artistNames?.[0] || 'Unknown';
+                  if (!tracksByArtist.has(mainArtist)) {
+                    tracksByArtist.set(mainArtist, []);
+                  }
+                  tracksByArtist.get(mainArtist).push(track);
+                }
+                
+                const artistNames = Array.from(tracksByArtist.keys());
+                const shuffledArtists = [...artistNames].sort(() => Math.random() - 0.5);
+                const rotatedTrackIds = [];
+                
+                let artistIndex = 0;
+                while (rotatedTrackIds.length < Math.min(remaining * 2, resolvedLLMTracks.length) && artistIndex < artistNames.length * 10) {
+                  const artistName = shuffledArtists[artistIndex % shuffledArtists.length];
+                  const artistTracks = tracksByArtist.get(artistName) || [];
+                  
+                  if (artistTracks.length > 0) {
+                    const randomIndex = Math.floor(Math.random() * artistTracks.length);
+                    const selectedTrack = artistTracks[randomIndex];
+                    if (selectedTrack.id && !rotatedTrackIds.includes(selectedTrack.id)) {
+                      rotatedTrackIds.push(selectedTrack.id);
+                    }
+                  }
+                  artistIndex++;
+                }
+                
+                console.log(`[STREAM:${traceId}] NORMAL: Using rotated LLM track IDs (${rotatedTrackIds.length} tracks from ${artistNames.length} artists)`);
+                spotifyTracks = dedupeById(await radioFromRelatedTop(accessToken, rotatedTrackIds.slice(0, 20), remaining));
               }
             }
           } else {
@@ -2786,9 +2842,37 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
           console.log(`[STREAM:${traceId}] NORMAL: Found ${artistTracks.length} tracks from artist search`);
           
           if (artistTracks.length > 0) {
-            // Use found tracks for radio generation
-            const trackIds = artistTracks.map(t => t.id).filter(Boolean);
-            spotifyTracks = await radioFromRelatedTop(accessToken, trackIds, remaining);
+            // 🚨 ROTATION: Agrupar tracks por artista y alternar para variedad
+            const tracksByArtist = new Map();
+            for (const track of artistTracks) {
+              const mainArtist = track.artists?.[0]?.name || track.artistNames?.[0] || 'Unknown';
+              if (!tracksByArtist.has(mainArtist)) {
+                tracksByArtist.set(mainArtist, []);
+              }
+              tracksByArtist.get(mainArtist).push(track);
+            }
+            
+            const artistNames = Array.from(tracksByArtist.keys());
+            const shuffledArtists = [...artistNames].sort(() => Math.random() - 0.5);
+            const rotatedTrackIds = [];
+            
+            let artistIndex = 0;
+            while (rotatedTrackIds.length < Math.min(remaining * 2, artistTracks.length) && artistIndex < artistNames.length * 10) {
+              const artistName = shuffledArtists[artistIndex % shuffledArtists.length];
+              const artistTracksForArtist = tracksByArtist.get(artistName) || [];
+              
+              if (artistTracksForArtist.length > 0) {
+                const randomIndex = Math.floor(Math.random() * artistTracksForArtist.length);
+                const selectedTrack = artistTracksForArtist[randomIndex];
+                if (selectedTrack.id && !rotatedTrackIds.includes(selectedTrack.id)) {
+                  rotatedTrackIds.push(selectedTrack.id);
+                }
+              }
+              artistIndex++;
+            }
+            
+            console.log(`[STREAM:${traceId}] NORMAL: Using rotated artist track IDs (${rotatedTrackIds.length} tracks from ${artistNames.length} artists)`);
+            spotifyTracks = await radioFromRelatedTop(accessToken, rotatedTrackIds.slice(0, 20), remaining);
           } else {
             console.log(`[STREAM:${traceId}] NORMAL: No tracks found from artists, trying context search`);
             // Try context-based search instead of generic
@@ -2855,12 +2939,15 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
       try {
         console.log(`[STREAM:${traceId}] COMPENSATION: Generating ${compensationNeeded} compensation tracks`);
         
-        // Use different search strategies for compensation
+        // Use different search strategies for compensation (NO generic terms)
         const searchStrategies = [
-          { type: 'genre', terms: ['reggaeton', 'latin', 'spanish music'] },
-          { type: 'artist', artists: intent.artists_llm?.slice(0, 5) || [] },
-          { type: 'generic', terms: ['popular', 'hits', 'trending'] }
+          { type: 'artist', artists: intent.artists_llm?.slice(0, 10) || [] }
         ];
+        
+        // Only add genre strategy if genres are explicitly mentioned in the prompt
+        if (intent.genres_llm && intent.genres_llm.length > 0) {
+          searchStrategies.unshift({ type: 'genre', terms: intent.genres_llm.slice(0, 3) });
+        }
         
         for (const strategy of searchStrategies) {
           if (compensationNeeded <= 0) break;
