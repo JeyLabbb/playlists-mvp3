@@ -17,14 +17,15 @@ const nextConfig = {
       },
     ];
   },
-  // Deshabilitar cache de webpack en desarrollo si hay problemas
+  // Configuración de webpack para evitar cache corrupto
   webpack: (config, { dev, isServer }) => {
     if (dev) {
-      // Limpiar cache de webpack si hay problemas
+      // Configurar cache de webpack para invalidar cuando cambia la config
+      // En ES modules, usamos import.meta.url en lugar de __filename
       config.cache = {
         type: 'filesystem',
         buildDependencies: {
-          config: [__filename],
+          config: [import.meta.url],
         },
       };
     }
