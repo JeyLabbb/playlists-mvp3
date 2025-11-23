@@ -25,36 +25,50 @@ export default function LoginView({ redirectTo }: Props) {
     setLoading(true);
 
     try {
-      // 🚨 CRITICAL: En producción, SIEMPRE usar la URL de producción
-      // Forzar producción si no estamos explícitamente en desarrollo local
+      // 🚨 CRITICAL: Detectar entorno correctamente para redirección OAuth
+      // En local → localhost, en producción → producción
       const getOrigin = () => {
         if (typeof window === 'undefined') {
-          console.log('[LOGIN] getOrigin: window undefined, using production URL');
-          return 'https://playlists.jeylabbb.com';
+          // SSR: usar producción por defecto
+          return process.env.NEXT_PUBLIC_SITE_URL || 'https://playlists.jeylabbb.com';
         }
         
         const origin = window.location.origin;
         const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('192.168.');
         const isVercelPreview = origin.includes('vercel.app') || origin.includes('vercel.dev');
-        const hasProductionUrl = !!process.env.NEXT_PUBLIC_SITE_URL;
+        const isProductionDomain = origin.includes('playlists.jeylabbb.com') || origin.includes('pleia.app');
         
-        console.log('[LOGIN] getOrigin detection:', {
+        // Logs para debugging (visibles en consola del navegador)
+        console.log('[LOGIN] 🔍 getOrigin detection:', {
           origin,
           isLocalhost,
           isVercelPreview,
-          hasProductionUrl,
+          isProductionDomain,
           NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL
         });
         
-        // Si es localhost Y no hay VERCEL_URL, es desarrollo local
+        // Regla 1: Si es localhost Y no es preview de Vercel → local
         if (isLocalhost && !isVercelPreview) {
-          console.log('[LOGIN] ✅ Using localhost for local development:', origin);
+          console.log('[LOGIN] ✅ Detected LOCAL development, using:', origin);
           return origin;
         }
         
-        // En cualquier otro caso (producción, staging, Vercel preview, etc.), usar producción
+        // Regla 2: Si es dominio de producción → producción
+        if (isProductionDomain) {
+          console.log('[LOGIN] ✅ Detected PRODUCTION domain, using:', origin);
+          return origin;
+        }
+        
+        // Regla 3: Si es preview de Vercel → usar producción (no localhost)
+        if (isVercelPreview) {
+          const productionUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://playlists.jeylabbb.com';
+          console.log('[LOGIN] ✅ Detected VERCEL PREVIEW, using production URL:', productionUrl);
+          return productionUrl;
+        }
+        
+        // Fallback: usar producción
         const productionUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://playlists.jeylabbb.com';
-        console.log('[LOGIN] ✅ Using production URL:', productionUrl);
+        console.log('[LOGIN] ✅ Fallback to production URL:', productionUrl);
         return productionUrl;
       };
       

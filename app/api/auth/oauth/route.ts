@@ -13,8 +13,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // 🚨 CRITICAL: SIEMPRE usar URL de producción en producción
-    // Detectar entorno de forma más robusta
+    // 🚨 CRITICAL: Detectar entorno de forma robusta para redirección correcta
     let headersList;
     let host: string | null = null;
     let protocol = 'https';
@@ -29,50 +28,65 @@ export async function POST(request: Request) {
       host = null;
       protocol = 'https';
     }
+    
+    // Detección robusta de entorno
     const vercelUrl = process.env.VERCEL_URL;
     const isVercel = !!vercelUrl;
-    const isProduction = process.env.NODE_ENV === 'production' || isVercel;
+    const isVercelPreview = vercelUrl && !vercelUrl.includes('playlists.jeylabbb.com');
+    const isProduction = process.env.NODE_ENV === 'production' || (isVercel && !isVercelPreview);
     
-    // Detectar si estamos en desarrollo local REAL (no Vercel preview)
+    // Detectar si estamos en desarrollo local REAL
+    // Debe ser: NO Vercel, NODE_ENV=development, Y host localhost
     const isLocalDev = !isVercel && 
                        process.env.NODE_ENV === 'development' && 
                        host && (host.includes('localhost') || host.includes('127.0.0.1') || host.includes('192.168.'));
     
-    console.log('[AUTH] OAuth environment detection:', {
+    // Logs detallados para debugging (visibles en Vercel dashboard y local)
+    console.log('[AUTH] 🔍 OAuth environment detection:', {
       host,
       protocol,
       NODE_ENV: process.env.NODE_ENV,
       isVercel,
+      isVercelPreview,
       isProduction,
       isLocalDev,
       VERCEL_URL: vercelUrl,
-      NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL
+      NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
+      redirectToFromClient: redirectTo
     });
     
     // Si redirectTo ya viene del cliente, validarlo y corregirlo si es necesario
     let finalRedirectTo = redirectTo;
     
-    // 🚨 CRITICAL: Si redirectTo contiene localhost y NO estamos en desarrollo local, forzar producción
+    // 🚨 CRITICAL: Validar y corregir redirectTo según el entorno
     if (finalRedirectTo && (finalRedirectTo.includes('localhost') || finalRedirectTo.includes('127.0.0.1'))) {
       if (!isLocalDev) {
+        // Estamos en producción pero el cliente envió localhost → corregir
         console.warn('[AUTH] ⚠️ RedirectTo contains localhost but NOT in local dev, forcing production URL');
         finalRedirectTo = finalRedirectTo.replace(/https?:\/\/[^/]+/, 'https://playlists.jeylabbb.com');
+        console.log('[AUTH] ✅ Corrected redirectTo to production:', finalRedirectTo);
       } else {
-        console.log('[AUTH] ✅ Using localhost redirect (local development)');
+        // Estamos en local y el cliente envió localhost → está bien
+        console.log('[AUTH] ✅ Using localhost redirect (local development):', finalRedirectTo);
       }
+    } else if (finalRedirectTo && !isLocalDev && (finalRedirectTo.includes('localhost') || finalRedirectTo.includes('127.0.0.1'))) {
+      // Caso edge: redirectTo tiene localhost pero no detectamos local dev
+      console.warn('[AUTH] ⚠️ Edge case: redirectTo has localhost but isLocalDev=false, forcing production');
+      finalRedirectTo = finalRedirectTo.replace(/https?:\/\/[^/]+/, 'https://playlists.jeylabbb.com');
     }
     
+    // Si no hay redirectTo, construir uno según el entorno
     if (!finalRedirectTo) {
       if (isLocalDev && host) {
-        // Solo en desarrollo local REAL, usar el host de la request
+        // Desarrollo local: usar el host de la request
         finalRedirectTo = `${protocol}://${host}/auth/callback`;
-        console.log('[AUTH] ✅ Using localhost for local development:', finalRedirectTo);
+        console.log('[AUTH] ✅ Constructed localhost redirect for local development:', finalRedirectTo);
       } else {
-        // En producción o cualquier otro caso, usar producción
+        // Producción: usar URL de producción
         finalRedirectTo = process.env.NEXT_PUBLIC_SITE_URL 
           ? `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback`
           : 'https://playlists.jeylabbb.com/auth/callback';
-        console.log('[AUTH] ✅ Using production URL:', finalRedirectTo);
+        console.log('[AUTH] ✅ Constructed production redirect:', finalRedirectTo);
       }
     }
 
