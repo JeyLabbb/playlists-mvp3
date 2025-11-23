@@ -1,196 +1,204 @@
-'use client';
-
-import { useEffect, useState, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { mutate } from 'swr';
+import { stripe } from '@/lib/stripe';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/config';
+import { getSupabaseAdmin } from '@/lib/supabase/server';
 
-function CheckoutSuccessContent() {
-  const searchParams = useSearchParams();
-  const sessionId = searchParams.get('session_id');
-  const [loading, setLoading] = useState(true); // 🚨 CRITICAL: Empezar en true para no mostrar contenido hasta procesar
-  const [webhookProcessed, setWebhookProcessed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [processingResult, setProcessingResult] = useState<any>(null);
-
-  const processWebhook = useCallback(async () => {
-    if (!sessionId) {
-      console.error('[SUCCESS-PAGE] ❌ No session ID provided');
-      setError('No se encontró el ID de sesión');
-      setLoading(false);
-      return;
+/**
+ * 🚨 CRITICAL: Esta página procesa el pago EN EL SERVIDOR antes de renderizar
+ * Se ejecuta ANTES de que el usuario vea cualquier contenido
+ */
+async function processPaymentOnServer(sessionId: string) {
+  const startTime = Date.now();
+  console.log('[SUCCESS-PAGE-SERVER] ===== PROCESAMIENTO EN SERVIDOR (ANTES DE RENDER) =====');
+  console.log('[SUCCESS-PAGE-SERVER] Session ID:', sessionId);
+  
+  try {
+    // 1. Obtener sesión de Stripe
+    console.log('[SUCCESS-PAGE-SERVER] 🔄 Obteniendo sesión de Stripe...');
+    const stripeSession = await stripe.checkout.sessions.retrieve(sessionId);
+    
+    if (!stripeSession) {
+      console.error('[SUCCESS-PAGE-SERVER] ❌ Stripe session not found');
+      return { success: false, error: 'Stripe session not found' };
     }
     
-    // Prevenir múltiples llamadas simultáneas
-    if (loading && webhookProcessed) {
-      console.log('[SUCCESS-PAGE] ⚠️ Ya se está procesando o ya se procesó, saltando...');
-      return;
-    }
+    console.log('[SUCCESS-PAGE-SERVER] ✅ Sesión de Stripe obtenida:', {
+      id: stripeSession.id,
+      payment_status: stripeSession.payment_status,
+      customer_email: stripeSession.customer_details?.email || stripeSession.customer_email
+    });
     
-    setLoading(true);
-    setError(null);
+    // 2. Obtener email del usuario (prioridad: autenticado > Stripe)
+    let userEmail = null;
+    let isAuthenticatedUser = false;
     
     try {
-      console.log('[SUCCESS-PAGE] ===== INICIANDO PROCESAMIENTO DE PAGO =====');
-      console.log('[SUCCESS-PAGE] Session ID:', sessionId);
-      console.log('[SUCCESS-PAGE] Llamando a /api/checkout/process-payment...');
-      
-      // 🚨 CRITICAL: Usar endpoint que NO requiere autenticación, usa el email de Stripe directamente
-      const webhookResponse = await fetch('/api/checkout/process-payment', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ sessionId })
-      });
-      
-      console.log('[SUCCESS-PAGE] Response status:', webhookResponse.status);
-      
-      if (webhookResponse.ok) {
-        const result = await webhookResponse.json();
-        console.log('[SUCCESS-PAGE] ✅✅✅ Purchase processed successfully:', result);
-        setProcessingResult(result);
-        setWebhookProcessed(true);
-        
-        if (result.success && result.isFounder) {
-          console.log('[SUCCESS-PAGE] User is now founder, refreshing profile data...');
-          await mutate('/api/me');
-          console.log('[SUCCESS-PAGE] Profile data refreshed');
-        }
-      } else {
-        const errorData = await webhookResponse.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('[SUCCESS-PAGE] ❌ Purchase processing failed:', errorData);
-        setError(errorData.error || 'Error al procesar el pago');
+      const session = await getServerSession(authOptions);
+      if (session?.user?.email) {
+        userEmail = session.user.email.toLowerCase();
+        isAuthenticatedUser = true;
+        console.log('[SUCCESS-PAGE-SERVER] ✅ Usuario autenticado:', userEmail);
       }
-    } catch (error: any) {
-      console.error('[SUCCESS-PAGE] ❌ Error processing purchase:', error);
-      setError(error?.message || 'Error al procesar el pago');
-    } finally {
-      setLoading(false);
-      console.log('[SUCCESS-PAGE] ===== PROCESAMIENTO COMPLETADO =====');
+    } catch (authError) {
+      console.error('[SUCCESS-PAGE-SERVER] ⚠️ Error obteniendo sesión:', authError);
     }
-  }, [sessionId]);
-
-  // 🚨 CRITICAL: Auto-process webhook when component mounts - NO mostrar contenido hasta que termine
-  useEffect(() => {
-    // Solo procesar si hay sessionId y aún no se ha procesado
-    if (sessionId && !webhookProcessed && !processingResult && !error) {
-      console.log('[SUCCESS-PAGE] Component mounted, starting payment processing...');
-      processWebhook();
-    } else if (!sessionId) {
-      // Si no hay sessionId, mostrar error inmediatamente
-      console.error('[SUCCESS-PAGE] ❌ No session ID in URL');
-      setError('No se encontró el ID de sesión en la URL');
-      setLoading(false);
+    
+    if (!userEmail) {
+      const stripeEmail = stripeSession.customer_details?.email || stripeSession.customer_email;
+      if (stripeEmail) {
+        userEmail = stripeEmail.toLowerCase();
+        console.log('[SUCCESS-PAGE-SERVER] ⚠️ Usando email de Stripe:', userEmail);
+      } else {
+        console.error('[SUCCESS-PAGE-SERVER] ❌ No hay email disponible');
+        return { success: false, error: 'No email found' };
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Solo ejecutar una vez al montar
-
-  const handleGoToProfile = () => {
-    window.location.href = '/me?checkout=success';
-  };
-
-  const handleGoHome = () => {
-    window.location.href = '/?checkout=success';
-  };
-
-  // 🚨 CRITICAL: NO mostrar contenido hasta que el procesamiento termine
-  if (loading) {
-    return (
-      <div 
-        className="min-h-screen flex items-center justify-center"
-        style={{ backgroundColor: '#0B0F14' }}
-      >
-        <div className="max-w-md mx-auto text-center px-4">
-          <div 
-            className="rounded-2xl shadow-2xl p-8"
-            style={{ 
-              backgroundColor: '#0F141B',
-              border: '1px solid rgba(255, 255, 255, 0.08)'
-            }}
-          >
-            <div className="flex flex-col items-center justify-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 mb-4" style={{ borderColor: '#36E2B4' }}></div>
-              <p 
-                className="text-lg"
-                style={{ 
-                  color: '#EAF2FF',
-                  fontFamily: 'Inter, sans-serif',
-                  fontWeight: 500
-                }}
-              >
-                Procesando tu pago...
-              </p>
-              <p 
-                className="text-sm mt-2"
-                style={{ 
-                  color: '#EAF2FF',
-                  fontFamily: 'Inter, sans-serif',
-                  opacity: 0.7
-                }}
-              >
-                Actualizando tu cuenta y enviando confirmación
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    
+    // 3. Verificar si es Founder Pass
+    const lineItems = await stripe.checkout.sessions.listLineItems(sessionId);
+    const founderPriceId = process.env.STRIPE_PRICE_FOUNDER;
+    const isFounderPass = lineItems.data.some(item => item.price?.id === founderPriceId);
+    
+    if (!isFounderPass) {
+      console.log('[SUCCESS-PAGE-SERVER] ⚠️ No es Founder Pass');
+      return { success: false, error: 'Not a Founder Pass purchase' };
+    }
+    
+    // 4. Actualizar Supabase
+    console.log('[SUCCESS-PAGE-SERVER] 🔄 Actualizando Supabase...');
+    const supabaseAdmin = getSupabaseAdmin();
+    const now = new Date().toISOString();
+    
+    const { data: updateData, error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({
+        plan: 'founder',
+        max_uses: null,
+        updated_at: now,
+        founder_source: 'purchase'
+      })
+      .eq('email', userEmail)
+      .select();
+    
+    if (updateError) {
+      console.error('[SUCCESS-PAGE-SERVER] ❌ Error actualizando Supabase:', updateError);
+      return { success: false, error: updateError.message };
+    }
+    
+    console.log('[SUCCESS-PAGE-SERVER] ✅✅✅ Supabase actualizado:', {
+      rowsAffected: updateData?.length || 0,
+      plan: updateData?.[0]?.plan
+    });
+    
+    // 5. Registrar pago en telemetry
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 
+                     process.env.NEXTAUTH_URL || 
+                     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://playlists.jeylabbb.com');
+      
+      await fetch(`${baseUrl}/api/telemetry/ingest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'payment',
+          payload: {
+            email: userEmail,
+            stripePaymentIntentId: stripeSession.payment_intent || stripeSession.id,
+            stripeCustomerId: stripeSession.customer || null,
+            amount: stripeSession.amount_total || 500,
+            plan: 'founder',
+            status: 'completed'
+          }
+        })
+      });
+      console.log('[SUCCESS-PAGE-SERVER] ✅ Pago registrado en telemetry');
+    } catch (telemetryError) {
+      console.error('[SUCCESS-PAGE-SERVER] ⚠️ Error registrando pago:', telemetryError);
+    }
+    
+    // 6. Actualizar KV
+    try {
+      const kv = await import('@vercel/kv');
+      const profileKey = `jey_user_profile:${userEmail}`;
+      const existingProfile = await kv.kv.get(profileKey) || {};
+      await kv.kv.set(profileKey, {
+        ...existingProfile,
+        email: userEmail,
+        plan: 'founder',
+        founderSince: now,
+        updatedAt: now
+      });
+      console.log('[SUCCESS-PAGE-SERVER] ✅ KV actualizado');
+    } catch (kvError) {
+      console.error('[SUCCESS-PAGE-SERVER] ⚠️ Error actualizando KV:', kvError);
+    }
+    
+    // 7. Enviar emails
+    try {
+      const { sendFounderWelcomeEmail } = await import('@/lib/newsletter/workflows');
+      await sendFounderWelcomeEmail(userEmail, { origin: 'checkout_success_page_server' });
+      console.log('[SUCCESS-PAGE-SERVER] ✅ Email de bienvenida enviado');
+    } catch (emailError) {
+      console.error('[SUCCESS-PAGE-SERVER] ⚠️ Error enviando email de bienvenida:', emailError);
+    }
+    
+    try {
+      const { sendConfirmationEmail } = await import('@/lib/resend');
+      const planName = 'Founder Pass';
+      const amount = ((stripeSession.amount_total || 500) / 100).toFixed(2);
+      const date = new Date(stripeSession.created * 1000).toLocaleDateString('es-ES');
+      await sendConfirmationEmail(userEmail, { planName, amount, date, sessionId: stripeSession.id });
+      console.log('[SUCCESS-PAGE-SERVER] ✅ Email de confirmación enviado');
+    } catch (emailError) {
+      console.error('[SUCCESS-PAGE-SERVER] ⚠️ Error enviando email de confirmación:', emailError);
+    }
+    
+    const elapsedTime = Date.now() - startTime;
+    console.log('[SUCCESS-PAGE-SERVER] ===== PROCESAMIENTO COMPLETADO EN SERVIDOR =====');
+    console.log('[SUCCESS-PAGE-SERVER] ⏱️ Tiempo:', `${elapsedTime}ms`);
+    
+    return { 
+      success: true, 
+      email: userEmail,
+      sessionId: stripeSession.id
+    };
+    
+  } catch (error: any) {
+    console.error('[SUCCESS-PAGE-SERVER] ❌❌❌ ERROR:', {
+      error: error,
+      message: error.message,
+      stack: error.stack
+    });
+    return { success: false, error: error.message || 'Unknown error' };
   }
+}
 
-  // Si hay error, mostrar mensaje de error
-  if (error) {
-    return (
-      <div 
-        className="min-h-screen flex items-center justify-center"
-        style={{ backgroundColor: '#0B0F14' }}
-      >
-        <div className="max-w-md mx-auto text-center px-4">
-          <div 
-            className="rounded-2xl shadow-2xl p-8"
-            style={{ 
-              backgroundColor: '#0F141B',
-              border: '1px solid rgba(255, 255, 255, 0.08)'
-            }}
-          >
-            <h1 
-              className="text-2xl font-bold mb-4"
-              style={{ 
-                color: '#EAF2FF',
-                fontFamily: 'Space Grotesk, sans-serif'
-              }}
-            >
-              Error al procesar el pago
-            </h1>
-            <p 
-              className="mb-6"
-              style={{ 
-                color: '#EAF2FF',
-                fontFamily: 'Inter, sans-serif',
-                opacity: 0.8
-              }}
-            >
-              {error}
-            </p>
-            <button
-              onClick={handleGoHome}
-              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200"
-              style={{
-                backgroundColor: '#5B8CFF',
-                color: '#0B0F14',
-                fontFamily: 'Inter, sans-serif',
-                fontWeight: 600
-              }}
-            >
-              Volver al Inicio
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+export default async function CheckoutSuccessPage({
+  searchParams,
+}: {
+  searchParams: { session_id?: string };
+}) {
+  const sessionId = searchParams.session_id;
+  
+  if (!sessionId) {
+    console.error('[SUCCESS-PAGE-SERVER] ❌ No session_id in URL');
+    redirect('/?error=no_session_id');
   }
-
-  // Mostrar contenido de éxito solo después de procesar
+  
+  // 🚨 CRITICAL: Procesar pago EN EL SERVIDOR antes de renderizar
+  console.log('[SUCCESS-PAGE-SERVER] ===== INICIANDO PROCESAMIENTO =====');
+  const result = await processPaymentOnServer(sessionId);
+  
+  if (!result.success) {
+    console.error('[SUCCESS-PAGE-SERVER] ❌ Procesamiento falló, redirigiendo...');
+    redirect(`/?error=payment_processing_failed&details=${encodeURIComponent(result.error || 'Unknown error')}`);
+  }
+  
+  // Solo después de procesar exitosamente, mostrar la página
+  console.log('[SUCCESS-PAGE-SERVER] ✅ Procesamiento exitoso, renderizando página...');
+  
   return (
     <div 
       className="min-h-screen flex items-center justify-center"
@@ -273,50 +281,50 @@ function CheckoutSuccessContent() {
               >
                 {sessionId}
               </p>
-              {webhookProcessed && processingResult && (
-                <p 
-                  className="text-sm mt-2"
-                  style={{ 
-                    color: '#36E2B4',
-                    fontFamily: 'Inter, sans-serif',
-                    opacity: 0.8
-                  }}
-                >
-                  ✅ Pago procesado correctamente
-                </p>
-              )}
+              <p 
+                className="text-sm mt-2"
+                style={{ 
+                  color: '#36E2B4',
+                  fontFamily: 'Inter, sans-serif',
+                  opacity: 0.8
+                }}
+              >
+                ✅ Pago procesado correctamente
+              </p>
             </div>
           )}
 
           {/* Action Buttons */}
           <div className="space-y-3">
-            <button
-              onClick={handleGoToProfile}
-              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg hover:scale-[1.02]"
+            <Link
+              href="/me?checkout=success"
+              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg hover:scale-[1.02] inline-block text-center"
               style={{
                 backgroundColor: '#5B8CFF',
                 color: '#0B0F14',
                 fontFamily: 'Inter, sans-serif',
                 fontWeight: 600,
-                border: 'none'
+                border: 'none',
+                textDecoration: 'none'
               }}
             >
               Ir a mi perfil
-            </button>
+            </Link>
             
-            <button
-              onClick={handleGoHome}
-              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg hover:scale-[1.02]"
+            <Link
+              href="/?checkout=success"
+              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg hover:scale-[1.02] inline-block text-center"
               style={{
                 backgroundColor: 'rgba(255, 255, 255, 0.05)',
                 color: '#EAF2FF',
                 fontFamily: 'Inter, sans-serif',
                 fontWeight: 600,
-                border: '1px solid rgba(255, 255, 255, 0.08)'
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                textDecoration: 'none'
               }}
             >
               Volver al Inicio
-            </button>
+            </Link>
           </div>
 
           {/* Additional Info */}
@@ -342,17 +350,3 @@ function CheckoutSuccessContent() {
   );
 }
 
-export default function CheckoutSuccessPage() {
-  return (
-    <Suspense fallback={
-      <div 
-        className="min-h-screen flex items-center justify-center"
-        style={{ backgroundColor: '#0B0F14' }}
-      >
-        <div className="text-white">Cargando...</div>
-      </div>
-    }>
-      <CheckoutSuccessContent />
-    </Suspense>
-  );
-}
