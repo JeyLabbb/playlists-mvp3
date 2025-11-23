@@ -198,7 +198,6 @@ export async function POST(req) {
           email: userEmail,
           plan: 'founder',
           max_uses: null,
-          updated_at: now,
           founder_source: 'purchase'
         });
         
@@ -207,7 +206,6 @@ export async function POST(req) {
           .update({
             plan: 'founder',
             max_uses: null, // Unlimited
-            updated_at: now,
             // 🚨 NEW: Marcar que el founder se obtuvo mediante compra
             founder_source: 'purchase' // 'purchase' o 'referral'
           })

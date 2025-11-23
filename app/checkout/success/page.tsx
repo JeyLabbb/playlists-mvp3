@@ -96,7 +96,6 @@ async function processPaymentOnServer(sessionId: string) {
       .update({
         plan: 'founder',
         max_uses: null,
-        updated_at: now,
         founder_source: 'purchase'
       })
       .eq('email', userEmail)
