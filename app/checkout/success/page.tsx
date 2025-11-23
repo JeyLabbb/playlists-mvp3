@@ -8,15 +8,26 @@ import { mutate } from 'swr';
 function CheckoutSuccessContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session_id');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // 🚨 CRITICAL: Empezar en true para no mostrar contenido hasta procesar
   const [webhookProcessed, setWebhookProcessed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [processingResult, setProcessingResult] = useState<any>(null);
 
   const processWebhook = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      setError('No session ID provided');
+      setLoading(false);
+      return;
+    }
     
     setLoading(true);
+    setError(null);
+    
     try {
-      console.log('[SUCCESS-PAGE] Processing purchase for session:', sessionId);
+      console.log('[SUCCESS-PAGE] ===== INICIANDO PROCESAMIENTO DE PAGO =====');
+      console.log('[SUCCESS-PAGE] Session ID:', sessionId);
+      console.log('[SUCCESS-PAGE] Llamando a /api/checkout/process-payment...');
+      
       // 🚨 CRITICAL: Usar endpoint que NO requiere autenticación, usa el email de Stripe directamente
       const webhookResponse = await fetch('/api/checkout/process-payment', {
         method: 'POST',
@@ -26,9 +37,12 @@ function CheckoutSuccessContent() {
         body: JSON.stringify({ sessionId })
       });
       
+      console.log('[SUCCESS-PAGE] Response status:', webhookResponse.status);
+      
       if (webhookResponse.ok) {
         const result = await webhookResponse.json();
-        console.log('[SUCCESS-PAGE] Purchase processed successfully:', result);
+        console.log('[SUCCESS-PAGE] ✅✅✅ Purchase processed successfully:', result);
+        setProcessingResult(result);
         setWebhookProcessed(true);
         
         if (result.success && result.isFounder) {
@@ -38,21 +52,25 @@ function CheckoutSuccessContent() {
         }
       } else {
         const errorData = await webhookResponse.json().catch(() => ({ error: 'Unknown error' }));
-        console.error('[SUCCESS-PAGE] Purchase processing failed:', errorData);
+        console.error('[SUCCESS-PAGE] ❌ Purchase processing failed:', errorData);
+        setError(errorData.error || 'Error al procesar el pago');
       }
-    } catch (error) {
-      console.error('[SUCCESS-PAGE] Error processing purchase:', error);
+    } catch (error: any) {
+      console.error('[SUCCESS-PAGE] ❌ Error processing purchase:', error);
+      setError(error?.message || 'Error al procesar el pago');
     } finally {
       setLoading(false);
+      console.log('[SUCCESS-PAGE] ===== PROCESAMIENTO COMPLETADO =====');
     }
   }, [sessionId]);
 
-  // Auto-process webhook when component mounts
+  // 🚨 CRITICAL: Auto-process webhook when component mounts - NO mostrar contenido hasta que termine
   useEffect(() => {
-    if (sessionId && !webhookProcessed) {
+    if (sessionId && !webhookProcessed && !processingResult) {
+      console.log('[SUCCESS-PAGE] Component mounted, starting payment processing...');
       processWebhook();
     }
-  }, [sessionId, webhookProcessed, processWebhook]);
+  }, [sessionId, webhookProcessed, processingResult, processWebhook]);
 
   const handleGoToProfile = () => {
     window.location.href = '/me?checkout=success';
@@ -62,6 +80,103 @@ function CheckoutSuccessContent() {
     window.location.href = '/?checkout=success';
   };
 
+  // 🚨 CRITICAL: NO mostrar contenido hasta que el procesamiento termine
+  if (loading) {
+    return (
+      <div 
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: '#0B0F14' }}
+      >
+        <div className="max-w-md mx-auto text-center px-4">
+          <div 
+            className="rounded-2xl shadow-2xl p-8"
+            style={{ 
+              backgroundColor: '#0F141B',
+              border: '1px solid rgba(255, 255, 255, 0.08)'
+            }}
+          >
+            <div className="flex flex-col items-center justify-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 mb-4" style={{ borderColor: '#36E2B4' }}></div>
+              <p 
+                className="text-lg"
+                style={{ 
+                  color: '#EAF2FF',
+                  fontFamily: 'Inter, sans-serif',
+                  fontWeight: 500
+                }}
+              >
+                Procesando tu pago...
+              </p>
+              <p 
+                className="text-sm mt-2"
+                style={{ 
+                  color: '#EAF2FF',
+                  fontFamily: 'Inter, sans-serif',
+                  opacity: 0.7
+                }}
+              >
+                Actualizando tu cuenta y enviando confirmación
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Si hay error, mostrar mensaje de error
+  if (error) {
+    return (
+      <div 
+        className="min-h-screen flex items-center justify-center"
+        style={{ backgroundColor: '#0B0F14' }}
+      >
+        <div className="max-w-md mx-auto text-center px-4">
+          <div 
+            className="rounded-2xl shadow-2xl p-8"
+            style={{ 
+              backgroundColor: '#0F141B',
+              border: '1px solid rgba(255, 255, 255, 0.08)'
+            }}
+          >
+            <h1 
+              className="text-2xl font-bold mb-4"
+              style={{ 
+                color: '#EAF2FF',
+                fontFamily: 'Space Grotesk, sans-serif'
+              }}
+            >
+              Error al procesar el pago
+            </h1>
+            <p 
+              className="mb-6"
+              style={{ 
+                color: '#EAF2FF',
+                fontFamily: 'Inter, sans-serif',
+                opacity: 0.8
+              }}
+            >
+              {error}
+            </p>
+            <button
+              onClick={handleGoHome}
+              className="w-full font-semibold py-3 px-6 rounded-lg transition-all duration-200"
+              style={{
+                backgroundColor: '#5B8CFF',
+                color: '#0B0F14',
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 600
+              }}
+            >
+              Volver al Inicio
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Mostrar contenido de éxito solo después de procesar
   return (
     <div 
       className="min-h-screen flex items-center justify-center"
@@ -144,19 +259,7 @@ function CheckoutSuccessContent() {
               >
                 {sessionId}
               </p>
-              {loading && (
-                <p 
-                  className="text-sm mt-2"
-                  style={{ 
-                    color: '#36E2B4',
-                    fontFamily: 'Inter, sans-serif',
-                    opacity: 0.8
-                  }}
-                >
-                  Procesando pago...
-                </p>
-              )}
-              {webhookProcessed && (
+              {webhookProcessed && processingResult && (
                 <p 
                   className="text-sm mt-2"
                   style={{ 
