@@ -22,10 +22,10 @@ export default function EpicSection() {
         }}>
           PLEIA
         </h2>
-        <p className="text-xl text-gray-300 mb-4 font-medium">
+        <p className="text-base md:text-xl text-gray-300 mb-3 md:mb-4 font-medium">
           {t('epic.subtitle')}
         </p>
-        <p className="text-lg text-gray-400 mb-12 max-w-2xl mx-auto leading-relaxed">
+        <p className="text-sm md:text-lg text-gray-400 mb-8 md:mb-12 max-w-2xl mx-auto leading-relaxed hidden md:block">
           {t('epic.description')}
         </p>
         
@@ -42,10 +42,10 @@ export default function EpicSection() {
                 <path d="M256 136L276 210L352 230L276 250L256 324L236 250L160 230L236 210Z" fill="url(#gradStar1)" stroke="rgba(255, 255, 255, 0.3)" strokeWidth="2"/>
               </svg>
             </div>
-            <h3 className="text-xl font-semibold text-white mb-2">
+            <h3 className="text-base md:text-xl font-semibold text-white mb-1 md:mb-2">
               {t('epic.feature1')}
             </h3>
-            <p className="text-gray-400">
+            <p className="text-gray-400 text-xs md:text-sm hidden md:block">
               {t('epic.feature1Desc')}
             </p>
           </div>
@@ -62,10 +62,10 @@ export default function EpicSection() {
                 <path d="M256 136L276 210L352 230L276 250L256 324L236 250L160 230L236 210Z" fill="url(#gradStar1)" stroke="rgba(255, 255, 255, 0.3)" strokeWidth="2"/>
               </svg>
             </div>
-            <h3 className="text-xl font-semibold text-white mb-2">
+            <h3 className="text-base md:text-xl font-semibold text-white mb-1 md:mb-2">
               {t('epic.feature2')}
             </h3>
-            <p className="text-gray-400">
+            <p className="text-gray-400 text-xs md:text-sm hidden md:block">
               {t('epic.feature2Desc')}
             </p>
           </div>
@@ -82,10 +82,10 @@ export default function EpicSection() {
                 <path d="M256 136L276 210L352 230L276 250L256 324L236 250L160 230L236 210Z" fill="url(#gradStar1)" stroke="rgba(255, 255, 255, 0.3)" strokeWidth="2"/>
               </svg>
             </div>
-            <h3 className="text-xl font-semibold text-white mb-2">
+            <h3 className="text-base md:text-xl font-semibold text-white mb-1 md:mb-2">
               {t('epic.feature3')}
             </h3>
-            <p className="text-gray-400">
+            <p className="text-gray-400 text-xs md:text-sm hidden md:block">
               {t('epic.feature3Desc')}
             </p>
           </div>

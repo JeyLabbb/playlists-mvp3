@@ -170,7 +170,7 @@ export default function PricingPage() {
         {/* Header */}
         <div className="text-center mb-16">
           <h1 
-            className="text-4xl md:text-5xl font-bold mb-6"
+            className="text-2xl md:text-4xl font-bold mb-3 md:mb-6"
             style={{ 
               color: '#EAF2FF',
               fontFamily: 'Space Grotesk, sans-serif',
@@ -180,7 +180,7 @@ export default function PricingPage() {
             Elige tu plan PLEIA
           </h1>
           <p 
-            className="text-xl max-w-2xl mx-auto mb-6"
+            className="text-sm md:text-xl max-w-2xl mx-auto mb-4 md:mb-6 hidden md:block"
             style={{ 
               color: '#EAF2FF',
               fontFamily: 'Inter, sans-serif',
@@ -272,15 +272,15 @@ export default function PricingPage() {
                   </h2>
                 </div>
                 <p 
-                  className="text-lg mb-6"
+                  className="text-sm md:text-lg mb-4 md:mb-6"
                   style={{ 
                     color: '#EAF2FF',
                     fontFamily: 'Inter, sans-serif',
                     opacity: 0.9
                   }}
                 >
-                  Por ser de los <strong>primeros 1000 usuarios</strong> puedes conseguir Founder de por vida 
-                  <strong> gratis</strong> invitando a 3 amigos (o comprar el pass directo por 5€).
+                  <span className="hidden md:inline">Por ser de los <strong>primeros 1000 usuarios</strong> puedes conseguir Founder de por vida <strong> gratis</strong> invitando a 3 amigos (o comprar el pass directo por 5€).</span>
+                  <span className="md:hidden">Primeros 1000: consigue Founder <strong>gratis</strong> invitando 3 amigos o compra por 5€.</span>
                 </p>
               </div>
 
@@ -303,7 +303,7 @@ export default function PricingPage() {
                     🎯 Invita 3 amigos
                   </h3>
                   <p 
-                    className="text-sm mb-4"
+                    className="text-xs md:text-sm mb-3 md:mb-4 hidden md:block"
                     style={{ 
                       color: '#EAF2FF',
                       fontFamily: 'Inter, sans-serif',
@@ -430,7 +430,7 @@ export default function PricingPage() {
                     💳 Pago directo
                   </h3>
                   <p 
-                    className="text-sm mb-4"
+                    className="text-xs md:text-sm mb-3 md:mb-4 hidden md:block"
                     style={{ 
                       color: '#EAF2FF',
                       fontFamily: 'Inter, sans-serif',
@@ -451,7 +451,7 @@ export default function PricingPage() {
                       5€
                     </div>
                     <div 
-                      className="text-sm mb-4"
+                      className="text-xs md:text-sm mb-3 md:mb-4 hidden md:block"
                       style={{ 
                         color: '#EAF2FF',
                         fontFamily: 'Inter, sans-serif',

@@ -1672,7 +1672,7 @@ export default function Home() {
           
           {/* Prompt Card */}
           <div className="p-6 rounded-2xl shadow-lg" style={{ background: 'var(--color-slate)' }}>
-            <h2 className="text-3xl font-bold mb-6" style={{ 
+            <h2 className="text-xl md:text-3xl font-bold mb-4 md:mb-6" style={{ 
               color: 'var(--color-cloud)', 
               fontFamily: 'var(--font-primary)',
               letterSpacing: '-0.02em',
@@ -1682,7 +1682,7 @@ export default function Home() {
             </h2>
             
             <textarea
-              rows={4}
+              rows={3}
               value={prompt}
               onChange={(e) => {
                 const value = e.target.value;
@@ -1692,14 +1692,13 @@ export default function Home() {
                 }
               }}
               placeholder={t('prompt.placeholder')}
-              className="w-full p-4 mb-6 rounded-xl border-2 resize-none transition-all duration-200"
+              className="w-full p-3 md:p-4 mb-4 md:mb-6 rounded-xl border-2 resize-none transition-all duration-200 text-sm md:text-base"
               style={{
                 background: 'var(--color-slate)',
                 border: '1px solid rgba(255, 255, 255, 0.1)',
                 color: 'var(--color-cloud)',
                 borderRadius: '12px',
                 fontFamily: 'var(--font-body)',
-                fontSize: '16px',
                 lineHeight: '1.5'
               }}
             />

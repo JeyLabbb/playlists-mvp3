@@ -81,10 +81,10 @@ export default function PromptTips() {
             <div className="bg-gradient-to-r from-green-500/20 to-cyan-500/20 p-6 border-b border-gray-700">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <h2 className="text-2xl font-bold text-white mb-2">
+                  <h2 className="text-xl md:text-2xl font-bold text-white mb-2">
                     {t('tips.title')}
                   </h2>
-                  <p className="text-gray-300 text-base">
+                  <p className="text-gray-300 text-sm md:text-base hidden md:block">
                     {t('tips.subtitle')}
                   </p>
                 </div>
@@ -96,7 +96,7 @@ export default function PromptTips() {
                   ×
                 </button>
               </div>
-              <div className="mt-4 p-4 bg-gray-800/50 rounded-lg">
+              <div className="mt-4 p-3 md:p-4 bg-gray-800/50 rounded-lg hidden md:block">
                 <p className="text-gray-300 text-sm leading-relaxed">
                   {t('tips.intro')}
                 </p>
@@ -115,16 +115,15 @@ export default function PromptTips() {
               ) : (
                 <div className="grid gap-4 md:grid-cols-2">
                   {tips.map((tip, index) => (
-                    <div key={index} className="bg-gray-800/50 rounded-xl p-5 border border-gray-700/50 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70">
-                      <h3 className="text-lg font-semibold text-white mb-3 flex items-start gap-3">
-                        <span className="text-xl">{tip.title.split(' ')[0]}</span>
-                        <span className="flex-1">{tip.title.split(' ').slice(1).join(' ')}</span>
+                    <div key={index} className="bg-gray-800/50 rounded-xl p-3 md:p-5 border border-gray-700/50 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70">
+                      <h3 className="text-base md:text-lg font-semibold text-white mb-2 md:mb-3">
+                        {tip.title}
                       </h3>
-                      <p className="text-gray-300 mb-4 leading-relaxed text-sm">
+                      <p className="text-gray-300 mb-3 md:mb-4 leading-relaxed text-xs md:text-sm">
                         {tip.description}
                       </p>
-                      <div className="bg-gray-900/80 rounded-lg p-3 border border-gray-600/30">
-                        <p className="text-sm text-cyan-400 font-mono">
+                      <div className="bg-gray-900/80 rounded-lg p-2 md:p-3 border border-gray-600/30 hidden md:block">
+                        <p className="text-xs md:text-sm text-cyan-400 font-mono">
                           &ldquo;{tip.example}&rdquo;
                         </p>
                       </div>
@@ -134,11 +133,11 @@ export default function PromptTips() {
               )}
 
               {/* Pro Tip */}
-              <div className="mt-6 p-5 bg-gradient-to-r from-green-500/20 to-cyan-500/20 rounded-xl border border-green-500/30">
-                <h4 className="text-white font-bold text-lg mb-3 flex items-center gap-2">
+              <div className="mt-4 md:mt-6 p-3 md:p-5 bg-gradient-to-r from-green-500/20 to-cyan-500/20 rounded-xl border border-green-500/30">
+                <h4 className="text-white font-bold text-base md:text-lg mb-2 md:mb-3 flex items-center gap-2">
                   {t('tips.proTip.title')}
                 </h4>
-                <p className="text-gray-300 leading-relaxed text-sm">
+                <p className="text-gray-300 leading-relaxed text-xs md:text-sm">
                   {t('tips.proTip.description')}
                 </p>
               </div>

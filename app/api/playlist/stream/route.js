@@ -442,7 +442,23 @@ function dedupeAgainstUsed(tracks, usedTracks) {
  */
 async function getIntentFromLLM(prompt, target_tracks) {
   try {
-    const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/intent`, {
+    // 🚨 CRITICAL: Use proper URL construction for production
+    const baseUrl =
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      process.env.NEXTAUTH_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://playlists.jeylabbb.com');
+    
+    const intentUrl = `${baseUrl}/api/intent`;
+    
+    console.log('[INTENT][FETCH] Calling intent API:', {
+      url: intentUrl,
+      hasNextPublicSiteUrl: !!process.env.NEXT_PUBLIC_SITE_URL,
+      hasNextAuthUrl: !!process.env.NEXTAUTH_URL,
+      hasVercelUrl: !!process.env.VERCEL_URL,
+      promptSnippet: (prompt || '').slice(0, 50)
+    });
+    
+    const response = await fetch(intentUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, target_tracks })
@@ -458,17 +474,28 @@ async function getIntentFromLLM(prompt, target_tracks) {
       console.error('[INTENT][FETCH] Intent API failed', {
         status: response.status,
         statusText: response.statusText,
-        url: `${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/intent`,
+        url: intentUrl,
         promptSnippet: (prompt || '').slice(0, 120),
         target_tracks,
         body: bodyText?.slice(0, 2000)
       });
-      throw new Error(`Intent API failed: ${response.status}`);
+      throw new Error(`Intent API failed: ${response.status} - ${bodyText?.slice(0, 200)}`);
     }
     
-    return await response.json();
+    const result = await response.json();
+    console.log('[INTENT][FETCH] Intent API success:', {
+      mode: result?.mode,
+      tracksCount: result?.tracks?.length || 0,
+      artistsCount: result?.artists?.length || 0
+    });
+    
+    return result;
   } catch (error) {
-    console.error('Failed to get intent from LLM:', error);
+    console.error('[INTENT][FETCH] Failed to get intent from LLM:', {
+      error: error.message,
+      stack: error.stack,
+      promptSnippet: (prompt || '').slice(0, 50)
+    });
     return null;
   }
 }

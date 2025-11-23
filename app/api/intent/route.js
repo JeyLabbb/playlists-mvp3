@@ -8,12 +8,30 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// 🚨 CRITICAL: Validate OpenAI API key on module load
+if (!process.env.OPENAI_API_KEY) {
+  console.error('[INTENT] ⚠️ OPENAI_API_KEY is not set! Intent generation will fail.');
+} else {
+  console.log('[INTENT] ✅ OPENAI_API_KEY is set (length:', process.env.OPENAI_API_KEY.length, ')');
+}
+
 export async function POST(request) {
   const startTime = Date.now();
   console.log(`[INTENT] ===== STARTING INTENT GENERATION =====`);
   console.log(`[INTENT] Timestamp: ${new Date().toISOString()}`);
   console.log(`[INTENT] Request method: ${request.method}`);
   console.log(`[INTENT] Request URL: ${request.url}`);
+  console.log(`[INTENT] OPENAI_API_KEY present: ${!!process.env.OPENAI_API_KEY}`);
+  console.log(`[INTENT] OPENAI_API_KEY length: ${process.env.OPENAI_API_KEY?.length || 0}`);
+  
+  // 🚨 CRITICAL: Check OpenAI API key before processing
+  if (!process.env.OPENAI_API_KEY) {
+    console.error('[INTENT] ❌ OPENAI_API_KEY is missing!');
+    return NextResponse.json(
+      { error: 'OpenAI API key not configured' },
+      { status: 500 }
+    );
+  }
   
   try {
     console.log(`[INTENT] Parsing request body...`);

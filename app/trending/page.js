@@ -406,7 +406,7 @@ export default function TrendingPage() {
             <h1 className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4 bg-gradient-to-r from-green-400 to-cyan-400 bg-clip-text text-transparent">
               Trending Playlists 🔥
             </h1>
-            <p className="text-gray-300 text-sm sm:text-lg px-4">
+            <p className="text-gray-300 text-xs sm:text-lg px-4 hidden sm:block">
               Descubre las playlists más populares creadas por otros usuarios
             </p>
           </div>

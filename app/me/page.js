@@ -447,18 +447,18 @@ export default function ProfilePage() {
           <header className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
             <div>
               <p className="text-sm uppercase tracking-[0.3em] text-cyan-500">PLEIA</p>
-              <h1 className="mt-2 text-4xl font-bold leading-tight">
+              <h1 className="mt-2 text-2xl md:text-4xl font-bold leading-tight">
                 Configura tu perfil
               </h1>
-              <p className="mt-3 text-gray-400 max-w-2xl">
+              <p className="mt-2 md:mt-3 text-gray-400 max-w-2xl text-sm md:text-base hidden md:block">
                 Personaliza cómo te ven en PLEIA, gestiona tus datos y mantén tu
                 cuenta segura. Esta información solo se usa para mejorar tu experiencia.
               </p>
               {/* 🚨 CRITICAL: Mostrar mensaje inmediatamente cuando isEarlyFounderCandidate esté disponible, sin esperar a que todo el perfil esté cargado */}
               {(isEarlyFounderCandidate || profileData?.isEarlyFounderCandidate === true || usageStatusData?.isEarlyFounderCandidate === true) && !isFounder && (
                 <div className="mt-4 p-4 rounded-xl border-2" style={{ backgroundColor: 'rgba(255, 140, 0, 0.05)', borderColor: '#FF8C00' }}>
-                  <p className="text-sm text-yellow-200 max-w-2xl">
-                    🎉 <strong>Eres de los primeros 1000 usuarios de PLEIA.</strong> Puedes conseguir Founder Pass gratis invitando a 3 amigos. <a href="/pricing#ventaja" className="underline hover:text-yellow-100">Revisa tu ventaja aquí</a>.
+                  <p className="text-xs md:text-sm text-yellow-200 max-w-2xl">
+                    🎉 <strong>Primeros 1000 usuarios.</strong> Founder Pass gratis invitando 3 amigos. <a href="/pricing#ventaja" className="underline hover:text-yellow-100">Ver ventaja</a>.
                   </p>
                 </div>
               )}
@@ -535,10 +535,13 @@ export default function ProfilePage() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>
+                    <span className="hidden md:inline">
                       {hasUnlimitedUses
                         ? "Plan con usos ilimitados activos."
                         : "Cada playlist que llega a la primera canción consume 1 uso."}
+                    </span>
+                    <span className="md:hidden text-xs">
+                      {hasUnlimitedUses ? "Ilimitado" : "1 uso por playlist"}
                     </span>
                   </div>
                 </div>
