@@ -5,6 +5,10 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth/config';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 
+// 🚨 CRITICAL: Forzar renderizado dinámico porque usamos searchParams y procesamos pagos
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 /**
  * 🚨 CRITICAL: Esta página procesa el pago EN EL SERVIDOR antes de renderizar
  * Se ejecuta ANTES de que el usuario vea cualquier contenido
