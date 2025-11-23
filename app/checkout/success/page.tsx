@@ -35,6 +35,7 @@ async function processPaymentOnServer(sessionId: string) {
     let isAuthenticatedUser = false;
     
     try {
+      // @ts-ignore - NextAuth types issue
       const session = await getServerSession(authOptions);
       if (session?.user?.email) {
         userEmail = session.user.email.toLowerCase();
@@ -122,9 +123,9 @@ async function processPaymentOnServer(sessionId: string) {
     try {
       const kv = await import('@vercel/kv');
       const profileKey = `jey_user_profile:${userEmail}`;
-      const existingProfile = await kv.kv.get(profileKey) || {};
+      const existingProfile = (await kv.kv.get(profileKey)) as Record<string, any> || {};
       await kv.kv.set(profileKey, {
-        ...existingProfile,
+        ...(existingProfile && typeof existingProfile === 'object' ? existingProfile : {}),
         email: userEmail,
         plan: 'founder',
         founderSince: now,
