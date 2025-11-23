@@ -29,10 +29,18 @@ const vlog = (...args) => {
   if (VERBOSE_LOGS) console.log(...args);
 };
 
+// Helper to get base URL for internal API calls
+function getBaseUrl() {
+  return process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXTAUTH_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://playlists.jeylabbb.com');
+}
+
 // Helper to log metrics to Supabase via telemetry API
 async function logMetrics(userEmail, action, meta) {
   try {
-    const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
+    const baseUrl = getBaseUrl();
+    const response = await fetch(`${baseUrl}/api/telemetry/ingest`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -65,7 +73,8 @@ async function logMetrics(userEmail, action, meta) {
 // Helper to log playlists to Supabase via telemetry API
 async function logPlaylist(userEmail, playlistName, prompt, spotifyUrl, spotifyId, trackCount) {
   try {
-    const response = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
+    const baseUrl = getBaseUrl();
+    const response = await fetch(`${baseUrl}/api/telemetry/ingest`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3067,23 +3076,27 @@ async function handleStreamingRequest(request) {
                    
                    // Log prompt to Supabase
                    console.log(`[STREAM:${traceId}] ===== LOGGING PROMPT TO SUPABASE =====`);
-                   console.log(`[STREAM:${traceId}] Email: ${pleiaUser.email}`);
-                   console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
-                   try {
-                     const logResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
-                       method: 'POST',
-                       headers: { 'Content-Type': 'application/json' },
-                       body: JSON.stringify({
-                         type: 'prompt',
-                         payload: { email: pleiaUser.email, prompt, source: 'web' }
-                       })
-                     });
-                     if (logResponse.ok) {
-                       console.log(`[STREAM:${traceId}] ===== PROMPT LOGGED =====`);
-                     }
-                   } catch (logError) {
-                     console.warn(`[STREAM:${traceId}] Failed to log prompt:`, logError);
-                   }
+                  console.log(`[STREAM:${traceId}] Email: ${pleiaUser.email}`);
+                  console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
+                  try {
+                    const baseUrl = getBaseUrl();
+                    const logResponse = await fetch(`${baseUrl}/api/telemetry/ingest`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        type: 'prompt',
+                        payload: { email: pleiaUser.email, prompt, source: 'web' }
+                      })
+                    });
+                    if (logResponse.ok) {
+                      console.log(`[STREAM:${traceId}] ===== PROMPT LOGGED =====`);
+                    } else {
+                      const errorText = await logResponse.text();
+                      console.warn(`[STREAM:${traceId}] Failed to log prompt:`, errorText);
+                    }
+                  } catch (logError) {
+                    console.warn(`[STREAM:${traceId}] Failed to log prompt:`, logError);
+                  }
                    
                    console.log(`[STREAM:${traceId}] ===== INTENT GENERATED =====`);
                    console.log(`[STREAM:${traceId}] Intent summary:`, {

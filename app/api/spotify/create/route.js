@@ -153,8 +153,13 @@ export async function POST(req) {
     
     console.log('[CREATE] ok', { id: playlistId, url: playlistUrl, added });
     
+    // Get base URL for internal API calls
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ||
+      process.env.NEXTAUTH_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://playlists.jeylabbb.com');
+    
     // Log playlist creation to Supabase asynchronously (don't block response)
-    const logPromise = fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/telemetry/ingest`, {
+    const logPromise = fetch(`${baseUrl}/api/telemetry/ingest`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
