@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { stripe } from '../../../lib/stripe';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../lib/auth/config';
+import { getPleiaServerUser } from '../../../lib/auth/serverUser';
 
 export async function POST(request) {
   try {
@@ -11,14 +10,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Session ID is required' }, { status: 400 });
     }
 
-    // Get the current user session (NextAuth/Spotify)
-    const session = await getServerSession(authOptions);
+    // Get the current user session from Supabase (not NextAuth)
+    const pleiaUser = await getPleiaServerUser();
     
-    if (!session?.user?.email) {
+    if (!pleiaUser?.email) {
       return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
     }
 
-    console.log('[ASSOCIATE-PURCHASE] Associating purchase with user:', session.user.email);
+    console.log('[ASSOCIATE-PURCHASE] Associating purchase with user:', pleiaUser.email);
     console.log('[ASSOCIATE-PURCHASE] Session ID:', sessionId);
 
     // Get session details from Stripe
@@ -31,7 +30,7 @@ export async function POST(request) {
     console.log('[ASSOCIATE-PURCHASE] Stripe session details:', {
       id: stripeSession.id,
       stripe_email: stripeSession.customer_details?.email,
-      user_email: session.user.email,
+      user_email: pleiaUser.email,
       amount_total: stripeSession.amount_total,
       payment_status: stripeSession.payment_status
     });
@@ -46,7 +45,7 @@ export async function POST(request) {
 
     if (isFounderPass) {
       // 🚨 CRITICAL: Actualizar Supabase primero (igual que el webhook)
-      const userEmail = session.user.email.toLowerCase();
+      const userEmail = pleiaUser.email.toLowerCase();
       const now = new Date().toISOString();
       
       try {
@@ -73,7 +72,6 @@ export async function POST(request) {
           .update({
             plan: 'founder',
             max_uses: null, // Unlimited
-            updated_at: now,
             founder_source: 'purchase' // 'purchase' o 'referral'
           })
           .eq('email', userEmail);
@@ -214,7 +212,7 @@ export async function POST(request) {
     return NextResponse.json({ 
       success: false, 
       message: 'Not a Founder Pass purchase',
-      email: session.user.email,
+      email: pleiaUser.email,
       stripe_email: stripeSession.customer_details?.email,
       isFounderPass
     });
