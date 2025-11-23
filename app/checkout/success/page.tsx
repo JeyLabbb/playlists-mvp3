@@ -15,8 +15,15 @@ function CheckoutSuccessContent() {
 
   const processWebhook = useCallback(async () => {
     if (!sessionId) {
-      setError('No session ID provided');
+      console.error('[SUCCESS-PAGE] ❌ No session ID provided');
+      setError('No se encontró el ID de sesión');
       setLoading(false);
+      return;
+    }
+    
+    // Prevenir múltiples llamadas simultáneas
+    if (loading && webhookProcessed) {
+      console.log('[SUCCESS-PAGE] ⚠️ Ya se está procesando o ya se procesó, saltando...');
       return;
     }
     
@@ -66,11 +73,18 @@ function CheckoutSuccessContent() {
 
   // 🚨 CRITICAL: Auto-process webhook when component mounts - NO mostrar contenido hasta que termine
   useEffect(() => {
-    if (sessionId && !webhookProcessed && !processingResult) {
+    // Solo procesar si hay sessionId y aún no se ha procesado
+    if (sessionId && !webhookProcessed && !processingResult && !error) {
       console.log('[SUCCESS-PAGE] Component mounted, starting payment processing...');
       processWebhook();
+    } else if (!sessionId) {
+      // Si no hay sessionId, mostrar error inmediatamente
+      console.error('[SUCCESS-PAGE] ❌ No session ID in URL');
+      setError('No se encontró el ID de sesión en la URL');
+      setLoading(false);
     }
-  }, [sessionId, webhookProcessed, processingResult, processWebhook]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Solo ejecutar una vez al montar
 
   const handleGoToProfile = () => {
     window.location.href = '/me?checkout=success';
