@@ -28,21 +28,38 @@ export default function LoginView({ redirectTo }: Props) {
       // 🚨 CRITICAL: En producción, SIEMPRE usar la URL de producción
       // Forzar producción si no estamos explícitamente en desarrollo local
       const getOrigin = () => {
-        if (typeof window === 'undefined') return 'https://playlists.jeylabbb.com';
+        if (typeof window === 'undefined') {
+          console.log('[LOGIN] getOrigin: window undefined, using production URL');
+          return 'https://playlists.jeylabbb.com';
+        }
         
         const origin = window.location.origin;
-        const isLocalDev = origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('192.168.');
+        const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('192.168.');
+        const isVercelPreview = origin.includes('vercel.app') || origin.includes('vercel.dev');
+        const hasProductionUrl = !!process.env.NEXT_PUBLIC_SITE_URL;
         
-        // Si es desarrollo local explícito, usar el origin
-        if (isLocalDev && process.env.NODE_ENV === 'development') {
+        console.log('[LOGIN] getOrigin detection:', {
+          origin,
+          isLocalhost,
+          isVercelPreview,
+          hasProductionUrl,
+          NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL
+        });
+        
+        // Si es localhost Y no hay VERCEL_URL, es desarrollo local
+        if (isLocalhost && !isVercelPreview) {
+          console.log('[LOGIN] ✅ Using localhost for local development:', origin);
           return origin;
         }
         
-        // En cualquier otro caso (producción, staging, etc.), usar producción
-        return process.env.NEXT_PUBLIC_SITE_URL || 'https://playlists.jeylabbb.com';
+        // En cualquier otro caso (producción, staging, Vercel preview, etc.), usar producción
+        const productionUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://playlists.jeylabbb.com';
+        console.log('[LOGIN] ✅ Using production URL:', productionUrl);
+        return productionUrl;
       };
       
       const callbackUrl = `${getOrigin()}/auth/callback?redirect=${encodeURIComponent(redirectTo || '/')}`;
+      console.log('[LOGIN] 📋 Callback URL construida:', callbackUrl);
 
       const response = await fetch('/api/auth/oauth', {
         method: 'POST',
