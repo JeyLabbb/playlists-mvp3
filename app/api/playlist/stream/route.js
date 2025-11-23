@@ -2219,8 +2219,17 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
         
         // FASE 2: Compensación inteligente (FEATURE_SMART_COMPENSATION)
         // 🚨 CRITICAL: Usar targetTotal en lugar de remaining para calcular missing tracks
+        // 🚨 FIX: Siempre intentar rellenar hasta targetTotal, excepto si es "solo de X artista" (caps infinitos)
         let compensationPlan = null;
-        if (FEATURE_SMART_COMPENSATION && allTracksCollected.length < targetTotal) {
+        
+        // Detectar si es caso "solo de X artista" (caps infinitos) - en ese caso NO rellenar con otros artistas
+        const specialCasesForCompensation = detectSpecialCases(intent.prompt || '', priorityArtistsRaw, intent.exclusions?.banned_artists || []);
+        const isOnlyArtistsCase = specialCasesForCompensation.onlyArtists && specialCasesForCompensation.onlyArtists.length > 0;
+        
+        if (isOnlyArtistsCase) {
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: ONLY_ARTISTS case detected (caps infinitos) - skipping compensation with other artists`);
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Final count: ${allTracksCollected.length}/${targetTotal} tracks`);
+        } else if (FEATURE_SMART_COMPENSATION && allTracksCollected.length < targetTotal) {
           const missing = targetTotal - allTracksCollected.length;
           console.log(`[STREAM:${traceId}] ARTIST_STYLE: Starting smart compensation for ${missing} missing tracks (collected: ${allTracksCollected.length}, target: ${targetTotal})`);
           
@@ -2558,7 +2567,85 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
             }
           }
           
-          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Smart compensation complete: ${allTracksCollected.length}/${targetTotal} tracks (target achieved)`);
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Smart compensation complete: ${allTracksCollected.length}/${targetTotal} tracks`);
+        }
+        
+        // 🚨 FIX: Si aún faltan tracks después de la compensación, hacer compensación adicional
+        // (excepto si es "solo de X artista" - caps infinitos)
+        const specialCasesForFinalFill = detectSpecialCases(intent.prompt || '', priorityArtistsRaw, intent.exclusions?.banned_artists || []);
+        const isOnlyArtistsCaseFinal = specialCasesForFinalFill.onlyArtists && specialCasesForFinalFill.onlyArtists.length > 0;
+        
+        if (!isOnlyArtistsCaseFinal && allTracksCollected.length < targetTotal) {
+          const stillMissing = targetTotal - allTracksCollected.length;
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Still missing ${stillMissing} tracks after compensation, doing additional fill`);
+          
+          try {
+            // Buscar tracks de artistas relacionados o del contexto para rellenar
+            const fillTracks = [];
+            const priorityArtistNamesSet = new Set(priorityArtists.map(a => a.toLowerCase()));
+            
+            // Obtener artistas relacionados de los priority artists
+            const relatedArtists = new Set();
+            for (const [bucketIdx, tracks] of bucketTracks.entries()) {
+              const priorityArtistName = bucketToArtist.get(bucketIdx);
+              if (!priorityArtistName) continue;
+              
+              const resolvedArtist = resolvedArtists.get(priorityArtistName);
+              const artistId = resolvedArtist?.id;
+              
+              if (artistId) {
+                try {
+                  const relatedResponse = await fetch(`https://api.spotify.com/v1/artists/${artistId}/related-artists`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                  });
+                  if (relatedResponse.ok) {
+                    const relatedData = await relatedResponse.json();
+                    const related = (relatedData.artists || []).slice(0, 5).map(a => a.name);
+                    related.forEach(name => relatedArtists.add(name));
+                  }
+                } catch (err) {
+                  console.warn(`[STREAM:${traceId}] ARTIST_STYLE: Error getting related artists:`, err);
+                }
+              }
+            }
+            
+            // Buscar tracks de artistas relacionados que no sean priority
+            const relatedArtistsList = Array.from(relatedArtists).filter(a => !priorityArtistNamesSet.has(a.toLowerCase())).slice(0, 10);
+            for (const relatedArtist of relatedArtistsList) {
+              if (fillTracks.length >= stillMissing * 2) break;
+              
+              try {
+                const artistTracks = await searchTracksByArtists(accessToken, [relatedArtist], Math.min(10, stillMissing));
+                const filteredTracks = artistTracks.filter(track => {
+                  if (seenTrackIds.has(track.id)) return false;
+                  const trackArtists = (track.artists || track.artistNames || [])
+                    .map(a => (typeof a === 'string' ? a : a?.name || '').toLowerCase())
+                    .filter(Boolean);
+                  return !trackArtists.some(artist => priorityArtistNamesSet.has(artist));
+                });
+                fillTracks.push(...filteredTracks);
+              } catch (err) {
+                console.warn(`[STREAM:${traceId}] ARTIST_STYLE: Error getting fill tracks for "${relatedArtist}":`, err);
+              }
+            }
+            
+            // Añadir tracks de relleno respetando caps
+            for (const track of fillTracks) {
+              if (allTracksCollected.length >= targetTotal) break;
+              if (seenTrackIds.has(track.id)) continue;
+              
+              const mainArtistName = (track.artists?.[0]?.name || track.artistNames?.[0] || 'Unknown').toLowerCase();
+              const currentCount = artistCounters.get(mainArtistName) || 0;
+              
+              if (currentCount < nonPriorityCap) {
+                addTrackWithCap(track, -1, false);
+              }
+            }
+            
+            console.log(`[STREAM:${traceId}] ARTIST_STYLE: Additional fill added tracks (${allTracksCollected.length}/${targetTotal} total)`);
+          } catch (err) {
+            console.error(`[STREAM:${traceId}] ARTIST_STYLE: Error in additional fill:`, err);
+          }
         }
         
         // Aplicar exclusiones finales y asegurar que tenemos exactamente los tracks de priority artists
@@ -3433,18 +3520,24 @@ async function handleStreamingRequest(request) {
               console.log(`[STREAM:${traceId}] ARTIST_STYLE mode detected - skipping final artist limits (already applied during generation)`);
             }
             
-             // If we removed too many tracks due to artist limits, compensate (solo si NO es ARTIST_STYLE)
+             // 🚨 CRITICAL: Siempre intentar rellenar hasta target_tracks, respetando caps
+             // EXCEPTO si es "solo de X artista" (caps infinitos) - en ese caso no rellenar con otros
              let missingTracks = target_tracks - allTracks.length;
+             
+             // Detectar si es caso "solo de X artista" (caps infinitos)
+             const specialCases = detectSpecialCases(intent.prompt || '', intent.priority_artists || [], intent.exclusions?.banned_artists || []);
+             const isOnlyArtistsCase = specialCases.onlyArtists && specialCases.onlyArtists.length > 0;
+             
              // Tolerance window: if within N±3, accept without more compensation (48-52 for target 50)
              const withinTolerance = allTracks.length >= Math.max(1, target_tracks - 3) && allTracks.length <= (target_tracks + 3);
              
-             // 🚨 CRITICAL: Para ARTIST_STYLE, NO hacer compensación adicional - ya se hizo durante la generación
-             if (isArtistStyleMode) {
-               console.log(`[STREAM:${traceId}] ARTIST_STYLE mode detected - skipping additional compensation (already applied during generation)`);
-               console.log(`[STREAM:${traceId}] ARTIST_STYLE final count: ${allTracks.length}/${target_tracks} tracks`);
+             // 🚨 FIX: Solo skip compensación si es "solo de X artista" (caps infinitos) O si está dentro de tolerancia
+             if (isOnlyArtistsCase) {
+               console.log(`[STREAM:${traceId}] ONLY_ARTISTS case detected (caps infinitos) - skipping compensation with other artists`);
+               console.log(`[STREAM:${traceId}] Final count: ${allTracks.length}/${target_tracks} tracks`);
              } else if (withinTolerance) {
                console.log(`[STREAM:${traceId}] COMPENSATION: Within tolerance (${allTracks.length}/${target_tracks}), no compensation needed`);
-             } else if (!withinTolerance && missingTracks > 0) {
+             } else if (missingTracks > 0) {
               console.log(`[STREAM:${traceId}] COMPENSATION AFTER ARTIST LIMITS: Need ${missingTracks} more tracks`);
               
               try {
@@ -3535,15 +3628,16 @@ async function handleStreamingRequest(request) {
                   
                   // Re-apply artist limits to new tracks (solo si NO es ARTIST_STYLE)
                   if (!isArtistStyleMode) {
-                    allTracks = limitTracksPerArtist(allTracks, dynamicCap);
+                    allTracks = limitTracksPerArtist(allTracks, dynamicCap, specialCases, dynamicCaps);
                     console.log(`[STREAM:${traceId}] Final artist limits applied: ${allTracks.length} tracks`);
                   } else {
                     console.log(`[STREAM:${traceId}] ARTIST_STYLE mode - skipping artist limits re-application (already applied during generation)`);
                   }
                   
-                  // Final check: if still not enough tracks, try more aggressive collaboration search
+                  // 🚨 FIX: Final check: if still not enough tracks, try more aggressive collaboration search
+                  // EXCEPTO si es "solo de X artista" (caps infinitos)
                   const finalMissing = target_tracks - allTracks.length;
-                  if (finalMissing > 0) {
+                  if (finalMissing > 0 && !isOnlyArtistsCase) {
                     console.log(`[STREAM:${traceId}] COMPENSATION: Still need ${finalMissing} more tracks, trying expanded collaboration search`);
                     
                     try {
@@ -3628,8 +3722,39 @@ async function handleStreamingRequest(request) {
               }
             }
             
-            // Ensure we have the target number of tracks
-            if (allTracks.length > target_tracks) {
+            // 🚨 FIX: Si aún faltan tracks y NO es "solo de X artista", hacer búsqueda final más agresiva
+            const finalCheckMissing = target_tracks - allTracks.length;
+            if (finalCheckMissing > 0 && !isOnlyArtistsCase) {
+              console.log(`[STREAM:${traceId}] FINAL CHECK: Still missing ${finalCheckMissing} tracks, doing final aggressive search`);
+              
+              try {
+                // Usar artistas del contexto o de las canciones ya generadas
+                const contextArtists = intent.artists_llm || [];
+                const existingArtists = Array.from(new Set(
+                  allTracks.flatMap(track => 
+                    (track.artists?.map(a => a.name) || track.artistNames || []).filter(Boolean)
+                  )
+                ));
+                
+                const searchArtists = [...contextArtists, ...existingArtists].slice(0, 20);
+                if (searchArtists.length > 0) {
+                  const finalTracks = dedupeById(await searchTracksByArtists(accessToken, searchArtists, finalCheckMissing * 3));
+                  const dedupedFinal = dedupeAgainstUsed(finalTracks, usedTracks);
+                  const toAddFinal = dedupedFinal.slice(0, finalCheckMissing);
+                  
+                  // Aplicar caps antes de añadir
+                  const cappedFinal = limitTracksPerArtist(toAddFinal, dynamicCap, specialCases, dynamicCaps);
+                  allTracks.push(...cappedFinal);
+                  
+                  console.log(`[STREAM:${traceId}] FINAL CHECK: Added ${cappedFinal.length} final tracks (${allTracks.length}/${target_tracks} total)`);
+                }
+              } catch (error) {
+                console.error(`[STREAM:${traceId}] FINAL CHECK: Error in final aggressive search:`, error);
+              }
+            }
+            
+            // Ensure we have the target number of tracks (pero no cortar si es "solo de X artista")
+            if (allTracks.length > target_tracks && !isOnlyArtistsCase) {
               allTracks = allTracks.slice(0, target_tracks);
             }
             
