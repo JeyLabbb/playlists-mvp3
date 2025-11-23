@@ -181,26 +181,35 @@ export default async function CheckoutSuccessPage({
 }: {
   searchParams: Promise<{ session_id?: string }>;
 }) {
-  const params = await searchParams;
-  const sessionId = params.session_id;
-  
-  if (!sessionId) {
-    console.error('[SUCCESS-PAGE-SERVER] ❌ No session_id in URL');
-    redirect('/?error=no_session_id');
-  }
-  
-  // 🚨 CRITICAL: Procesar pago EN EL SERVIDOR antes de renderizar
-  console.log('[SUCCESS-PAGE-SERVER] ===== INICIANDO PROCESAMIENTO =====');
-  const result = await processPaymentOnServer(sessionId);
-  
-  if (!result.success) {
-    console.error('[SUCCESS-PAGE-SERVER] ❌ Procesamiento falló, redirigiendo...');
-    redirect(`/?error=payment_processing_failed&details=${encodeURIComponent(result.error || 'Unknown error')}`);
-  }
+  try {
+    const params = await searchParams;
+    const sessionId = params.session_id;
+    
+    if (!sessionId) {
+      console.error('[SUCCESS-PAGE-SERVER] ❌ No session_id in URL');
+      redirect('/?error=no_session_id');
+    }
+    
+    // 🚨 CRITICAL: Procesar pago EN EL SERVIDOR antes de renderizar
+    console.log('[SUCCESS-PAGE-SERVER] ===== INICIANDO PROCESAMIENTO =====');
+    const result = await processPaymentOnServer(sessionId);
+    
+    if (!result.success) {
+      console.error('[SUCCESS-PAGE-SERVER] ❌ Procesamiento falló:', result.error);
+      // Si el error es que no es Founder Pass o no hay email, mostrar página de éxito igual
+      // (puede ser que ya se procesó antes o que no es un Founder Pass)
+      if (result.error === 'Not a Founder Pass purchase' || result.error === 'No email found') {
+        console.log('[SUCCESS-PAGE-SERVER] ⚠️ Error no crítico, mostrando página de éxito de todas formas');
+        // Continuar y mostrar la página
+      } else {
+        // Error crítico, redirigir
+        redirect(`/?error=payment_processing_failed&details=${encodeURIComponent(result.error || 'Unknown error')}`);
+      }
+    }
   
   // Solo después de procesar exitosamente, mostrar la página
   console.log('[SUCCESS-PAGE-SERVER] ✅ Procesamiento exitoso, renderizando página...');
-  
+
   return (
     <div 
       className="min-h-screen flex items-center justify-center"
@@ -350,5 +359,14 @@ export default async function CheckoutSuccessPage({
       </div>
     </div>
   );
+  } catch (error: any) {
+    console.error('[SUCCESS-PAGE-SERVER] ❌❌❌ ERROR CRÍTICO EN PÁGINA:', {
+      error: error,
+      message: error.message,
+      stack: error.stack
+    });
+    // En caso de error crítico, redirigir a home con mensaje
+    redirect(`/?error=page_error&details=${encodeURIComponent(error.message || 'Unknown error')}`);
+  }
 }
 
