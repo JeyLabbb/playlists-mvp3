@@ -181,6 +181,17 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showTips, setShowTips] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile for placeholder
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Progress and status
   const [progress, setProgress] = useState(0);
@@ -1691,7 +1702,7 @@ export default function Home() {
                   setPrompt(value);
                 }
               }}
-              placeholder={t('prompt.placeholder')}
+              placeholder={isMobile ? 'Describe tu playlist perfecta...' : t('prompt.placeholder')}
               className="w-full p-3 md:p-4 mb-4 md:mb-6 rounded-xl border-2 resize-none transition-all duration-200 text-sm md:text-base"
               style={{
                 background: 'var(--color-slate)',

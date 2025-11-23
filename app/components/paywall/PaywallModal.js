@@ -181,7 +181,7 @@ export default function PaywallModal({ isOpen, onClose, usage, onBuyFounder }) {
       />
 
       <div
-        className="relative w-full max-w-4xl mx-auto overflow-hidden rounded-3xl shadow-[0_40px_120px_rgba(15,20,27,0.65)]"
+        className="relative w-full max-w-4xl mx-auto rounded-3xl shadow-[0_40px_120px_rgba(15,20,27,0.65)]"
         onClick={(e) => e.stopPropagation()}
         style={{
           background:
@@ -190,6 +190,7 @@ export default function PaywallModal({ isOpen, onClose, usage, onBuyFounder }) {
           maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
+          overflow: 'hidden',
         }}
       >
         <button
@@ -208,7 +209,7 @@ export default function PaywallModal({ isOpen, onClose, usage, onBuyFounder }) {
           </svg>
         </button>
 
-        <div className="relative w-full p-6 sm:p-8 md:p-10 lg:p-12 flex flex-col gap-9">
+        <div className="relative w-full p-6 sm:p-8 md:p-10 lg:p-12 flex flex-col gap-9 overflow-y-auto" style={{ maxHeight: '90vh' }}>
           <div className="space-y-6 text-left">
             <div className="flex flex-wrap items-center gap-3">
               <span
