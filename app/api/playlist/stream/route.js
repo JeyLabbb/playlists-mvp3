@@ -2000,9 +2000,32 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
               }
               
               if (!trackAdded && tracksForThisArtist.length === 0) {
-                // Si no hay más tracks disponibles para este artista, marcar como completo
-                console.log(`[STREAM:${traceId}] ARTIST_STYLE: No more tracks available for "${artistName}" (bucket ${bucketIdx}), marking as complete`);
-                bucket.current = bucket.target; // Forzar completar para salir del loop
+                // 🚨 FIX: Si no hay más tracks disponibles, intentar buscar más antes de darlo por perdido
+                if (bucket.current < bucket.target) {
+                  console.log(`[STREAM:${traceId}] ARTIST_STYLE: No more pre-loaded tracks for "${artistName}" (bucket ${bucketIdx}), trying to fetch more...`);
+                  try {
+                    const resolvedArtist = resolvedArtists.get(artistName);
+                    const artistToUse = resolvedArtist?.name || artistName;
+                    const artistId = resolvedArtist?.id || null;
+                    const stillNeeded = bucket.target - bucket.current;
+                    
+                    // Intentar buscar más tracks
+                    const moreTracks = await searchTracksByArtists(accessToken, [artistToUse], stillNeeded * 3);
+                    if (moreTracks.length > 0) {
+                      artistTracksMap.set(bucketIdx, moreTracks);
+                      console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${moreTracks.length} additional tracks for "${artistName}"`);
+                      // Continuar con el siguiente intento en la siguiente iteración
+                    } else {
+                      console.log(`[STREAM:${traceId}] ARTIST_STYLE: Could not find more tracks for "${artistName}" (bucket ${bucketIdx}), marking as complete`);
+                      bucket.current = bucket.target; // Forzar completar solo si realmente no hay más
+                    }
+                  } catch (err) {
+                    console.error(`[STREAM:${traceId}] ARTIST_STYLE: Error fetching more tracks for "${artistName}":`, err);
+                    bucket.current = bucket.target; // Forzar completar en caso de error
+                  }
+                } else {
+                  bucket.current = bucket.target; // Ya está completo
+                }
               }
               
               rotationIndex++;
@@ -2095,6 +2118,103 @@ async function* yieldSpotifyChunks(accessToken, intent, remaining, traceId, used
         for (const [artist, adds] of addsByArtist.entries()) {
           const skips = skipsByCap.get(artist) || 0;
           console.log(`[STREAM:${traceId}] ARTIST_STYLE: ${artist} - adds=${adds}, skipsByCap=${skips}`);
+        }
+        
+        // 🚨 NUEVO: Detectar caso ARTISTA + GÉNERO
+        // Si hay priority artists Y hay un género mencionado, usar estrategia especial
+        const promptLower = (intent.prompt || '').toLowerCase();
+        const genreKeywords = ['reggaeton', 'trap', 'hip hop', 'rap', 'pop', 'rock', 'indie', 'electronic', 'techno', 'house', 'latin', 'salsa', 'bachata', 'merengue', 'cumbia', 'flamenco', 'jazz', 'blues', 'country', 'folk', 'metal', 'punk', 'r&b', 'soul', 'funk', 'disco', 'dance', 'edm', 'dubstep', 'ambient', 'classical', 'opera', 'gospel', 'christian', 'k-pop', 'j-pop', 'afrobeat', 'reggae', 'dancehall', 'grime', 'drill'];
+        const detectedGenres = genreKeywords.filter(genre => promptLower.includes(genre));
+        
+        // Crear set de nombres de priority artists para filtrar
+        const priorityArtistNamesSet = new Set(priorityArtists.map(a => a.toLowerCase()));
+        
+        if (detectedGenres.length > 0 && distinctPriority > 0 && allTracksCollected.length < targetTotal) {
+          console.log(`[STREAM:${traceId}] ARTIST_STYLE: Detected ARTIST + GENRE case: priority artists=${distinctPriority}, genres=${detectedGenres.join(', ')}, missing=${targetTotal - allTracksCollected.length}`);
+          
+          // Estrategia: usar canciones del artista + artistas similares, luego LLM para rellenar con género
+          // 1. Ya tenemos canciones de los priority artists
+          // 2. Buscar artistas similares/relacionados de los priority artists
+          // 3. Buscar canciones de esos artistas similares en el género detectado
+          
+          const missing = targetTotal - allTracksCollected.length;
+          const genreTracks = [];
+          
+          try {
+            // Obtener artistas relacionados de los priority artists
+            const relatedArtists = new Set();
+            for (const [bucketIdx, tracks] of bucketTracks.entries()) {
+              const priorityArtistName = bucketToArtist.get(bucketIdx);
+              if (!priorityArtistName) continue;
+              
+              const resolvedArtist = resolvedArtists.get(priorityArtistName);
+              const artistId = resolvedArtist?.id;
+              
+              if (artistId) {
+                try {
+                  // Obtener artistas relacionados
+                  const relatedResponse = await fetch(`https://api.spotify.com/v1/artists/${artistId}/related-artists`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                  });
+                  if (relatedResponse.ok) {
+                    const relatedData = await relatedResponse.json();
+                    const related = (relatedData.artists || []).slice(0, 5).map(a => a.name);
+                    related.forEach(name => relatedArtists.add(name));
+                    console.log(`[STREAM:${traceId}] ARTIST_STYLE: Found ${related.length} related artists for "${priorityArtistName}"`);
+                  }
+                } catch (err) {
+                  console.warn(`[STREAM:${traceId}] ARTIST_STYLE: Error getting related artists for "${priorityArtistName}":`, err);
+                }
+              }
+            }
+            
+            // Buscar canciones de artistas relacionados en el género detectado
+            const relatedArtistsList = Array.from(relatedArtists).slice(0, 10);
+            if (relatedArtistsList.length > 0) {
+              console.log(`[STREAM:${traceId}] ARTIST_STYLE: Searching for genre tracks from ${relatedArtistsList.length} related artists`);
+              
+              for (const genre of detectedGenres.slice(0, 2)) { // Máximo 2 géneros
+                if (genreTracks.length >= missing * 2) break;
+                
+                // Buscar canciones del género usando los artistas relacionados como seed
+                for (const relatedArtist of relatedArtistsList.slice(0, 5)) {
+                  if (genreTracks.length >= missing * 2) break;
+                  
+                  try {
+                    const genreSearchTracks = await searchTracksByArtists(accessToken, [relatedArtist], Math.min(10, missing));
+                    // Filtrar para asegurar que no sean de priority artists
+                    const filteredGenreTracks = genreSearchTracks.filter(track => {
+                      const trackArtists = (track.artists || track.artistNames || [])
+                        .map(a => (typeof a === 'string' ? a : a?.name || '').toLowerCase())
+                        .filter(Boolean);
+                      return !trackArtists.some(artist => priorityArtistNamesSet.has(artist));
+                    });
+                    genreTracks.push(...filteredGenreTracks);
+                  } catch (err) {
+                    console.warn(`[STREAM:${traceId}] ARTIST_STYLE: Error searching genre tracks for "${relatedArtist}":`, err);
+                  }
+                }
+              }
+            }
+            
+            // Añadir tracks de género respetando caps
+            for (const track of genreTracks) {
+              if (allTracksCollected.length >= targetTotal) break;
+              if (seenTrackIds.has(track.id)) continue;
+              
+              // Verificar cap de artista no-priority
+              const mainArtistName = (track.artists?.[0]?.name || track.artistNames?.[0] || 'Unknown').toLowerCase();
+              const currentCount = artistCounters.get(mainArtistName) || 0;
+              
+              if (currentCount < nonPriorityCap) {
+                addTrackWithCap(track, -1, false); // No es priority, usar bucket -1
+              }
+            }
+            
+            console.log(`[STREAM:${traceId}] ARTIST_STYLE: Added ${genreTracks.length} genre tracks (${allTracksCollected.length}/${targetTotal} total)`);
+          } catch (err) {
+            console.error(`[STREAM:${traceId}] ARTIST_STYLE: Error in ARTIST + GENRE strategy:`, err);
+          }
         }
         
         // FASE 2: Compensación inteligente (FEATURE_SMART_COMPENSATION)
