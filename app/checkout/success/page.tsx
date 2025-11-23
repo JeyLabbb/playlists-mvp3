@@ -330,6 +330,26 @@ export default async function CheckoutSuccessPage({
               }}
             >
               <p 
+                className="text-sm font-semibold mb-2"
+                style={{ 
+                  color: '#FFC107',
+                  fontFamily: 'Inter, sans-serif',
+                  opacity: 0.9
+                }}
+              >
+                ⚠️ Error en el procesamiento
+              </p>
+              <p 
+                className="text-xs font-mono break-all mb-2"
+                style={{ 
+                  color: '#FFC107',
+                  fontFamily: 'monospace',
+                  opacity: 0.8
+                }}
+              >
+                {result.error || 'Unknown error'}
+              </p>
+              <p 
                 className="text-sm"
                 style={{ 
                   color: '#FFC107',
@@ -337,11 +357,13 @@ export default async function CheckoutSuccessPage({
                   opacity: 0.9
                 }}
               >
-                ⚠️ Nota: {result.error === 'Not a Founder Pass purchase' 
+                {result.error === 'Not a Founder Pass purchase' 
                   ? 'Este pago no es un Founder Pass.' 
                   : result.error === 'No email found'
                   ? 'No se encontró email en la sesión.'
-                  : 'El procesamiento tuvo un problema, pero tu pago fue exitoso. Si no recibes el email, contacta con soporte.'}
+                  : result.error === 'Stripe session not found'
+                  ? 'No se encontró la sesión de Stripe.'
+                  : 'Tu pago fue exitoso, pero hubo un problema al procesarlo. Revisa los logs o contacta con soporte.'}
               </p>
             </div>
           )}
