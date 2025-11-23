@@ -224,8 +224,12 @@ export default async function CheckoutSuccessPage({
     }
   }
   
-  // Solo después de procesar exitosamente, mostrar la página
-  console.log('[SUCCESS-PAGE-SERVER] ✅ Procesamiento exitoso, renderizando página...');
+  // Solo después de procesar, mostrar la página (incluso si hay error no crítico)
+  if (result && result.success) {
+    console.log('[SUCCESS-PAGE-SERVER] ✅ Procesamiento exitoso, renderizando página...');
+  } else if (result) {
+    console.log('[SUCCESS-PAGE-SERVER] ⚠️ Procesamiento con error no crítico, mostrando página:', result.error);
+  }
 
   return (
     <div 
