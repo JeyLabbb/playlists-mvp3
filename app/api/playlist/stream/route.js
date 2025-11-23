@@ -3200,6 +3200,7 @@ async function handleStreamingRequest(request) {
                   console.log(`[STREAM:${traceId}] Prompt: "${prompt}"`);
                   try {
                     const baseUrl = getBaseUrl();
+                    console.log(`[STREAM:${traceId}] Logging prompt to: ${baseUrl}/api/telemetry/ingest`);
                     const logResponse = await fetch(`${baseUrl}/api/telemetry/ingest`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
@@ -3209,13 +3210,14 @@ async function handleStreamingRequest(request) {
                       })
                     });
                     if (logResponse.ok) {
-                      console.log(`[STREAM:${traceId}] ===== PROMPT LOGGED =====`);
+                      const result = await logResponse.json();
+                      console.log(`[STREAM:${traceId}] ===== PROMPT LOGGED SUCCESSFULLY =====`, result);
                     } else {
                       const errorText = await logResponse.text();
-                      console.warn(`[STREAM:${traceId}] Failed to log prompt:`, errorText);
+                      console.error(`[STREAM:${traceId}] ❌ Failed to log prompt (${logResponse.status}):`, errorText);
                     }
                   } catch (logError) {
-                    console.warn(`[STREAM:${traceId}] Failed to log prompt:`, logError);
+                    console.error(`[STREAM:${traceId}] ❌ Error logging prompt:`, logError);
                   }
                    
                    console.log(`[STREAM:${traceId}] ===== INTENT GENERATED =====`);
@@ -3709,7 +3711,7 @@ async function handleStreamingRequest(request) {
                   
                   // Log metrics to Supabase
                   try {
-                    await logMetrics(pleiaUser.email, 'generate_playlist', {
+                    const metricsResult = await logMetrics(pleiaUser.email, 'generate_playlist', {
                       prompt: intent.prompt || prompt || '',
                       trackCount: validTracks.length,
                       plan: usageResult.plan || 'free',
@@ -3717,10 +3719,30 @@ async function handleStreamingRequest(request) {
                       usageEventId: usageEventId
                     });
                     
-                    // Log playlist creation
-                    await logPlaylist(pleiaUser.email, playlist_name || `Playlist ${new Date().toISOString()}`, prompt, null, null, validTracks.length);
+                    if (!metricsResult.ok) {
+                      console.error(`[STREAM:${traceId}] ❌ Failed to log metrics:`, metricsResult.error);
+                    } else {
+                      console.log(`[STREAM:${traceId}] ✅ Metrics logged successfully`);
+                    }
+                    
+                    // Log playlist creation (sin spotifyUrl/spotifyId porque aún no se ha creado en Spotify)
+                    // La playlist se guardará con URL/ID cuando se cree en /api/spotify/create
+                    const playlistResult = await logPlaylist(
+                      pleiaUser.email, 
+                      playlist_name || `Playlist ${new Date().toISOString()}`, 
+                      prompt, 
+                      null, 
+                      null, 
+                      validTracks.length
+                    );
+                    
+                    if (!playlistResult.ok) {
+                      console.error(`[STREAM:${traceId}] ❌ Failed to log playlist:`, playlistResult.error);
+                    } else {
+                      console.log(`[STREAM:${traceId}] ✅ Playlist logged successfully (will be updated with Spotify URL when created)`);
+                    }
                   } catch (metricsError) {
-                    console.warn(`[STREAM:${traceId}] Failed to log metrics/playlist:`, metricsError);
+                    console.error(`[STREAM:${traceId}] ❌ Error logging metrics/playlist:`, metricsError);
                   }
                 }
               } catch (consumeError) {

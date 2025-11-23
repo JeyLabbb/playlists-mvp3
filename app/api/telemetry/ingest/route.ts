@@ -242,20 +242,24 @@ export async function POST(request: NextRequest) {
       const { email, prompt, source = 'web' } = payload;
       
       if (!email || !prompt) {
+        console.error('[TELEMETRY] Missing email or prompt:', { email: !!email, prompt: !!prompt });
         return NextResponse.json({ 
           ok: false, 
           error: 'Missing email or prompt in payload' 
         }, { status: 400 });
       }
       
+      console.log(`[TELEMETRY] Inserting prompt for ${email}:`, prompt.substring(0, 50) + '...');
       const promptId = await insertPrompt(email, prompt, source);
       
       if (promptId) {
+        console.log(`[TELEMETRY] ✅ Prompt inserted successfully: ${promptId}`);
         result = { id: promptId, type: 'prompt' };
       } else {
+        console.error('[TELEMETRY] ❌ Failed to insert prompt - insertPrompt returned null');
         return NextResponse.json({ 
           ok: false, 
-          error: 'Failed to insert prompt' 
+          error: 'Failed to insert prompt - check server logs for details' 
         }, { status: 500 });
       }
       
@@ -284,20 +288,24 @@ export async function POST(request: NextRequest) {
       const { email, playlistName, prompt, spotifyUrl, spotifyId, trackCount } = payload;
       
       if (!email || !playlistName || !prompt) {
+        console.error('[TELEMETRY] Missing required fields:', { email: !!email, playlistName: !!playlistName, prompt: !!prompt });
         return NextResponse.json({ 
           ok: false, 
           error: 'Missing email, playlistName, or prompt in payload' 
         }, { status: 400 });
       }
       
+      console.log(`[TELEMETRY] Inserting playlist for ${email}:`, { playlistName, spotifyUrl, spotifyId, trackCount });
       const playlistId = await insertPlaylist(email, playlistName, prompt, spotifyUrl, spotifyId, trackCount);
       
       if (playlistId) {
+        console.log(`[TELEMETRY] ✅ Playlist inserted successfully: ${playlistId}`);
         result = { id: playlistId, type: 'playlist' };
       } else {
+        console.error('[TELEMETRY] ❌ Failed to insert playlist - insertPlaylist returned null');
         return NextResponse.json({ 
           ok: false, 
-          error: 'Failed to insert playlist' 
+          error: 'Failed to insert playlist - check server logs for details' 
         }, { status: 500 });
       }
       

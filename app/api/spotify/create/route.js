@@ -159,6 +159,7 @@ export async function POST(req) {
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://playlists.jeylabbb.com');
     
     // Log playlist creation to Supabase asynchronously (don't block response)
+    console.log(`[CREATE] Logging playlist to: ${baseUrl}/api/telemetry/ingest`);
     const logPromise = fetch(`${baseUrl}/api/telemetry/ingest`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -173,13 +174,26 @@ export async function POST(req) {
           trackCount: added
         }
       })
+    }).then(async (response) => {
+      if (response.ok) {
+        const result = await response.json();
+        console.log(`[CREATE] ===== PLAYLIST LOGGED TO SUPABASE SUCCESSFULLY =====`, result);
+        return result;
+      } else {
+        const errorText = await response.text();
+        console.error(`[CREATE] ❌ Failed to log playlist (${response.status}):`, errorText);
+        throw new Error(`Failed to log playlist: ${errorText}`);
+      }
     }).catch(err => {
-      console.error(`[CREATE] Error logging playlist (non-blocking):`, err);
+      console.error(`[CREATE] ❌ Error logging playlist (non-blocking):`, err);
+      return { ok: false, error: err.message };
     });
     
-    // Don't await logging - return immediately
-    logPromise.then(() => {
-      console.log(`[CREATE] ===== PLAYLIST LOGGED TO SUPABASE =====`);
+    // Don't await logging - return immediately, but log result
+    logPromise.then((result) => {
+      if (result && result.ok) {
+        console.log(`[CREATE] ✅ Playlist logged successfully with Spotify URL: ${playlistUrl}`);
+      }
     });
     
     return NextResponse.json({
