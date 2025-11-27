@@ -272,10 +272,6 @@ export default function CardNav({
                       👑
                     </span>
                   </>
-                ) : !usageLoading && !hasUnlimitedUses && remaining !== undefined && typeof remaining === 'number' && maxUses !== undefined && typeof maxUses === 'number' ? (
-                  <span title={`${remaining} de ${maxUses} usos restantes`}>
-                    Mi perfil ({remaining}/{maxUses})
-                  </span>
                 ) : (
                   <span>Mi perfil</span>
                 )}

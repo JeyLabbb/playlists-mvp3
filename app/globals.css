@@ -202,3 +202,35 @@ input::placeholder, textarea::placeholder {
     content: '...';
   }
 }
+
+/* Mobile Footer Styles */
+@media (max-width: 768px) {
+  .mobile-footer {
+    padding-top: 1.5rem !important;
+    padding-bottom: 1.5rem !important;
+  }
+  
+  .mobile-flex-wrap {
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    gap: 0.75rem !important;
+    text-align: center !important;
+  }
+  
+  .mobile-flex-wrap a {
+    white-space: nowrap !important;
+    font-size: 0.875rem !important;
+  }
+}
+
+/* Ensure footer text doesn't overflow */
+@media (max-width: 480px) {
+  .mobile-flex-wrap {
+    gap: 0.5rem !important;
+  }
+  
+  .mobile-flex-wrap a {
+    font-size: 0.8125rem !important;
+    padding: 0.25rem 0.5rem !important;
+  }
+}

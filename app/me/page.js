@@ -506,46 +506,6 @@ export default function ProfilePage() {
               >
                 {loggingOut ? "Cerrando sesión..." : "Cerrar sesión"}
               </button>
-              {status === "authenticated" && (
-                <div className="mt-4 space-y-2 rounded-xl border border-white/10 bg-black/20 p-4">
-                  {/* 🚨 OPTIMIZATION: Logs removidos para mejor rendimiento */}
-                  <div className="flex items-center justify-between text-sm text-gray-300">
-                    <span>Usos consumidos</span>
-                    <span className="font-semibold text-white">
-                      {hasUnlimitedUses ? "∞" : typeof consumedUses === "number" ? consumedUses : (usageLoading ? "Cargando..." : (usageStatus?.usage?.current ?? usageStatus?.used ?? current ?? 0))}
-                      {(() => {
-                        if (hasUnlimitedUses) return null;
-                        if (limitUses !== undefined) {
-                          return <span className="text-gray-400 text-xs ml-1">de {limitUses}</span>;
-                        }
-                        if (usageStatus?.usage?.limit) {
-                          return <span className="text-gray-400 text-xs ml-1">de {usageStatus.usage.limit}</span>;
-                        }
-                        if (maxUses) {
-                          return <span className="text-gray-400 text-xs ml-1">de {maxUses}</span>;
-                        }
-                        return null;
-                      })()}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm text-gray-300">
-                    <span>Usos restantes</span>
-                    <span className="font-semibold text-white">
-                      {hasUnlimitedUses ? "∞" : (remainingUses ?? (usageLoading ? "Cargando..." : (usageStatus?.remaining ?? usageStatus?.usage?.remaining ?? remaining ?? "—")))}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span className="hidden md:inline">
-                      {hasUnlimitedUses
-                        ? "Plan con usos ilimitados activos."
-                        : "Cada playlist que llega a la primera canción consume 1 uso."}
-                    </span>
-                    <span className="md:hidden text-xs">
-                      {hasUnlimitedUses ? "Ilimitado" : "1 uso por playlist"}
-                    </span>
-                  </div>
-                </div>
-              )}
             </div>
           </header>
 
