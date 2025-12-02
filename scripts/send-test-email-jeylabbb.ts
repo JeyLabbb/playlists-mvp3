@@ -84,9 +84,11 @@ async function sendTestEmail() {
     console.log('   📬 Revisa la bandeja de jeylabbb@gmail.com');
     console.log('   📧 No olvides revisar spam si no aparece\n');
   } else if (result.ok && !result.emailSent) {
-    console.log(`   ℹ️  Email no enviado: ${result.reason}\n`);
+    const reason = 'reason' in result ? result.reason : 'unknown';
+    console.log(`   ℹ️  Email no enviado: ${reason}\n`);
   } else {
-    console.error('   ❌ Error:', result.error, '\n');
+    const errorMsg = 'error' in result ? result.error : 'Unknown error';
+    console.error('   ❌ Error:', errorMsg, '\n');
   }
 
   // 3. Verificar en DB
