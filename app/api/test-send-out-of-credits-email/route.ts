@@ -135,10 +135,11 @@ export async function GET(request: NextRequest) {
         email: testEmail,
       });
     } else {
-      console.error('[TEST-OUT-OF-CREDITS] ❌ Error enviando email:', result.error);
+      const errorMsg = 'error' in result ? result.error : 'Unknown error';
+      console.error('[TEST-OUT-OF-CREDITS] ❌ Error enviando email:', errorMsg);
       return NextResponse.json({
         success: false,
-        error: result.error,
+        error: errorMsg,
         email: testEmail,
       }, { status: 500 });
     }
