@@ -469,8 +469,9 @@ export async function POST(request: NextRequest) {
 
               // Ejecutar todas las herramientas llamadas
               for (const toolCall of assistantMessage.tool_calls) {
-                const toolName = toolCall.function.name;
-                const toolArgs = JSON.parse(toolCall.function.arguments);
+                const tc = toolCall as any;
+                const toolName = tc.function.name;
+                const toolArgs = JSON.parse(tc.function.arguments);
                 console.log('[PLEIA2] Tool call:', toolName, toolArgs);
                 
                 // Generar mensaje descriptivo basado en los argumentos reales
