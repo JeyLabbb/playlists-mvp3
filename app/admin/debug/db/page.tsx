@@ -267,7 +267,11 @@ interface ChartData {
 // Componente para listar usuarios
 function UsersList() {
   const fetcher = (url: string) => fetch(url).then(res => res.json());
-  const { data, error, isLoading } = useSWR('/api/admin/debug/users', fetcher);
+  const { data, error, isLoading, mutate } = useSWR('/api/admin/debug/users', fetcher, {
+    refreshInterval: 30000, // Revalidar cada 30 segundos
+    revalidateOnFocus: true, // Revalidar cuando la ventana recupera el foco
+    revalidateOnReconnect: true, // Revalidar al reconectar
+  });
   
   // 🚨 NEW: Estados para filtros
   const [searchQuery, setSearchQuery] = useState('');
@@ -408,8 +412,16 @@ function UsersList() {
         </div>
       </div>
       
-      <div className="text-sm text-gray-400 mb-4">
-        Mostrando: {filteredUsers.length} de {allUsers.length} usuarios {!hasData && data?.error && `(Error: ${data.error})`}
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-sm text-gray-400">
+          Mostrando: {filteredUsers.length} de {allUsers.length} usuarios {!hasData && data?.error && `(Error: ${data.error})`}
+        </div>
+        <button
+          onClick={() => mutate()}
+          className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-sm rounded transition-colors flex items-center gap-1"
+        >
+          🔄 Actualizar
+        </button>
       </div>
       {filteredUsers.length > 0 ? (
         <div className="bg-gray-800 rounded-lg overflow-hidden">
