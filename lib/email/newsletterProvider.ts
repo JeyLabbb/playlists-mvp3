@@ -13,6 +13,7 @@ export type NewsletterSendOptions = {
   cta?: NewsletterCTA;
   secondaryCta?: NewsletterCTA;
   primaryCta?: NewsletterCTA;
+  templateMode?: 'custom' | 'pleia' | 'minimal';
   campaignContext?: {
     campaignId?: string;
     baseUrl?: string;
@@ -75,11 +76,111 @@ function formatMessageBlocks(message?: string) {
   };
 }
 
+// Plantilla Minimal - Enfocada en legibilidad del texto
+const htmlWrapperMinimal = (
+  labelText: string,
+  body: string,
+  primaryCta?: NewsletterCTA | null,
+  recipientEmail?: string | null,
+) => `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(labelText)}</title>
+  <style>
+    @media only screen and (max-width: 600px) {
+      .container { width: 100% !important; padding: 0 16px !important; }
+      .content { padding: 32px 24px !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background:#fafbfc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fafbfc;">
+    <tr>
+      <td align="center" style="padding:48px 16px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="container" style="max-width:600px;width:100%;">
+          <tr>
+            <td class="content" style="padding:48px;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;">
+              
+              <!-- Header sutil -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+                <tr>
+                  <td style="border-bottom:1px solid rgba(34,246,206,0.15);padding-bottom:16px;">
+                    <div style="font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:rgba(34,246,206,0.8);font-weight:500;">
+                      ${escapeHtml(labelText)}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Contenido del mensaje -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="font-size:16px;line-height:1.75;color:#1f2937;">
+                    ${body}
+                  </td>
+                </tr>
+              </table>
+
+              ${
+                primaryCta
+                  ? `
+              <!-- CTA Principal -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:40px;">
+                <tr>
+                  <td align="center">
+                    <a href="${primaryCta.url}" style="display:inline-block;padding:14px 32px;background:rgba(34,246,206,0.1);border:1.5px solid rgba(34,246,206,0.3);color:#059669;border-radius:6px;font-weight:500;text-decoration:none;font-size:15px;transition:all 0.2s;">
+                      ${escapeHtml(primaryCta.label)} →
+                    </a>
+                  </td>
+                </tr>
+              </table>`
+                  : ''
+              }
+
+              <!-- Footer -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:48px;">
+                <tr>
+                  <td style="border-top:1px solid #e5e7eb;padding-top:24px;">
+                    <div style="font-size:12px;color:#9ca3af;line-height:1.6;text-align:center;">
+                      Este mensaje fue enviado por PLEIA<br />
+                      Creando las mejores experiencias musicales con IA
+                    </div>
+                    ${
+                      recipientEmail
+                        ? `<div style="margin-top:16px;text-align:center;">
+                          <a href="${resolveBaseUrl()}/api/newsletter/unsubscribe?email=${encodeURIComponent(recipientEmail)}" style="color:#9ca3af;text-decoration:underline;font-size:11px;">
+                            Cancelar suscripción
+                          </a>
+                        </div>`
+                        : ''
+                    }
+                    <div style="margin-top:12px;font-size:11px;color:#d1d5db;text-align:center;">
+                      © ${new Date().getFullYear()} PLEIA · Madrid, España
+                    </div>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
+
+// Plantilla PLEIA - Visual con gradientes
 const htmlWrapper = (
   labelText: string,
   body: string,
   primaryCta?: NewsletterCTA | null,
   secondaryCta?: NewsletterCTA | null,
+  recipientEmail?: string | null,
 ) => `
 <!DOCTYPE html>
 <html lang="es">
@@ -184,11 +285,33 @@ const htmlWrapper = (
                   </td>
                 </tr>
                 <tr>
-                  <td style="padding-top:12px;">
-                    <div style="font-size:12px;color:${TEXT_SECONDARY};line-height:1.6;">
-                      ¿Quieres pausar estas comunicaciones? Gestiona tus preferencias desde la app de PLEIA.<br />
-                      © ${new Date().getFullYear()} PLEIA · Madrid, España
-                    </div>
+                  <td style="padding-top:20px;border-top:1px solid rgba(255,255,255,0.06);">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding-top:16px;">
+                          <div style="font-size:11px;color:${TEXT_MUTED};line-height:1.6;text-align:center;">
+                            ¿Ya no quieres recibir información valiosa sobre nuevas funciones y actualizaciones exclusivas?
+                            <br />
+                            <span style="opacity:0.7;">(Otras personas estarán encantadas de descubrir lo que tú te pierdes 🤷)</span>
+                            <br /><br />
+                            ${
+                              recipientEmail
+                                ? `<a href="${resolveBaseUrl()}/api/newsletter/unsubscribe?email=${encodeURIComponent(recipientEmail)}" style="color:rgba(239,244,255,0.45);text-decoration:underline;font-size:10px;">
+                                Darme de baja (aunque lo lamentaré)
+                              </a>`
+                                : '<span style="color:rgba(239,244,255,0.35);font-size:10px;">Gestiona tus preferencias desde tu perfil</span>'
+                            }
+                          </div>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-top:16px;">
+                          <div style="font-size:11px;color:${TEXT_MUTED};text-align:center;">
+                            © ${new Date().getFullYear()} PLEIA · Madrid, España
+                          </div>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
               </table>
@@ -257,8 +380,14 @@ function buildRecipientHtml(params: {
   campaignId?: string;
   recipientId?: string | null;
   baseUrl?: string;
+  recipientEmail?: string | null;
+  templateMode?: 'custom' | 'pleia' | 'minimal';
 }) {
-  const baseHtml = htmlWrapper(params.labelText, params.body, params.primaryCta, params.secondaryCta);
+  // Elegir wrapper según templateMode
+  const baseHtml = params.templateMode === 'minimal'
+    ? htmlWrapperMinimal(params.labelText, params.body, params.primaryCta, params.recipientEmail)
+    : htmlWrapper(params.labelText, params.body, params.primaryCta, params.secondaryCta, params.recipientEmail);
+  
   if (!params.baseUrl || !params.campaignId || !params.recipientId) {
     return baseHtml;
   }
@@ -354,6 +483,8 @@ export async function sendNewsletterEmail(
       campaignId,
       recipientId,
       baseUrl,
+      recipientEmail: recipient.email,
+      templateMode: options.templateMode || 'pleia',
     });
 
     try {

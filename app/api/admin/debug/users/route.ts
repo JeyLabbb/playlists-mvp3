@@ -42,9 +42,10 @@ export async function GET(request: NextRequest) {
     // 🚨 CRITICAL: Usar columnas correctas de Supabase (marketing_opt_in, no newsletter_opt_in)
     // Get all users from users table (TODOS los usuarios, no solo los de newsletter)
     // 🚨 NEW: Incluir founder_source para diferenciar entre compra y referidos
+    // 🚨 NEW: Incluir usage_count y max_uses para mostrar usos restantes
     const { data: users, error } = await supabase
       .from('users')
-      .select('id, email, username, plan, is_early_founder_candidate, created_at, marketing_opt_in, founder_source')
+      .select('id, email, username, plan, is_early_founder_candidate, created_at, marketing_opt_in, founder_source, usage_count, max_uses')
       .order('created_at', { ascending: false })
       .limit(500);
 

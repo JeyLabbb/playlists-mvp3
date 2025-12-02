@@ -3279,6 +3279,29 @@ async function handleStreamingRequest(request) {
         // Check if user has reached limit (only if not unlimited)
         if (!isUnlimited && typeof remaining === 'number' && remaining <= 0) {
           console.log(`[STREAM:${traceId}] ❌ USAGE LIMIT REACHED for user ${pleiaUser.email}: ${used}/${usageSummary.limit || 5}`);
+          
+          // 🚨 CRITICAL: Send "out of credits" email with Newsletter HQ tracking (async, non-blocking)
+          // This email is sent only once when user first attempts to generate with 0 uses
+          // Tracked in newsletter_campaigns with opens/clicks analytics
+          if (pleiaUser.id && pleiaUser.email) {
+            (async () => {
+              try {
+                const { sendOutOfCreditsEmailWithTracking } = await import('../../../../lib/email/outOfCreditsWithTracking');
+                const emailResult = await sendOutOfCreditsEmailWithTracking(pleiaUser.id, pleiaUser.email);
+                if (emailResult.ok && emailResult.emailSent) {
+                  console.log(`[STREAM:${traceId}] ✅ Sent out-of-credits email to ${pleiaUser.email}`);
+                  console.log(`[STREAM:${traceId}] 📊 Campaign ID: ${emailResult.campaignId}, Recipient ID: ${emailResult.recipientId}`);
+                } else if (emailResult.ok && !emailResult.emailSent) {
+                  console.log(`[STREAM:${traceId}] ℹ️ Out-of-credits email not sent: ${emailResult.reason}`);
+                } else {
+                  console.error(`[STREAM:${traceId}] ❌ Failed to send out-of-credits email:`, emailResult.error);
+                }
+              } catch (error) {
+                console.error(`[STREAM:${traceId}] ❌ Error sending out-of-credits email:`, error);
+              }
+            })();
+          }
+          
           return NextResponse.json({
             code: "LIMIT_REACHED",
             error: "Usage limit reached",

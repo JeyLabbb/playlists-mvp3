@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import useSWR from 'swr';
 
 // Componente Chart simplificado inline
-function SimpleChart({ data, title, color = '#3b82f6' }: { data: ChartData[]; title: string; color?: string }) {
+function SimpleChart({ data, title, color = '#3b82f6', historicalTotal }: { data: ChartData[]; title: string; color?: string; historicalTotal?: number }) {
   const [timeRange, setTimeRange] = useState<'day' | 'week' | 'month' | 'year'>('day');
   const [chartData, setChartData] = useState<ChartData[]>(data);
   const [loading, setLoading] = useState(false);
@@ -235,7 +236,7 @@ function SimpleChart({ data, title, color = '#3b82f6' }: { data: ChartData[]; ti
           <div className="grid grid-cols-3 gap-2 sm:gap-4 pt-4 border-t border-gray-700">
             <div className="text-center">
               <div className="text-lg sm:text-2xl font-bold text-white">
-                {chartData.reduce((sum, item) => sum + item.count, 0)}
+                {historicalTotal !== undefined ? historicalTotal : chartData.reduce((sum, item) => sum + item.count, 0)}
               </div>
               <div className="text-xs text-gray-400">Total</div>
             </div>
@@ -411,47 +412,101 @@ function UsersList() {
         Mostrando: {filteredUsers.length} de {allUsers.length} usuarios {!hasData && data?.error && `(Error: ${data.error})`}
       </div>
       {filteredUsers.length > 0 ? (
-        <div className="space-y-2 max-h-[800px] overflow-y-auto" style={{ scrollBehavior: 'smooth' }}>
-          {filteredUsers.map((user: any, index: number) => (
-            <div key={user.id || index} className="bg-gray-700 rounded-lg p-3 sm:p-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="text-white font-medium text-sm sm:text-base">{user.email || 'Sin email'}</span>
-                    {user.is_early_founder_candidate && (
-                      <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs rounded">Primeros 1000</span>
-                    )}
-                    {user.plan === 'founder' && (
-                      <>
-                        <span className="px-2 py-0.5 bg-gradient-to-r from-yellow-600 to-orange-600 text-white text-xs rounded">Founder</span>
-                        {user.founder_source && (
-                          <span className={`px-2 py-0.5 text-white text-xs rounded ${
-                            user.founder_source === 'purchase' 
-                              ? 'bg-green-600' 
-                              : 'bg-blue-600'
+        <div className="bg-gray-800 rounded-lg overflow-hidden">
+          <div className="overflow-x-auto max-h-[800px] overflow-y-auto" style={{ scrollBehavior: 'smooth' }}>
+            <table className="w-full text-sm">
+              <thead className="bg-gray-900 text-gray-300 text-xs uppercase sticky top-0 z-10">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold">Email</th>
+                  <th className="px-4 py-3 text-left font-semibold">Username</th>
+                  <th className="px-4 py-3 text-left font-semibold">Plan</th>
+                  <th className="px-4 py-3 text-center font-semibold">Usos</th>
+                  <th className="px-4 py-3 text-left font-semibold">Badges</th>
+                  <th className="px-4 py-3 text-left font-semibold">Marketing</th>
+                  <th className="px-4 py-3 text-left font-semibold">Registrado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-700">
+                {filteredUsers.map((user: any, index: number) => {
+                  const usageCount = user.usage_count ?? 0;
+                  const maxUses = user.max_uses;
+                  const plan = user.plan || 'free';
+                  const isUnlimited = ['founder', 'premium', 'monthly'].includes(plan);
+                  const remaining = isUnlimited ? '∞' : maxUses !== null && maxUses !== undefined ? Math.max(0, maxUses - usageCount) : '?';
+                  // Garantizar key única usando email + index como fallback
+                  const uniqueKey = user.id ?? (user.email ? `${user.email}-${index}` : `user-${index}`);
+                  
+                  return (
+                    <tr key={uniqueKey} className="hover:bg-gray-700/50 transition-colors">
+                      <td className="px-4 py-3">
+                        <span className="text-white font-medium">{user.email || 'Sin email'}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-gray-300">{user.username ? `@${user.username}` : '-'}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          plan === 'founder' ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white' :
+                          plan === 'premium' ? 'bg-blue-600 text-white' :
+                          plan === 'monthly' ? 'bg-purple-600 text-white' :
+                          'bg-gray-600 text-gray-200'
+                        }`}>
+                          {plan}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex flex-col items-center">
+                          <span className={`text-base font-bold ${
+                            remaining === '∞' ? 'text-green-400' :
+                            typeof remaining === 'number' && remaining <= 0 ? 'text-red-400' :
+                            typeof remaining === 'number' && remaining <= 2 ? 'text-yellow-400' :
+                            'text-cyan-400'
                           }`}>
-                            {user.founder_source === 'purchase' ? '💰 Comprado' : '🎁 Referidos'}
+                            {remaining}
                           </span>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2 text-xs text-gray-400">
-                    {user.username && <span>@{user.username}</span>}
-                    {user.plan && <span>Plan: {user.plan}</span>}
-                    {user.created_at && (
-                      <span>Registrado: {new Date(user.created_at).toLocaleDateString('es-ES')}</span>
-                    )}
-                    {user.marketing_opt_in !== undefined && (
-                      <span className={user.marketing_opt_in ? 'text-green-400' : 'text-gray-500'}>
-                        Marketing: {user.marketing_opt_in ? 'Sí' : 'No'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
+                          <span className="text-xs text-gray-500">
+                            {isUnlimited ? 'ilimitado' : `de ${maxUses ?? '?'}`}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {user.is_early_founder_candidate && (
+                            <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-300 text-xs rounded whitespace-nowrap">
+                              1000 👑
+                            </span>
+                          )}
+                          {user.founder_source && (
+                            <span className={`px-2 py-0.5 text-white text-xs rounded whitespace-nowrap ${
+                              user.founder_source === 'purchase' ? 'bg-green-600' : 'bg-blue-600'
+                            }`}>
+                              {user.founder_source === 'purchase' ? '💰' : '🎁'}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          user.marketing_opt_in ? 'bg-green-600/20 text-green-300' : 'bg-gray-600 text-gray-400'
+                        }`}>
+                          {user.marketing_opt_in ? 'Sí' : 'No'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-gray-300 text-xs">
+                          {user.created_at ? new Date(user.created_at).toLocaleDateString('es-ES', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric'
+                          }) : '-'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         <div className="text-gray-400 text-center py-8">
@@ -843,14 +898,19 @@ export default function AdminDebugDB() {
               <div className="text-xs sm:text-sm text-gray-400">
                 Última actualización: {new Date().toLocaleTimeString('es-ES')}
               </div>
-              <button 
-                onClick={() => router.push('/admin/newsletter')}
-                className="px-4 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700 transition-colors text-sm sm:text-base"
+              <Link 
+                href="/admin/newsletter"
+                className="px-4 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700 transition-colors text-sm sm:text-base text-center"
               >
                 📧 Newsletter HQ
-              </button>
+              </Link>
               <button 
-                onClick={() => router.push('/admin/login')}
+                onClick={async () => {
+                  // Eliminar la cookie de sesión
+                  await fetch('/api/admin/auth', { method: 'DELETE' });
+                  // Redirigir al login
+                  router.push('/admin/login');
+                }}
                 className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-sm sm:text-base"
               >
                 Cerrar Sesión
@@ -973,6 +1033,7 @@ export default function AdminDebugDB() {
                       data={chartData.payments} 
                       title="Pagos Registrados" 
                       color="#60a5fa" 
+                      historicalTotal={data?.counts.payments}
                     />
                   </div>
                 </div>
@@ -985,16 +1046,19 @@ export default function AdminDebugDB() {
                 data={chartData.prompts} 
                 title="Prompts Generados" 
                 color="#3b82f6" 
+                historicalTotal={data?.counts.prompts}
               />
               <SimpleChart 
                 data={chartData.usage} 
                 title="Eventos de Uso" 
                 color="#8b5cf6" 
+                historicalTotal={data?.counts.usage_events}
               />
               <SimpleChart 
                 data={chartData.playlists} 
                 title="Playlists Creadas" 
                 color="#f97316" 
+                historicalTotal={data?.counts.playlists}
               />
             </div>
 
@@ -1027,6 +1091,7 @@ export default function AdminDebugDB() {
               data={chartData.prompts} 
               title="Prompts Generados" 
               color="#3b82f6" 
+              historicalTotal={data?.counts.prompts}
             />
             
             {/* Datos concretos */}
@@ -1103,7 +1168,7 @@ export default function AdminDebugDB() {
               
               <div className="space-y-3">
                 {filteredData.prompts?.map((prompt, index) => (
-                  <div key={prompt.id || index} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-gray-600 transition-colors">
+                  <div key={prompt.id ?? `prompt-${index}`} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-gray-600 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 space-y-1 sm:space-y-0">
                       <span className="text-xs sm:text-sm text-gray-400">
                         {new Date(prompt.created_at).toLocaleString('es-ES')}
@@ -1129,6 +1194,7 @@ export default function AdminDebugDB() {
               data={chartData.usage} 
               title="Eventos de Uso" 
               color="#8b5cf6" 
+              historicalTotal={data?.counts.usage_events}
             />
             
             {/* Datos concretos */}
@@ -1205,7 +1271,7 @@ export default function AdminDebugDB() {
               
               <div className="space-y-3 max-h-[800px] overflow-y-auto" style={{ scrollBehavior: 'smooth' }}>
                 {filteredData.usage?.map((event, index) => (
-                  <div key={event.id || index} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-gray-600 transition-colors">
+                  <div key={event.id ?? `usage-${index}`} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-gray-600 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 space-y-1 sm:space-y-0">
                       <span className="text-xs sm:text-sm text-gray-400">
                         {new Date(event.occurred_at).toLocaleString('es-ES')}
@@ -1233,6 +1299,7 @@ export default function AdminDebugDB() {
               data={chartData.playlists} 
               title="Playlists Creadas" 
               color="#f97316" 
+              historicalTotal={data?.counts.playlists}
             />
             
             {/* Datos concretos */}
@@ -1309,7 +1376,7 @@ export default function AdminDebugDB() {
               
               <div className="space-y-3 max-h-[800px] overflow-y-auto" style={{ scrollBehavior: 'smooth' }}>
                 {filteredData.playlists?.map((playlist, index) => (
-                  <div key={playlist.id || index} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-gray-600 transition-colors">
+                  <div key={playlist.id ?? `playlist-${index}`} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-gray-600 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 space-y-1 sm:space-y-0">
                       <span className="text-xs sm:text-sm text-gray-400">
                         {new Date(playlist.created_at).toLocaleString('es-ES')}
@@ -1448,6 +1515,7 @@ export default function AdminDebugDB() {
                         data={chartData.payments} 
                         title="Pagos Registrados" 
                         color="#60a5fa" 
+                        historicalTotal={data?.counts.payments}
                       />
                     </div>
                     
@@ -1559,7 +1627,7 @@ export default function AdminDebugDB() {
               
               <div className="space-y-3 max-h-[800px] overflow-y-auto" style={{ scrollBehavior: 'smooth' }}>
                 {(filteredData.payments && filteredData.payments.length > 0 ? filteredData.payments : data?.recentPayments || []).map((payment, index) => (
-                  <div key={payment.id || index} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-blue-500/30 transition-colors">
+                  <div key={payment.id ?? `payment-${index}`} className="bg-gray-800 rounded-lg p-3 sm:p-4 border border-gray-700 hover:border-blue-500/30 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 space-y-1 sm:space-y-0">
                       <span className="text-xs sm:text-sm text-gray-400">
                         {payment.created_at ? new Date(payment.created_at).toLocaleString('es-ES') : 'Sin fecha'}

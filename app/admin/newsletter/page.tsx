@@ -399,11 +399,29 @@ export default function NewsletterAdminPage() {
     secondaryUrl: '',
     groupIds: [] as string[],
     recipientEmails: '',
+    selectedUserEmails: [] as string[], // Nueva propiedad para emails seleccionados
     sendMode: 'draft',
     scheduledFor: '',
-    templateMode: 'custom' as 'custom' | 'pleia',
+    templateMode: 'custom' as 'custom' | 'pleia' | 'minimal',
     trackingEnabled: true,
+    // A/B Testing
+    abTestEnabled: false,
+    subjectB: '',
+    testDuration: 24,
+    testDurationUnit: 'hours' as 'hours' | 'days',
+    winnerCriteria: 'opens' as 'opens' | 'clicks' | 'ctr' | 'combined',
+    // Categorización
+    mailCategory: 'general' as 'welcome' | 'founder' | 'update' | 'general' | 'promo',
   });
+  
+  // Estados para el selector mejorado
+  const [recipientSearch, setRecipientSearch] = useState('');
+  const [recipientMode, setRecipientMode] = useState<'groups' | 'users' | 'manual'>('groups');
+  
+  // Estados para email de prueba
+  const [testEmailAddress, setTestEmailAddress] = useState('jeylabbb@gmail.com');
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const [testEmailMessage, setTestEmailMessage] = useState<string | null>(null);
   const [campaignSending, setCampaignSending] = useState(false);
   const [templateForm, setTemplateForm] = useState({
     name: '',
@@ -425,26 +443,91 @@ export default function NewsletterAdminPage() {
   const [savedMailMessage, setSavedMailMessage] = useState<string | null>(null);
   const [savedMailSaving, setSavedMailSaving] = useState(false);
 
+  const handleSendTestEmail = async (campaign?: any) => {
+    setSendingTestEmail(true);
+    setTestEmailMessage(null);
+    
+    try {
+      const payload = campaign || {
+        subject: campaignForm.subject || 'Email de prueba',
+        title: campaignForm.title || 'Test',
+        body: campaignForm.body || 'Este es un email de prueba',
+        primaryCta: campaignForm.primaryLabel && campaignForm.primaryUrl ? {
+          label: campaignForm.primaryLabel,
+          url: campaignForm.primaryUrl,
+        } : undefined,
+        secondaryCta: campaignForm.secondaryLabel && campaignForm.secondaryUrl && campaignForm.templateMode !== 'minimal' ? {
+          label: campaignForm.secondaryLabel,
+          url: campaignForm.secondaryUrl,
+        } : undefined,
+        templateMode: campaign?.template_mode || campaignForm.templateMode,
+      };
+
+      const response = await fetch('/api/admin/newsletter/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject: campaign?.subject || payload.subject,
+          title: campaign?.title || payload.title,
+          message: campaign?.body || payload.body,
+          previewOnly: true,
+          recipientEmails: [testEmailAddress],
+          primaryCta: campaign ? 
+            (campaign.primary_cta_label && campaign.primary_cta_url ? {
+              label: campaign.primary_cta_label,
+              url: campaign.primary_cta_url,
+            } : undefined) : payload.primaryCta,
+          secondaryCta: campaign ? 
+            (campaign.secondary_cta_label && campaign.secondary_cta_url ? {
+              label: campaign.secondary_cta_label,
+              url: campaign.secondary_cta_url,
+            } : undefined) : payload.secondaryCta,
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setTestEmailMessage(`✅ Email de prueba enviado a ${testEmailAddress}`);
+      } else {
+        setTestEmailMessage(`❌ Error: ${result.error}`);
+      }
+    } catch (error: any) {
+      setTestEmailMessage(`❌ Error: ${error.message}`);
+    } finally {
+      setSendingTestEmail(false);
+    }
+  };
+
   const handleCreateCampaign = async () => {
     if (!campaignForm.title || !campaignForm.subject || !campaignForm.body) {
       alert('Completa título, asunto y cuerpo');
       return;
     }
+    
+    // Combinar emails seleccionados y manuales
+    const manualEmails = campaignForm.recipientEmails
+      ? campaignForm.recipientEmails.split(',').map((email) => email.trim()).filter(Boolean)
+      : [];
+    const allEmails = Array.from(new Set([...campaignForm.selectedUserEmails, ...manualEmails]));
+    
     const payload: any = {
       title: campaignForm.title,
       subject: campaignForm.subject,
       preheader: campaignForm.preheader || undefined,
       body: campaignForm.body,
       groupIds: campaignForm.groupIds,
-      recipientEmails: campaignForm.recipientEmails
-        ? campaignForm.recipientEmails
-            .split(',')
-            .map((email) => email.trim())
-            .filter(Boolean)
-        : undefined,
+      recipientEmails: allEmails.length > 0 ? allEmails : undefined,
       sendMode: campaignForm.sendMode,
       scheduledFor: campaignForm.sendMode === 'scheduled' ? campaignForm.scheduledFor || undefined : undefined,
       trackingEnabled: campaignForm.trackingEnabled,
+      mailCategory: campaignForm.mailCategory,
+      // A/B Testing
+      abTestEnabled: campaignForm.abTestEnabled,
+      subjectB: campaignForm.abTestEnabled ? campaignForm.subjectB : undefined,
+      testDuration: campaignForm.abTestEnabled ? campaignForm.testDuration : undefined,
+      testDurationUnit: campaignForm.abTestEnabled ? campaignForm.testDurationUnit : undefined,
+      winnerCriteria: campaignForm.abTestEnabled ? campaignForm.winnerCriteria : undefined,
     };
     if (campaignForm.templateMode === 'pleia') {
       payload.primaryCta = {
@@ -455,6 +538,11 @@ export default function NewsletterAdminPage() {
         label: campaignForm.secondaryLabel || 'Explorar trending',
         url: campaignForm.secondaryUrl || 'https://playlists.jeylabbb.com/trending',
       };
+    } else if (campaignForm.templateMode === 'minimal') {
+      if (campaignForm.primaryLabel && campaignForm.primaryUrl) {
+        payload.primaryCta = { label: campaignForm.primaryLabel, url: campaignForm.primaryUrl };
+      }
+      // Sin CTA secundario en minimal
     } else {
       if (campaignForm.primaryLabel && campaignForm.primaryUrl) {
       payload.primaryCta = { label: campaignForm.primaryLabel, url: campaignForm.primaryUrl };
@@ -487,11 +575,21 @@ export default function NewsletterAdminPage() {
       secondaryUrl: '',
       groupIds: [],
       recipientEmails: '',
+      selectedUserEmails: [],
       sendMode: 'draft',
       scheduledFor: '',
-      templateMode: 'custom',
+      templateMode: 'pleia',
       trackingEnabled: true,
+      abTestEnabled: false,
+      subjectB: '',
+      testDuration: 24,
+      testDurationUnit: 'hours',
+      winnerCriteria: 'opens',
+      mailCategory: 'general',
     });
+    setRecipientSearch('');
+    setRecipientMode('groups');
+    setTestEmailMessage(null);
     mutateCampaigns();
     mutateContacts();
   };
@@ -506,7 +604,7 @@ export default function NewsletterAdminPage() {
       primaryUrl: template.primary_cta?.url || prev.primaryUrl,
       secondaryLabel: template.secondary_cta?.label || prev.secondaryLabel,
       secondaryUrl: template.secondary_cta?.url || prev.secondaryUrl,
-      templateMode: 'custom',
+      templateMode: 'pleia',
     }));
     setTemplateActionMessage(`Plantilla "${template.name}" aplicada.`);
   }, []);
@@ -632,7 +730,7 @@ export default function NewsletterAdminPage() {
         category: 'welcome',
         status: 'draft',
         templateId: '',
-        templateMode: 'custom',
+        templateMode: 'pleia',
       });
       mutateSavedMails();
     } catch (error: any) {
@@ -1419,6 +1517,115 @@ export default function NewsletterAdminPage() {
                   className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm md:col-span-2"
                 />
               </div>
+
+              {/* Categoría del mail */}
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <label className="text-sm font-semibold text-white block mb-3">Categoría del Mail</label>
+                <select
+                  value={campaignForm.mailCategory}
+                  onChange={(e) => setCampaignForm((prev) => ({ ...prev, mailCategory: e.target.value as any }))}
+                  className="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
+                >
+                  <option value="general">General</option>
+                  <option value="welcome">Welcome Mail</option>
+                  <option value="founder">Founder Mail</option>
+                  <option value="update">Actualización</option>
+                  <option value="promo">Promoción</option>
+                </select>
+              </div>
+
+              {/* A/B Testing */}
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-semibold text-white">🧪 A/B Testing</label>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={campaignForm.abTestEnabled}
+                      onChange={(e) => setCampaignForm((prev) => ({ ...prev, abTestEnabled: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+                  </label>
+                </div>
+
+                {campaignForm.abTestEnabled && (
+                  <div className="space-y-4 mt-4 pt-4 border-t border-gray-700">
+                    <div className="bg-cyan-900/20 border border-cyan-700/30 rounded-lg p-3 text-xs text-cyan-200">
+                      <strong>¿Cómo funciona?</strong><br />
+                      • 25% recibe Asunto A, 25% recibe Asunto B<br />
+                      • Después del tiempo de prueba, se evalúa el ganador<br />
+                      • El 50% restante recibe el mail con el asunto ganador
+                    </div>
+
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">Asunto B (variante)</label>
+                      <input
+                        value={campaignForm.subjectB}
+                        onChange={(e) => setCampaignForm((prev) => ({ ...prev, subjectB: e.target.value }))}
+                        placeholder="Asunto alternativo para probar"
+                        className="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
+                      />
+                    </div>
+
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs text-gray-400 block mb-1">Duración del test</label>
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            value={campaignForm.testDuration}
+                            onChange={(e) => setCampaignForm((prev) => ({ ...prev, testDuration: parseInt(e.target.value) || 1 }))}
+                            className="flex-1 px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
+                          />
+                          <select
+                            value={campaignForm.testDurationUnit}
+                            onChange={(e) => setCampaignForm((prev) => ({ ...prev, testDurationUnit: e.target.value as any }))}
+                            className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
+                          >
+                            <option value="hours">Horas</option>
+                            <option value="days">Días</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs text-gray-400 block mb-1">Criterio ganador</label>
+                        <select
+                          value={campaignForm.winnerCriteria}
+                          onChange={(e) => setCampaignForm((prev) => ({ ...prev, winnerCriteria: e.target.value as any }))}
+                          className="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
+                        >
+                          <option value="opens">🔓 Más aperturas</option>
+                          <option value="clicks">👆 Más clicks</option>
+                          <option value="ctr">📊 Mejor CTR (clicks/aperturas)</option>
+                          <option value="combined">🎯 Combinado (clicks + aperturas)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="bg-gray-900 rounded-lg p-3">
+                      <div className="text-xs text-gray-400">Distribución:</div>
+                      <div className="grid grid-cols-3 gap-2 mt-2 text-xs">
+                        <div className="bg-cyan-600/20 border border-cyan-600/40 rounded p-2 text-center">
+                          <div className="text-cyan-300 font-bold">25%</div>
+                          <div className="text-gray-400">Asunto A</div>
+                        </div>
+                        <div className="bg-purple-600/20 border border-purple-600/40 rounded p-2 text-center">
+                          <div className="text-purple-300 font-bold">25%</div>
+                          <div className="text-gray-400">Asunto B</div>
+                        </div>
+                        <div className="bg-green-600/20 border border-green-600/40 rounded p-2 text-center">
+                          <div className="text-green-300 font-bold">50%</div>
+                          <div className="text-gray-400">Ganador</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <textarea
                 value={campaignForm.body}
                 onChange={(e) => setCampaignForm((prev) => ({ ...prev, body: e.target.value }))}
@@ -1434,32 +1641,41 @@ export default function NewsletterAdminPage() {
                     onChange={(e) =>
                       setCampaignForm((prev) => ({
                         ...prev,
-                        templateMode: e.target.value as 'custom' | 'pleia',
+                        templateMode: e.target.value as 'custom' | 'pleia' | 'minimal',
                         primaryLabel:
-                          e.target.value === 'pleia' ? 'Crear playlist con IA' : prev.primaryLabel,
+                          e.target.value === 'pleia' ? 'Crear playlist con IA' : 
+                          e.target.value === 'minimal' ? 'Continuar leyendo' : 
+                          prev.primaryLabel,
                         primaryUrl:
-                          e.target.value === 'pleia' ? 'https://playlists.jeylabbb.com' : prev.primaryUrl,
+                          e.target.value === 'pleia' ? 'https://playlists.jeylabbb.com' : 
+                          e.target.value === 'minimal' ? 'https://playlists.jeylabbb.com' : 
+                          prev.primaryUrl,
                         secondaryLabel:
-                          e.target.value === 'pleia' ? 'Explorar trending' : prev.secondaryLabel,
+                          e.target.value === 'pleia' ? 'Explorar trending' : 
+                          e.target.value === 'minimal' ? '' : 
+                          prev.secondaryLabel,
                         secondaryUrl:
-                          e.target.value === 'pleia'
-                            ? 'https://playlists.jeylabbb.com/trending'
-                            : prev.secondaryUrl,
+                          e.target.value === 'pleia' ? 'https://playlists.jeylabbb.com/trending' : 
+                          e.target.value === 'minimal' ? '' : 
+                          prev.secondaryUrl,
                       }))
                     }
                     className="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
                   >
                     <option value="custom">Personalizado</option>
-                    <option value="pleia">Rápido (plantilla PLEIA)</option>
+                    <option value="pleia">🎨 Plantilla PLEIA (Visual)</option>
+                    <option value="minimal">📄 Plantilla Minimal (Texto)</option>
                   </select>
                 </div>
                 <div className="md:col-span-2 text-xs text-gray-400">
                   {campaignForm.templateMode === 'pleia'
-                    ? 'Se usará la plantilla oficial (colores PLEIA). CTAs se fijan automáticamente.'
+                    ? '🎨 Plantilla visual con colores y gradientes PLEIA. CTAs se fijan automáticamente.'
+                    : campaignForm.templateMode === 'minimal'
+                    ? '📄 Plantilla minimalista enfocada en legibilidad del texto. Un solo CTA principal.'
                     : 'Puedes personalizar botones y enlaces.'}
                 </div>
               </div>
-              {campaignForm.templateMode === 'custom' && (
+              {(campaignForm.templateMode === 'custom' || campaignForm.templateMode === 'minimal') && (
                 <div className="grid md:grid-cols-2 gap-4">
                   <input
                     value={campaignForm.primaryLabel}
@@ -1487,65 +1703,263 @@ export default function NewsletterAdminPage() {
                   />
                 </div>
               )}
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">Grupos destino</label>
-                  <select
-                    multiple
-                    value={campaignForm.groupIds}
-                    onChange={(e) =>
-                      setCampaignForm((prev) => ({
-                        ...prev,
-                        groupIds: Array.from(e.target.selectedOptions).map((opt) => opt.value),
-                      }))
-                    }
-                    className="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
-                  >
-                    {groups.map((group) => (
-                      <option key={group.id} value={group.id}>
-                        {group.name} ({group.member_count ?? 0})
-                      </option>
-                    ))}
-                  </select>
+              {/* Selector mejorado de destinatarios */}
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div className="flex items-center justify-between mb-4">
+                  <label className="text-sm font-semibold text-white">Destinatarios</label>
+                  <div className="text-xs text-cyan-400">
+                    {(() => {
+                      const groupCount = campaignForm.groupIds.length;
+                      const userCount = campaignForm.selectedUserEmails.length;
+                      const manualCount = campaignForm.recipientEmails ? campaignForm.recipientEmails.split(',').filter(Boolean).length : 0;
+                      const totalEstimate = groups
+                        .filter(g => campaignForm.groupIds.includes(g.id))
+                        .reduce((sum, g) => sum + (g.member_count ?? 0), 0) + userCount + manualCount;
+                      return `~${totalEstimate} destinatarios`;
+                    })()}
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">Emails manuales (coma)</label>
-                  <textarea
-                    value={campaignForm.recipientEmails}
-                    onChange={(e) => setCampaignForm((prev) => ({ ...prev, recipientEmails: e.target.value }))}
-                    rows={3}
-                    className="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
+
+                {/* Tabs de modo */}
+                <div className="flex gap-2 mb-4 bg-gray-900 p-1 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setRecipientMode('groups')}
+                    className={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition-all ${
+                      recipientMode === 'groups'
+                        ? 'bg-cyan-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                    }`}
+                  >
+                    📁 Grupos ({campaignForm.groupIds.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRecipientMode('users')}
+                    className={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition-all ${
+                      recipientMode === 'users'
+                        ? 'bg-cyan-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                    }`}
+                  >
+                    👥 Usuarios ({campaignForm.selectedUserEmails.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRecipientMode('manual')}
+                    className={`flex-1 px-3 py-2 rounded-md text-xs font-medium transition-all ${
+                      recipientMode === 'manual'
+                        ? 'bg-cyan-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                    }`}
+                  >
+                    ✍️ Manual
+                  </button>
+                </div>
+
+                {/* Búsqueda (solo para groups y users) */}
+                {(recipientMode === 'groups' || recipientMode === 'users') && (
+                  <input
+                    type="text"
+                    value={recipientSearch}
+                    onChange={(e) => setRecipientSearch(e.target.value)}
+                    placeholder={recipientMode === 'groups' ? 'Buscar grupos...' : 'Buscar usuarios...'}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm mb-3"
                   />
-                  <label className="text-xs text-gray-400 block mt-3 mb-1">
-                    O selecciona usuarios existentes
-                  </label>
-                  <select
-                    multiple
-                    value={
-                      campaignForm.recipientEmails
-                        ? campaignForm.recipientEmails
-                            .split(',')
-                            .map((email) => email.trim())
-                            .filter(Boolean)
-                        : []
-                    }
-                    onChange={(e) =>
-                      setCampaignForm((prev) => ({
-                        ...prev,
-                        recipientEmails: Array.from(e.target.selectedOptions)
-                          .map((opt) => opt.value)
-                          .join(', '),
-                      }))
-                    }
-                    className="mt-1 w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm h-32"
-                  >
-                    {contacts.map((contact) => (
-                      <option key={contact.id ?? contact.email} value={contact.email}>
-                        {contact.email}
-                      </option>
-                    ))}
-                  </select>
+                )}
+
+                {/* Contenido según modo */}
+                <div className="max-h-64 overflow-y-auto space-y-2">
+                  {recipientMode === 'groups' && (
+                    <>
+                      {groups
+                        .filter(group => 
+                          !recipientSearch || 
+                          group.name.toLowerCase().includes(recipientSearch.toLowerCase())
+                        )
+                        .map((group) => (
+                          <label
+                            key={group.id}
+                            className="flex items-center gap-3 p-3 rounded-lg bg-gray-900 hover:bg-gray-800 cursor-pointer transition-colors border border-transparent hover:border-gray-700"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={campaignForm.groupIds.includes(group.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setCampaignForm(prev => ({
+                                    ...prev,
+                                    groupIds: [...prev.groupIds, group.id]
+                                  }));
+                                } else {
+                                  setCampaignForm(prev => ({
+                                    ...prev,
+                                    groupIds: prev.groupIds.filter(id => id !== group.id)
+                                  }));
+                                }
+                              }}
+                              className="w-4 h-4 rounded border-gray-600 text-cyan-600 focus:ring-cyan-500 focus:ring-offset-gray-900"
+                            />
+                            <div className="flex-1">
+                              <div className="text-sm text-white font-medium">{group.name}</div>
+                              <div className="text-xs text-gray-400">
+                                {group.member_count ?? 0} miembros
+                                {group.description && ` · ${group.description}`}
+                              </div>
+                            </div>
+                          </label>
+                        ))}
+                    </>
+                  )}
+
+                  {recipientMode === 'users' && (
+                    <>
+                      <div className="flex gap-2 mb-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const filteredEmails = contacts
+                              .filter(c => 
+                                !recipientSearch || 
+                                c.email.toLowerCase().includes(recipientSearch.toLowerCase())
+                              )
+                              .map(c => c.email);
+                            setCampaignForm(prev => ({
+                              ...prev,
+                              selectedUserEmails: Array.from(new Set([...prev.selectedUserEmails, ...filteredEmails]))
+                            }));
+                          }}
+                          className="text-xs px-2 py-1 bg-cyan-600 text-white rounded hover:bg-cyan-700"
+                        >
+                          Seleccionar {recipientSearch ? 'filtrados' : 'todos'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCampaignForm(prev => ({ ...prev, selectedUserEmails: [] }))}
+                          className="text-xs px-2 py-1 bg-gray-700 text-white rounded hover:bg-gray-600"
+                        >
+                          Limpiar
+                        </button>
+                      </div>
+                      {contacts
+                        .filter(contact => 
+                          !recipientSearch || 
+                          contact.email.toLowerCase().includes(recipientSearch.toLowerCase()) ||
+                          contact.name?.toLowerCase().includes(recipientSearch.toLowerCase())
+                        )
+                        .map((contact) => (
+                          <label
+                            key={contact.id ?? contact.email}
+                            className="flex items-center gap-3 p-2 rounded-lg bg-gray-900 hover:bg-gray-800 cursor-pointer transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={campaignForm.selectedUserEmails.includes(contact.email)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setCampaignForm(prev => ({
+                                    ...prev,
+                                    selectedUserEmails: [...prev.selectedUserEmails, contact.email]
+                                  }));
+                                } else {
+                                  setCampaignForm(prev => ({
+                                    ...prev,
+                                    selectedUserEmails: prev.selectedUserEmails.filter(email => email !== contact.email)
+                                  }));
+                                }
+                              }}
+                              className="w-4 h-4 rounded border-gray-600 text-cyan-600 focus:ring-cyan-500 focus:ring-offset-gray-900"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm text-white truncate">{contact.email}</div>
+                              {contact.name && (
+                                <div className="text-xs text-gray-400">{contact.name}</div>
+                              )}
+                            </div>
+                            {contact.plan && (
+                              <span className={`text-xs px-2 py-0.5 rounded ${
+                                contact.plan === 'founder' ? 'bg-yellow-600/20 text-yellow-300' :
+                                contact.plan === 'premium' ? 'bg-blue-600/20 text-blue-300' :
+                                'bg-gray-700 text-gray-300'
+                              }`}>
+                                {contact.plan}
+                              </span>
+                            )}
+                          </label>
+                        ))}
+                    </>
+                  )}
+
+                  {recipientMode === 'manual' && (
+                    <div>
+                      <textarea
+                        value={campaignForm.recipientEmails}
+                        onChange={(e) => setCampaignForm(prev => ({ ...prev, recipientEmails: e.target.value }))}
+                        rows={6}
+                        placeholder="Introduce emails separados por comas:&#10;usuario1@ejemplo.com, usuario2@ejemplo.com"
+                        className="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
+                      />
+                      <p className="text-xs text-gray-500 mt-2">
+                        {campaignForm.recipientEmails ? 
+                          `${campaignForm.recipientEmails.split(',').filter(Boolean).length} emails` : 
+                          'Separa múltiples emails con comas'}
+                      </p>
+                    </div>
+                  )}
                 </div>
+
+                {/* Tags de selección */}
+                {(campaignForm.groupIds.length > 0 || campaignForm.selectedUserEmails.length > 0) && (
+                  <div className="mt-4 pt-4 border-t border-gray-700">
+                    <div className="text-xs text-gray-400 mb-2">Seleccionados:</div>
+                    <div className="flex flex-wrap gap-2">
+                      {campaignForm.groupIds.map(groupId => {
+                        const group = groups.find(g => g.id === groupId);
+                        return group ? (
+                          <span
+                            key={groupId}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-cyan-600/20 text-cyan-300 rounded-md text-xs"
+                          >
+                            📁 {group.name} ({group.member_count ?? 0})
+                            <button
+                              type="button"
+                              onClick={() => setCampaignForm(prev => ({
+                                ...prev,
+                                groupIds: prev.groupIds.filter(id => id !== groupId)
+                              }))}
+                              className="ml-1 hover:text-cyan-100"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ) : null;
+                      })}
+                      {campaignForm.selectedUserEmails.slice(0, 10).map(email => (
+                        <span
+                          key={email}
+                          className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600/20 text-blue-300 rounded-md text-xs"
+                        >
+                          {email}
+                          <button
+                            type="button"
+                            onClick={() => setCampaignForm(prev => ({
+                              ...prev,
+                              selectedUserEmails: prev.selectedUserEmails.filter(e => e !== email)
+                            }))}
+                            className="ml-1 hover:text-blue-100"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                      {campaignForm.selectedUserEmails.length > 10 && (
+                        <span className="px-2 py-1 bg-gray-700 text-gray-300 rounded-md text-xs">
+                          +{campaignForm.selectedUserEmails.length - 10} más
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="grid md:grid-cols-3 gap-4">
                 <div>
@@ -1572,13 +1986,41 @@ export default function NewsletterAdminPage() {
                   </div>
                 )}
               </div>
-              <button
-                disabled={campaignSending}
-                onClick={handleCreateCampaign}
-                className="px-4 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-sm font-semibold hover:opacity-90 disabled:opacity-60"
-              >
-                {campaignSending ? 'Enviando...' : 'Guardar campaña'}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3">
+                {/* Test Email */}
+                <div className="flex-1 bg-gray-800 rounded-lg p-3 border border-gray-700">
+                  <label className="text-xs text-gray-400 block mb-2">📧 Enviar email de prueba</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      value={testEmailAddress}
+                      onChange={(e) => setTestEmailAddress(e.target.value)}
+                      placeholder="email@ejemplo.com"
+                      className="flex-1 px-3 py-1.5 rounded-lg bg-gray-900 border border-gray-700 text-sm"
+                    />
+                    <button
+                      disabled={sendingTestEmail || !campaignForm.subject || !campaignForm.body}
+                      onClick={() => handleSendTestEmail()}
+                      className="px-4 py-1.5 rounded-lg bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      {sendingTestEmail ? 'Enviando...' : 'Enviar test'}
+                    </button>
+                  </div>
+                  {testEmailMessage && (
+                    <p className={`text-xs mt-2 ${testEmailMessage.startsWith('✅') ? 'text-green-400' : 'text-red-400'}`}>
+                      {testEmailMessage}
+                    </p>
+                  )}
+                </div>
+                
+                <button
+                  disabled={campaignSending}
+                  onClick={handleCreateCampaign}
+                  className="px-6 py-2 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-sm font-semibold hover:opacity-90 disabled:opacity-60 self-end"
+                >
+                  {campaignSending ? 'Enviando...' : 'Guardar campaña'}
+                </button>
+              </div>
             </div>
 
             <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 space-y-4">
@@ -1608,9 +2050,16 @@ export default function NewsletterAdminPage() {
                       <div className="flex gap-2 flex-wrap items-center">
                         <button
                           onClick={() => openCampaignDetail(campaign.id)}
-                          className="px-3 py-1 rounded-lg bg-gray-900 border border-gray-700 text-xs"
+                          className="px-3 py-1 rounded-lg bg-gray-900 border border-gray-700 text-xs hover:bg-gray-800"
                         >
                           Ver detalle
+                        </button>
+                        <button
+                          disabled={sendingTestEmail}
+                          onClick={() => handleSendTestEmail(campaign)}
+                          className="px-3 py-1 rounded-lg bg-purple-600/20 border border-purple-600/40 text-purple-300 text-xs hover:bg-purple-600/30 disabled:opacity-50"
+                        >
+                          📧 Test
                         </button>
                         <button
                           onClick={async () => {
@@ -2161,22 +2610,147 @@ export default function NewsletterAdminPage() {
                 loading={analyticsLoading}
               />
             </div>
-            <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 space-y-4">
-              <h2 className="text-lg font-semibold">Actividad últimos 30 días</h2>
-              {analyticsLoading ? (
+
+            {/* Métricas por categoría de mail */}
+            <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6">
+              <h2 className="text-lg font-semibold mb-6">📊 Métricas por Tipo de Mail</h2>
+              {campaignsLoading ? (
                 <p className="text-gray-400 text-sm">Cargando métricas...</p>
-              ) : trackingDaily.length === 0 ? (
-                <p className="text-gray-400 text-sm">Sin datos registrados aún.</p>
               ) : (
-                <div className="space-y-2 text-sm text-gray-300">
-                  {trackingDaily.map((day: any) => (
-                    <div key={day.date} className="flex items-center justify-between border-b border-white/5 pb-1">
-                      <span className="text-xs text-gray-400">{day.date}</span>
-                      <span className="text-xs text-gray-400">
-                        Ent: {day.delivered} · Open: {day.opened} · Click: {day.clicked}
-                      </span>
-                    </div>
-                  ))}
+                <div className="space-y-4">
+                  {(() => {
+                    const categoryGroups = campaigns.reduce((acc: any, campaign: any) => {
+                      const category = campaign.mail_category || 'general';
+                      if (!acc[category]) {
+                        acc[category] = [];
+                      }
+                      acc[category].push(campaign);
+                      return acc;
+                    }, {});
+
+                    const categoryLabels: Record<string, string> = {
+                      welcome: '👋 Welcome Mails',
+                      founder: '⭐ Founder Mails',
+                      update: '📰 Actualizaciones',
+                      promo: '🎁 Promociones',
+                      general: '📧 General',
+                    };
+
+                    return Object.entries(categoryGroups).map(([category, categoryCampaigns]: [string, any]) => {
+                      const categoryStats = categoryCampaigns.reduce((acc: any, c: any) => {
+                        const stats = c.stats || { sent: 0, opened: 0, clicked: 0 };
+                        return {
+                          sent: acc.sent + stats.sent,
+                          opened: acc.opened + stats.opened,
+                          clicked: acc.clicked + stats.clicked,
+                          total: acc.total + 1,
+                        };
+                      }, { sent: 0, opened: 0, clicked: 0, total: 0 });
+
+                      const openRate = categoryStats.sent > 0 ? (categoryStats.opened / categoryStats.sent) * 100 : 0;
+                      const clickRate = categoryStats.opened > 0 ? (categoryStats.clicked / categoryStats.opened) * 100 : 0;
+
+                      return (
+                        <details key={category} className="bg-gray-900 rounded-lg border border-gray-700" open>
+                          <summary className="cursor-pointer p-4 hover:bg-gray-800/50 transition-colors">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-sm font-semibold text-white">
+                                  {categoryLabels[category] || category}
+                                </div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                  {categoryStats.total} campañas enviadas
+                                </div>
+                              </div>
+                              <div className="flex gap-4 text-xs">
+                                <div className="text-center">
+                                  <div className="text-cyan-400 font-bold">{openRate.toFixed(1)}%</div>
+                                  <div className="text-gray-500">Apertura</div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-purple-400 font-bold">{clickRate.toFixed(1)}%</div>
+                                  <div className="text-gray-500">Click</div>
+                                </div>
+                              </div>
+                            </div>
+                          </summary>
+                          <div className="p-4 pt-0 space-y-3">
+                            {categoryCampaigns.map((campaign: any) => {
+                              const stats = campaign.stats || { sent: 0, opened: 0, clicked: 0 };
+                              const cOpenRate = stats.sent > 0 ? (stats.opened / stats.sent) * 100 : 0;
+                              const cClickRate = stats.opened > 0 ? (stats.clicked / stats.opened) * 100 : 0;
+
+                              return (
+                                <div key={campaign.id} className="bg-gray-800 rounded-lg p-4 hover:bg-gray-700/50 transition-colors">
+                                  <div className="flex items-start justify-between mb-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-sm font-medium text-white truncate">{campaign.subject}</div>
+                                      {campaign.ab_test_enabled && (
+                                        <div className="flex gap-2 mt-1">
+                                          <span className="text-xs px-2 py-0.5 bg-cyan-600/20 text-cyan-300 rounded">
+                                            🧪 A/B Test
+                                          </span>
+                                          {campaign.ab_test_winner && (
+                                            <span className="text-xs px-2 py-0.5 bg-green-600/20 text-green-300 rounded">
+                                              Ganador: {campaign.ab_test_winner}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                      <div className="text-xs text-gray-400 mt-1 line-clamp-2">{campaign.body?.substring(0, 100)}...</div>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                                    <div className="text-center p-2 bg-gray-900 rounded">
+                                      <div className="text-gray-400">Enviados</div>
+                                      <div className="text-white font-bold">{stats.sent}</div>
+                                    </div>
+                                    <div className="text-center p-2 bg-gray-900 rounded">
+                                      <div className="text-gray-400">Abiertos</div>
+                                      <div className="text-cyan-400 font-bold">{stats.opened}</div>
+                                    </div>
+                                    <div className="text-center p-2 bg-gray-900 rounded">
+                                      <div className="text-gray-400">Clicks</div>
+                                      <div className="text-purple-400 font-bold">{stats.clicked}</div>
+                                    </div>
+                                    <div className="text-center p-2 bg-gray-900 rounded">
+                                      <div className="text-gray-400">Open Rate</div>
+                                      <div className={`font-bold ${cOpenRate > 20 ? 'text-green-400' : cOpenRate > 10 ? 'text-yellow-400' : 'text-red-400'}`}>
+                                        {cOpenRate.toFixed(1)}%
+                                      </div>
+                                    </div>
+                                    <div className="text-center p-2 bg-gray-900 rounded">
+                                      <div className="text-gray-400">CTR</div>
+                                      <div className={`font-bold ${cClickRate > 5 ? 'text-green-400' : cClickRate > 2 ? 'text-yellow-400' : 'text-gray-400'}`}>
+                                        {cClickRate.toFixed(1)}%
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  {campaign.ab_test_enabled && campaign.ab_test_evaluated_at && (
+                                    <div className="mt-3 pt-3 border-t border-gray-700">
+                                      <div className="text-xs text-gray-400 mb-2">Resultados A/B Test:</div>
+                                      <div className="grid grid-cols-2 gap-2 text-xs">
+                                        <div className="p-2 bg-cyan-900/20 border border-cyan-700/30 rounded">
+                                          <div className="text-cyan-300 font-medium">Variante A</div>
+                                          <div className="text-gray-400">{campaign.subject}</div>
+                                        </div>
+                                        <div className="p-2 bg-purple-900/20 border border-purple-700/30 rounded">
+                                          <div className="text-purple-300 font-medium">Variante B</div>
+                                          <div className="text-gray-400">{campaign.subject_b}</div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </details>
+                      );
+                    });
+                  })()}
                 </div>
               )}
             </div>
@@ -2368,25 +2942,39 @@ function CampaignDetailDrawer({
             <div className="flex items-center gap-2">
               <span
                 className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide ${
-                  campaign.status === 'sent'
+                  campaign.status === 'sent' || (campaign.stats?.sent > 0 && campaign.send_mode === 'immediate')
                     ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                     : campaign.status === 'failed'
                       ? 'bg-red-500/15 text-red-200 border border-red-500/30'
+                      : campaign.status === 'scheduled'
+                      ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
+                      : campaign.status === 'pending'
+                      ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/30'
                       : 'bg-gray-700/60 text-gray-200 border border-gray-500/40'
                 }`}
               >
-                {campaign.status}
+                {campaign.stats?.sent > 0 && campaign.send_mode === 'immediate' ? 'ACTIVA' : 
+                 campaign.status === 'scheduled' ? 'PROGRAMADA' :
+                 campaign.status === 'pending' ? 'PENDIENTE' :
+                 campaign.status}
               </span>
               {campaign.send_mode && (
                 <span className="text-[11px] text-gray-400">
-                  Modo:{' '}
-                  <span className="font-medium text-gray-200">
-                    {campaign.send_mode === 'immediate'
-                      ? 'Inmediato'
-                      : campaign.send_mode === 'scheduled'
-                        ? 'Programado'
-                        : 'Borrador'}
-                  </span>
+                  {campaign.stats?.sent > 0 && (
+                    <span className="text-cyan-400">
+                      {campaign.stats.sent} enviados
+                    </span>
+                  )}
+                  {campaign.send_mode === 'scheduled' && campaign.scheduled_for && (
+                    <span className="text-blue-400">
+                      {new Date(campaign.scheduled_for).toLocaleString('es-ES', { 
+                        day: 'numeric', 
+                        month: 'short', 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                      })}
+                    </span>
+                  )}
                 </span>
               )}
             </div>

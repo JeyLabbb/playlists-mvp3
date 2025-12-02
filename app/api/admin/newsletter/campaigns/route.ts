@@ -25,6 +25,14 @@ const createCampaignSchema = z.object({
   sendMode: z.enum(['draft', 'immediate', 'scheduled']).default('draft'),
   scheduledFor: z.string().datetime().optional(),
   trackingEnabled: z.boolean().optional(),
+  // A/B Testing
+  abTestEnabled: z.boolean().optional(),
+  subjectB: z.string().min(1).max(160).optional(),
+  testDuration: z.number().int().min(1).optional(),
+  testDurationUnit: z.enum(['hours', 'days']).optional(),
+  winnerCriteria: z.enum(['opens', 'clicks', 'ctr', 'combined']).optional(),
+  // Categorización
+  mailCategory: z.enum(['welcome', 'founder', 'update', 'general', 'promo']).optional(),
 });
 
 async function fetchContactsForGroups(
@@ -50,6 +58,30 @@ async function fetchContactsForGroups(
     });
   });
   return contacts;
+}
+
+// Función para mezclar array aleatoriamente (Fisher-Yates shuffle)
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+// Función para dividir destinatarios en grupos A/B test
+function splitRecipientsForABTest(recipients: any[]) {
+  const shuffled = shuffleArray(recipients);
+  const total = shuffled.length;
+  const groupASize = Math.floor(total * 0.25);
+  const groupBSize = Math.floor(total * 0.25);
+  
+  return {
+    groupA: shuffled.slice(0, groupASize), // 25%
+    groupB: shuffled.slice(groupASize, groupASize + groupBSize), // 25%
+    holdout: shuffled.slice(groupASize + groupBSize), // 50%
+  };
 }
 
 export async function GET(request: Request) {
@@ -146,6 +178,14 @@ export async function POST(request: Request) {
         status: payload.sendMode === 'draft' ? 'draft' : 'pending',
         scheduled_for: payload.sendMode === 'scheduled' ? payload.scheduledFor : null,
         created_by: adminAccess.email,
+        // A/B Testing fields
+        ab_test_enabled: payload.abTestEnabled ?? false,
+        subject_b: payload.abTestEnabled ? payload.subjectB : null,
+        test_duration: payload.abTestEnabled ? payload.testDuration : null,
+        test_duration_unit: payload.abTestEnabled ? payload.testDurationUnit : null,
+        winner_criteria: payload.abTestEnabled ? payload.winnerCriteria : null,
+        // Categorización
+        mail_category: payload.mailCategory ?? 'general',
       })
       .select('*')
       .single();
@@ -201,12 +241,47 @@ export async function POST(request: Request) {
 
     let recipientRows: any[] = [];
     if (recipientsList.length) {
-      const insertRows = recipientsList.map((contact) => ({
-        campaign_id: campaign.id,
-        contact_id: contact.id,
-        email: contact.email,
-        status: 'pending',
-      }));
+      let insertRows: any[];
+      
+      if (payload.abTestEnabled && payload.subjectB) {
+        // A/B Testing: dividir destinatarios aleatoriamente
+        const { groupA, groupB, holdout } = splitRecipientsForABTest(recipientsList);
+        
+        insertRows = [
+          ...groupA.map((contact) => ({
+            campaign_id: campaign.id,
+            contact_id: contact.id,
+            email: contact.email,
+            status: 'pending',
+            ab_test_variant: 'A',
+          })),
+          ...groupB.map((contact) => ({
+            campaign_id: campaign.id,
+            contact_id: contact.id,
+            email: contact.email,
+            status: 'pending',
+            ab_test_variant: 'B',
+          })),
+          ...holdout.map((contact) => ({
+            campaign_id: campaign.id,
+            contact_id: contact.id,
+            email: contact.email,
+            status: 'holdout', // No enviar todavía
+            ab_test_variant: 'holdout',
+          })),
+        ];
+        
+        console.log(`[A/B TEST] Campaign ${campaign.id}: A=${groupA.length}, B=${groupB.length}, Holdout=${holdout.length}`);
+      } else {
+        // Sin A/B testing: todos los destinatarios normales
+        insertRows = recipientsList.map((contact) => ({
+          campaign_id: campaign.id,
+          contact_id: contact.id,
+          email: contact.email,
+          status: 'pending',
+        }));
+      }
+      
       const { data: insertedRecipients, error: recipientsError } = await supabase
         .from('newsletter_campaign_recipients')
         .insert(insertRows)
@@ -218,23 +293,84 @@ export async function POST(request: Request) {
     const trackingEnabled = payload.trackingEnabled !== false;
 
     if (payload.sendMode === 'immediate') {
-      await deliverCampaignNow({
-        supabase,
-        campaign,
-        recipients: recipientRows,
-        content: {
-          subject: payload.subject,
-          title: payload.title,
-          body: payload.body,
-          ...(payload.primaryCta?.label && payload.primaryCta?.url && { 
-            primaryCta: { label: payload.primaryCta.label, url: payload.primaryCta.url } 
-          }),
-          ...(payload.secondaryCta?.label && payload.secondaryCta?.url && { 
-            secondaryCta: { label: payload.secondaryCta.label, url: payload.secondaryCta.url } 
-          }),
-        } as CampaignContentPayload,
-        trackingEnabled: trackingEnabled,
-      });
+      if (payload.abTestEnabled && payload.subjectB) {
+        // A/B Test: enviar variantes A y B, guardar holdout para después
+        const variantARecipients = recipientRows.filter(r => r.ab_test_variant === 'A');
+        const variantBRecipients = recipientRows.filter(r => r.ab_test_variant === 'B');
+        
+        // Enviar variante A
+        if (variantARecipients.length > 0) {
+          await deliverCampaignNow({
+            supabase,
+            campaign,
+            recipients: variantARecipients,
+            content: {
+              subject: payload.subject,
+              title: payload.title,
+              body: payload.body,
+              ...(payload.primaryCta?.label && payload.primaryCta?.url && { 
+                primaryCta: { label: payload.primaryCta.label, url: payload.primaryCta.url } 
+              }),
+              ...(payload.secondaryCta?.label && payload.secondaryCta?.url && { 
+                secondaryCta: { label: payload.secondaryCta.label, url: payload.secondaryCta.url } 
+              }),
+            } as CampaignContentPayload,
+            trackingEnabled: trackingEnabled,
+          });
+        }
+        
+        // Enviar variante B con subject diferente
+        if (variantBRecipients.length > 0) {
+          await deliverCampaignNow({
+            supabase,
+            campaign,
+            recipients: variantBRecipients,
+            content: {
+              subject: payload.subjectB,
+              title: payload.title,
+              body: payload.body,
+              ...(payload.primaryCta?.label && payload.primaryCta?.url && { 
+                primaryCta: { label: payload.primaryCta.label, url: payload.primaryCta.url } 
+              }),
+              ...(payload.secondaryCta?.label && payload.secondaryCta?.url && { 
+                secondaryCta: { label: payload.secondaryCta.label, url: payload.secondaryCta.url } 
+              }),
+            } as CampaignContentPayload,
+            trackingEnabled: trackingEnabled,
+          });
+        }
+        
+        // Programar evaluación y envío del ganador
+        const testDurationMs = payload.testDuration! * (payload.testDurationUnit === 'days' ? 24 : 1) * 60 * 60 * 1000;
+        const evaluateAt = new Date(Date.now() + testDurationMs).toISOString();
+        
+        await supabase.from('newsletter_jobs').insert({
+          job_type: 'ab-test-evaluate',
+          payload: { campaignId: campaign.id },
+          scheduled_for: evaluateAt,
+        });
+        
+        console.log(`[A/B TEST] Scheduled winner evaluation for ${evaluateAt}`);
+      } else {
+        // Sin A/B testing: envío normal
+        await deliverCampaignNow({
+          supabase,
+          campaign,
+          recipients: recipientRows,
+          content: {
+            subject: payload.subject,
+            title: payload.title,
+            body: payload.body,
+            ...(payload.primaryCta?.label && payload.primaryCta?.url && { 
+              primaryCta: { label: payload.primaryCta.label, url: payload.primaryCta.url } 
+            }),
+            ...(payload.secondaryCta?.label && payload.secondaryCta?.url && { 
+              secondaryCta: { label: payload.secondaryCta.label, url: payload.secondaryCta.url } 
+            }),
+          } as CampaignContentPayload,
+          trackingEnabled: trackingEnabled,
+        });
+      }
     } else if (payload.sendMode === 'scheduled' && payload.scheduledFor) {
       await supabase.from('newsletter_jobs').insert({
         job_type: 'campaign-send',

@@ -19,5 +19,11 @@
     }
   },
   "regions": ["iad1"],
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/cron/ab-test-evaluator",
+      "schedule": "*/15 * * * *"
+    }
+  ]
 }
