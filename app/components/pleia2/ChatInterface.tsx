@@ -151,7 +151,7 @@ export default function ChatInterface({ messages, isLoading, onSendMessage, onEx
                     inputRef.current?.focus();
                   }}
                 >
-                  "Crea una playlist de rock alternativo melancólico"
+                  &quot;Crea una playlist de rock alternativo melancólico&quot;
                 </div>
                 <div 
                   className="p-3 rounded-xl backdrop-blur-sm hover:scale-105 transition-transform cursor-pointer" 
@@ -164,7 +164,7 @@ export default function ChatInterface({ messages, isLoading, onSendMessage, onEx
                     inputRef.current?.focus();
                   }}
                 >
-                  "Música para concentrarme, estilo lofi pero más energética"
+                  &quot;Música para concentrarme, estilo lofi pero más energética&quot;
                 </div>
                 <div 
                   className="p-3 rounded-xl backdrop-blur-sm hover:scale-105 transition-transform cursor-pointer" 
@@ -177,7 +177,7 @@ export default function ChatInterface({ messages, isLoading, onSendMessage, onEx
                     inputRef.current?.focus();
                   }}
                 >
-                  "Playlist de reggaeton romántico de artistas emergentes"
+                  &quot;Playlist de reggaeton romántico de artistas emergentes&quot;
                 </div>
               </div>
             </div>
