@@ -60,6 +60,7 @@ const tabs = [
 
 export default function NewsletterAdminPage() {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]['key']>('overview');
+  const [mailDetailId, setMailDetailId] = useState<string | null>(null);
 
   const [contactSearch, setContactSearch] = useState('');
   const [contactFilters, setContactFilters] = useState({
@@ -2161,6 +2162,52 @@ export default function NewsletterAdminPage() {
             </div>
 
             <div className="bg-[#0b111f] rounded-3xl border border-white/5 p-6 space-y-4">
+              <h3 className="text-sm font-semibold text-white mb-4">🎨 Plantillas predefinidas</h3>
+              <div className="grid md:grid-cols-2 gap-4 mb-6">
+                {/* PLEIA Visual Template */}
+                <div className="rounded-2xl border border-cyan-500/30 p-4 space-y-3 bg-gradient-to-br from-cyan-900/20 to-blue-900/20">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-white">🎨 PLEIA Visual</p>
+                      <p className="text-xs text-gray-400">Plantilla mítica con gradientes y colores PLEIA.</p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] uppercase bg-cyan-500/20 text-cyan-200 border border-cyan-500/40">
+                      Oficial
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setCampaignForm(prev => ({ ...prev, templateMode: 'pleia' }))}
+                      className="px-3 py-1 rounded-full bg-cyan-600/20 text-xs text-cyan-200 hover:bg-cyan-600/30 border border-cyan-500/40"
+                    >
+                      Usar en campaña
+                    </button>
+                  </div>
+                </div>
+
+                {/* Minimal Template */}
+                <div className="rounded-2xl border border-gray-500/30 p-4 space-y-3 bg-gradient-to-br from-gray-900/20 to-gray-800/20">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-white">📄 PLEIA Minimal</p>
+                      <p className="text-xs text-gray-400">Minimalista enfocada en legibilidad del texto.</p>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] uppercase bg-gray-500/20 text-gray-300 border border-gray-500/40">
+                      Oficial
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setCampaignForm(prev => ({ ...prev, templateMode: 'minimal' }))}
+                      className="px-3 py-1 rounded-full bg-gray-600/20 text-xs text-gray-200 hover:bg-gray-600/30 border border-gray-500/40"
+                    >
+                      Usar en campaña
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <h3 className="text-sm font-semibold text-white mb-4 pt-4 border-t border-white/10">📚 Plantillas personalizadas</h3>
               {templatesLoading ? (
                 <p className="text-sm text-gray-400">Cargando plantillas...</p>
               ) : templates.length === 0 ? (
@@ -2684,7 +2731,14 @@ export default function NewsletterAdminPage() {
                                 <div key={campaign.id} className="bg-gray-800 rounded-lg p-4 hover:bg-gray-700/50 transition-colors">
                                   <div className="flex items-start justify-between mb-3">
                                     <div className="flex-1 min-w-0">
-                                      <div className="text-sm font-medium text-white truncate">{campaign.subject}</div>
+                                      <div className="flex items-center gap-2">
+                                        <div className="text-sm font-medium text-white truncate">{campaign.subject}</div>
+                                        {campaign.excluded_from_tracking && (
+                                          <span className="text-xs px-2 py-0.5 bg-red-600/20 text-red-300 rounded">
+                                            Excluido
+                                          </span>
+                                        )}
+                                      </div>
                                       {campaign.ab_test_enabled && (
                                         <div className="flex gap-2 mt-1">
                                           <span className="text-xs px-2 py-0.5 bg-cyan-600/20 text-cyan-300 rounded">
@@ -2698,6 +2752,32 @@ export default function NewsletterAdminPage() {
                                         </div>
                                       )}
                                       <div className="text-xs text-gray-400 mt-1 line-clamp-2">{campaign.body?.substring(0, 100)}...</div>
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                      <button
+                                        onClick={() => setMailDetailId(campaign.id)}
+                                        className="px-2 py-1 text-xs bg-cyan-600/20 text-cyan-300 rounded hover:bg-cyan-600/30"
+                                      >
+                                        Ver detalle
+                                      </button>
+                                      <button
+                                        onClick={async () => {
+                                          const newStatus = !campaign.excluded_from_tracking;
+                                          await fetch(`/api/admin/newsletter/campaigns/${campaign.id}`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ excluded_from_tracking: newStatus }),
+                                          });
+                                          mutateCampaigns();
+                                        }}
+                                        className={`px-2 py-1 text-xs rounded ${
+                                          campaign.excluded_from_tracking
+                                            ? 'bg-green-600/20 text-green-300 hover:bg-green-600/30'
+                                            : 'bg-red-600/20 text-red-300 hover:bg-red-600/30'
+                                        }`}
+                                      >
+                                        {campaign.excluded_from_tracking ? 'Incluir' : 'Excluir'}
+                                      </button>
                                     </div>
                                   </div>
                                   
@@ -2769,6 +2849,12 @@ export default function NewsletterAdminPage() {
         <WorkflowDetailDrawer
           workflow={workflowDetail}
           onClose={() => setWorkflowDetailId(null)}
+        />
+      )}
+      {mailDetailId && (
+        <MailDetailModal
+          campaignId={mailDetailId}
+          onClose={() => setMailDetailId(null)}
         />
       )}
     </div>
