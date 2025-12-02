@@ -104,8 +104,12 @@ export async function POST(request: Request) {
       title: payload.title,
       message: payload.message,
       previewOnly: payload.previewOnly ?? false,
-      primaryCta: payload.primaryCta,
-      secondaryCta: payload.secondaryCta,
+      primaryCta: payload.primaryCta?.label && payload.primaryCta?.url 
+        ? { label: payload.primaryCta.label, url: payload.primaryCta.url } 
+        : undefined,
+      secondaryCta: payload.secondaryCta?.label && payload.secondaryCta?.url 
+        ? { label: payload.secondaryCta.label, url: payload.secondaryCta.url } 
+        : undefined,
       templateMode: payload.templateMode,
     });
 
