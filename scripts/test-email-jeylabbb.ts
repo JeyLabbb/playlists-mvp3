@@ -87,9 +87,11 @@ async function testEmailJeylabbb() {
     console.log('   📬 Check inbox at jeylabbb@gmail.com');
     console.log('   ⚠️  If not in inbox, check SPAM folder');
   } else if (result.ok && !result.emailSent) {
-    console.log(`   ℹ️  Email not sent: ${result.reason}`);
+    const reason = 'reason' in result ? result.reason : 'unknown';
+    console.log(`   ℹ️  Email not sent: ${reason}`);
   } else {
-    console.error('   ❌ Failed to send email:', result.error);
+    const errorMsg = 'error' in result ? result.error : 'Unknown error';
+    console.error('   ❌ Failed to send email:', errorMsg);
   }
 
   // Step 3: Verify database update

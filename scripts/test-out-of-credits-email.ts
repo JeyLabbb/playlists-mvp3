@@ -101,9 +101,11 @@ async function testOutOfCreditsEmail(testEmail?: string) {
     console.log('   ✅ Email sent successfully!');
     console.log('   📬 Check your inbox (and spam folder)');
   } else if (result.ok && !result.emailSent) {
-    console.log(`   ℹ️  Email not sent: ${result.reason}`);
+    const reason = 'reason' in result ? result.reason : 'unknown';
+    console.log(`   ℹ️  Email not sent: ${reason}`);
   } else {
-    console.error('   ❌ Failed to send email:', result.error);
+    const errorMsg = 'error' in result ? result.error : 'Unknown error';
+    console.error('   ❌ Failed to send email:', errorMsg);
   }
 
   // Step 4: Verify database update
