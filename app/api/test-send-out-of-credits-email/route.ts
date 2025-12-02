@@ -126,11 +126,12 @@ export async function GET(request: NextRequest) {
         }
       });
     } else if (result.ok && !result.emailSent) {
-      console.log('[TEST-OUT-OF-CREDITS] ℹ️ Email no enviado:', result.reason);
+      const reason = 'reason' in result ? result.reason : 'unknown';
+      console.log('[TEST-OUT-OF-CREDITS] ℹ️ Email no enviado:', reason);
       return NextResponse.json({
         success: false,
         message: 'Email no enviado',
-        reason: result.reason,
+        reason: reason,
         email: testEmail,
       });
     } else {
