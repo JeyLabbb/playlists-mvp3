@@ -65,6 +65,66 @@ export async function ensureFounderWorkflow(
   }
 }
 
+export async function ensureOutOfCreditsWorkflow(
+  supabase: Awaited<ReturnType<typeof getNewsletterAdminClient>>,
+) {
+  // Crea (si no existe) el workflow automático para "Out of Credits" visible en la HQ
+  try {
+    const { data: existing, error } = await supabase
+      .from('newsletter_workflows')
+      .select('id, name')
+      .eq('name', 'Out of Credits · Automático')
+      .limit(1);
+
+    if (error) {
+      console.warn('[NEWSLETTER] ensureOutOfCreditsWorkflow lookup error:', error);
+      return null;
+    }
+    if (existing && existing.length > 0) {
+      console.log('[NEWSLETTER] Out of Credits workflow already exists:', existing[0].id);
+      return existing[0].id;
+    }
+
+    const { data: workflow, error: insertError } = await supabase
+      .from('newsletter_workflows')
+      .insert({
+        name: 'Out of Credits · Automático',
+        description:
+          'Workflow automático que se activa cuando un usuario agota sus créditos. Envía email con opciones de upgrade. Visible en campañas y tracking.',
+        trigger_type: 'automatic',
+        trigger_config: {
+          event: 'out_of_credits',
+          condition: 'first_attempt_with_zero_uses',
+        },
+        is_active: true,
+      })
+      .select('id')
+      .single();
+
+    if (insertError) {
+      console.warn('[NEWSLETTER] ensureOutOfCreditsWorkflow insert error:', insertError);
+      return null;
+    }
+
+    // Paso 1: Enviar campaña de out of credits
+    await supabase.from('newsletter_workflow_steps').insert({
+      workflow_id: workflow.id,
+      step_order: 0,
+      action_type: 'send_campaign',
+      action_config: {
+        campaign_type: 'out_of_credits',
+        tracking_enabled: true,
+      },
+    });
+
+    console.log('[NEWSLETTER] ensureOutOfCreditsWorkflow created workflow with id:', workflow.id);
+    return workflow.id;
+  } catch (e) {
+    console.warn('[NEWSLETTER] ensureOutOfCreditsWorkflow failed:', e);
+    return null;
+  }
+}
+
 export async function sendWorkflowCampaignEmail(
   supabase: Awaited<ReturnType<typeof getNewsletterAdminClient>>,
   campaignId: string,
@@ -250,6 +310,7 @@ export async function resolveWorkflowContact(
 /**
  * Envía el email de bienvenida a founder cuando un usuario cambia de 'free' a 'founder'.
  * Esta función debe llamarse SIEMPRE que el plan cambie a 'founder' (manual o automático).
+ * Ahora también registra el envío en el sistema de tracking de newsletter.
  * 
  * @param email - Email del usuario que se convierte en founder
  * @param options - Opciones adicionales (origen del cambio, etc.)
@@ -279,6 +340,99 @@ export async function sendFounderWelcomeEmail(
     
     if (emailSent) {
       console.log('[FOUNDER-WELCOME] ✅ Founder welcome email sent successfully to:', normalizedEmail);
+      
+      // Registrar en el sistema de tracking de newsletter
+      try {
+        const supabase = await getNewsletterAdminClient();
+        
+        // Buscar o crear la campaña de Welcome Founder Pass
+        let { data: campaign } = await supabase
+          .from('newsletter_campaigns')
+          .select('id')
+          .eq('title', 'Welcome Founder Pass')
+          .maybeSingle();
+        
+        if (!campaign) {
+          // Crear la campaña si no existe
+          const { data: newCampaign, error: createError } = await supabase
+            .from('newsletter_campaigns')
+            .insert({
+              title: 'Welcome Founder Pass',
+              subject: '¡Bienvenido al grupo FOUNDERS de PLEIA! 🎵',
+              body: 'Mail de bienvenida automático para nuevos Founders',
+              status: 'sent',
+              send_mode: 'immediate',
+              mail_category: 'founder',
+              tracking_enabled: true,
+              template_mode: 'pleia',
+            })
+            .select('id')
+            .single();
+          
+          if (createError) {
+            console.error('[FOUNDER-WELCOME] Error creating tracking campaign:', createError);
+          } else {
+            campaign = newCampaign;
+            console.log('[FOUNDER-WELCOME] Created tracking campaign:', campaign?.id);
+          }
+        }
+        
+        if (campaign) {
+          // Buscar o crear el contacto
+          let { data: contact } = await supabase
+            .from('newsletter_contacts')
+            .select('id')
+            .eq('email', normalizedEmail)
+            .maybeSingle();
+          
+          if (!contact) {
+            const { data: newContact } = await supabase
+              .from('newsletter_contacts')
+              .insert({
+                email: normalizedEmail,
+                status: 'subscribed',
+                origin: 'founder_upgrade',
+              })
+              .select('id')
+              .single();
+            contact = newContact;
+          }
+          
+          if (contact) {
+            // Crear el recipient
+            const { data: recipient, error: recipientError } = await supabase
+              .from('newsletter_campaign_recipients')
+              .insert({
+                campaign_id: campaign.id,
+                contact_id: contact.id,
+                email: normalizedEmail,
+                status: 'sent',
+                sent_at: new Date().toISOString(),
+                delivered_at: new Date().toISOString(),
+              })
+              .select('id')
+              .single();
+            
+            if (recipientError) {
+              console.error('[FOUNDER-WELCOME] Error creating recipient:', recipientError);
+            } else {
+              // Crear evento de delivered
+              await supabase.from('newsletter_events').insert({
+                campaign_id: campaign.id,
+                recipient_id: recipient.id,
+                contact_id: contact.id,
+                occurred_at: new Date().toISOString(),
+                event_type: 'delivered',
+              });
+              
+              console.log('[FOUNDER-WELCOME] ✅ Tracking registered for:', normalizedEmail);
+            }
+          }
+        }
+      } catch (trackingError) {
+        console.error('[FOUNDER-WELCOME] ⚠️ Error registering tracking (email was sent):', trackingError);
+      }
+      
       return true;
     } else {
       console.error('[FOUNDER-WELCOME] ❌ Failed to send founder welcome email to:', normalizedEmail);

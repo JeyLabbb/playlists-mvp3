@@ -10,6 +10,7 @@ const updateSchema = z.object({
   body: z.string().min(1).optional(),
   primaryCta: z.object({ label: z.string(), url: z.string().url() }).optional(),
   secondaryCta: z.object({ label: z.string(), url: z.string().url() }).optional(),
+  excluded_from_tracking: z.boolean().optional(),
 });
 
 export async function GET(
@@ -65,6 +66,9 @@ export async function PATCH(
       updates.secondary_cta_label = payload.secondaryCta.label;
       updates.secondary_cta_url = payload.secondaryCta.url;
     }
+    if (payload.excluded_from_tracking !== undefined) {
+      updates.excluded_from_tracking = payload.excluded_from_tracking;
+    }
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ success: true });
@@ -99,8 +103,41 @@ export async function DELETE(
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
     const supabase = await getNewsletterAdminClient();
-    const { error } = await supabase.from('newsletter_campaigns').delete().eq('id', id);
-    if (error) throw error;
+    
+    // Eliminar en orden: eventos -> recipients -> campaña
+    // Esto asegura que no queden datos huérfanos
+    
+    // 1. Eliminar eventos de tracking
+    const { error: eventsError } = await supabase
+      .from('newsletter_events')
+      .delete()
+      .eq('campaign_id', id);
+    
+    if (eventsError) {
+      console.error('[NEWSLETTER] Error deleting events:', eventsError);
+      // Continuar aunque falle (los events pueden no existir)
+    }
+    
+    // 2. Eliminar recipients
+    const { error: recipientsError } = await supabase
+      .from('newsletter_campaign_recipients')
+      .delete()
+      .eq('campaign_id', id);
+    
+    if (recipientsError) {
+      console.error('[NEWSLETTER] Error deleting recipients:', recipientsError);
+      // Continuar aunque falle
+    }
+    
+    // 3. Eliminar la campaña
+    const { error: campaignError } = await supabase
+      .from('newsletter_campaigns')
+      .delete()
+      .eq('id', id);
+    
+    if (campaignError) throw campaignError;
+    
+    console.log('[NEWSLETTER] Campaign deleted successfully:', id);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('[NEWSLETTER] campaign DELETE error:', error);

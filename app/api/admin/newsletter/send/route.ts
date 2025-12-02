@@ -11,6 +11,9 @@ const bodySchema = z.object({
   message: z.string().min(1).max(5000).optional(),
   previewOnly: z.boolean().optional(),
   recipientEmails: z.array(z.string().email()).optional(),
+  primaryCta: z.object({ label: z.string(), url: z.string().url() }).optional(),
+  secondaryCta: z.object({ label: z.string(), url: z.string().url() }).optional(),
+  templateMode: z.enum(['custom', 'pleia', 'minimal']).optional(),
 });
 
 export const runtime = 'nodejs';
@@ -71,7 +74,11 @@ export async function POST(request: Request) {
     }
 
     let targetRecipients: string[];
-    if (payload.previewOnly) {
+    if (payload.previewOnly && payload.recipientEmails?.length) {
+      // Test email mode: usar el email especificado directamente
+      targetRecipients = payload.recipientEmails;
+    } else if (payload.previewOnly) {
+      // Preview mode sin email especificado: enviar al admin
       targetRecipients = [adminAccess.email];
     } else if (payload.recipientEmails?.length) {
       const requested = new Set(payload.recipientEmails.map((email: string) => email.toLowerCase()));
@@ -97,6 +104,9 @@ export async function POST(request: Request) {
       title: payload.title,
       message: payload.message,
       previewOnly: payload.previewOnly ?? false,
+      primaryCta: payload.primaryCta,
+      secondaryCta: payload.secondaryCta,
+      templateMode: payload.templateMode,
     });
 
     if (!result.ok) {

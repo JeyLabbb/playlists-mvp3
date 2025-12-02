@@ -109,7 +109,7 @@ export default function NewsletterAdminPage() {
     mutate: mutateWorkflows,
   } = useSWR('/api/admin/newsletter/workflows', fetcher);
 
-  const { data: analyticsResponse, isLoading: analyticsLoading } = useSWR(
+  const { data: analyticsResponse, isLoading: analyticsLoading, mutate: mutateAnalytics } = useSWR(
     '/api/admin/newsletter/analytics',
     fetcher,
   );
@@ -605,9 +605,13 @@ export default function NewsletterAdminPage() {
       primaryUrl: template.primary_cta?.url || prev.primaryUrl,
       secondaryLabel: template.secondary_cta?.label || prev.secondaryLabel,
       secondaryUrl: template.secondary_cta?.url || prev.secondaryUrl,
-      templateMode: 'pleia',
+      templateMode: 'custom',
     }));
-    setTemplateActionMessage(`Plantilla "${template.name}" aplicada.`);
+    setTemplateActionMessage(`✅ Plantilla "${template.name}" aplicada al compositor.`);
+    // Cambiar a la pestaña de campañas para que el usuario vea el resultado
+    setTimeout(() => {
+      setActiveTab('campaigns');
+    }, 500);
   }, []);
 
   const handleSaveTemplate = useCallback(async () => {
@@ -964,11 +968,118 @@ export default function NewsletterAdminPage() {
 
         {activeTab === 'overview' && (
           <section className="space-y-6">
+            {/* Métricas principales */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <OverviewCard title="Usuarios" value={contactsResponse?.total || '--'} loading={contactsLoading} />
               <OverviewCard title="Grupos" value={groups.length} loading={groupsLoading} />
               <OverviewCard title="Campañas" value={campaigns.length} loading={campaignsLoading} />
               <OverviewCard title="Workflows" value={workflows.length} loading={workflowsLoading} />
+            </div>
+
+            {/* Métricas de tracking globales */}
+            <div className="bg-gradient-to-br from-cyan-900/20 to-blue-900/20 rounded-2xl border border-cyan-700/30 p-6">
+              <h2 className="text-lg font-semibold text-cyan-300 mb-4">📊 Métricas de Tracking Globales</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                <div className="bg-gray-900/60 rounded-lg p-4 border border-cyan-700/20">
+                  <p className="text-xs text-gray-400 mb-1">Entregados</p>
+                  <p className="text-2xl font-bold text-white">{trackingSummary.delivered}</p>
+                </div>
+                <div className="bg-cyan-900/30 rounded-lg p-4 border border-cyan-700/30">
+                  <p className="text-xs text-cyan-400 mb-1">Abiertos</p>
+                  <p className="text-2xl font-bold text-cyan-300">{trackingSummary.opened}</p>
+                </div>
+                <div className="bg-purple-900/30 rounded-lg p-4 border border-purple-700/30">
+                  <p className="text-xs text-purple-400 mb-1">Clicks</p>
+                  <p className="text-2xl font-bold text-purple-300">{trackingSummary.clicked}</p>
+                </div>
+                <div className="bg-gray-900/60 rounded-lg p-4 border border-cyan-700/20">
+                  <p className="text-xs text-gray-400 mb-1">Open Rate</p>
+                  <p className={`text-2xl font-bold ${
+                    (trackingRates.openRate * 100) > 20 ? 'text-green-400' : 
+                    (trackingRates.openRate * 100) > 10 ? 'text-yellow-400' : 'text-red-400'
+                  }`}>
+                    {Math.round((trackingRates.openRate || 0) * 1000) / 10}%
+                  </p>
+                </div>
+                <div className="bg-gray-900/60 rounded-lg p-4 border border-cyan-700/20">
+                  <p className="text-xs text-gray-400 mb-1">Click Rate</p>
+                  <p className={`text-2xl font-bold ${
+                    (trackingRates.clickRate * 100) > 5 ? 'text-green-400' : 
+                    (trackingRates.clickRate * 100) > 2 ? 'text-yellow-400' : 'text-gray-400'
+                  }`}>
+                    {Math.round((trackingRates.clickRate || 0) * 1000) / 10}%
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Distribución de usuarios por plan */}
+            <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6">
+              <h2 className="text-lg font-semibold mb-4">👥 Distribución de Usuarios</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {(() => {
+                  const planCounts = contacts.reduce((acc: any, contact) => {
+                    const plan = contact.plan || 'free';
+                    acc[plan] = (acc[plan] || 0) + 1;
+                    return acc;
+                  }, {});
+                  return Object.entries(planCounts).map(([plan, count]: [string, any]) => (
+                    <div key={plan} className={`rounded-lg p-4 border ${
+                      plan === 'founder' ? 'bg-yellow-900/20 border-yellow-700/30' :
+                      plan === 'premium' ? 'bg-blue-900/20 border-blue-700/30' :
+                      'bg-gray-900 border-gray-800'
+                    }`}>
+                      <p className="text-xs text-gray-400 mb-1">{plan.toUpperCase()}</p>
+                      <p className="text-2xl font-bold text-white">{count}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {contacts.length > 0 ? Math.round((count / contacts.length) * 100) : 0}%
+                      </p>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </div>
+
+            {/* Mejores campañas por open rate */}
+            <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6">
+              <h2 className="text-lg font-semibold mb-4">🏆 Top Campañas por Open Rate</h2>
+              {campaignsLoading ? (
+                <p className="text-gray-400 text-sm">Cargando...</p>
+              ) : campaigns.length === 0 ? (
+                <p className="text-gray-400 text-sm">Aún no hay campañas.</p>
+              ) : (
+                <div className="space-y-2">
+                  {campaigns
+                    .filter((c: any) => c.stats && c.stats.sent > 0 && !c.excluded_from_tracking)
+                    .sort((a: any, b: any) => {
+                      const aRate = a.stats.sent > 0 ? (a.stats.opened / a.stats.sent) : 0;
+                      const bRate = b.stats.sent > 0 ? (b.stats.opened / b.stats.sent) : 0;
+                      return bRate - aRate;
+                    })
+                    .slice(0, 5)
+                    .map((campaign: any) => {
+                      const openRate = campaign.stats.sent > 0 ? (campaign.stats.opened / campaign.stats.sent) * 100 : 0;
+                      return (
+                        <div key={campaign.id} className="flex items-center justify-between p-3 bg-gray-900 rounded-lg hover:bg-gray-850 transition-colors">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-white truncate">{campaign.subject}</p>
+                            <p className="text-xs text-gray-400">{campaign.stats.sent} enviados · {campaign.stats.opened} abiertos</p>
+                          </div>
+                          <div className="ml-4">
+                            <p className={`text-lg font-bold ${
+                              openRate > 20 ? 'text-green-400' : openRate > 10 ? 'text-yellow-400' : 'text-gray-400'
+                            }`}>
+                              {openRate.toFixed(1)}%
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {campaigns.filter((c: any) => c.stats && c.stats.sent > 0).length === 0 && (
+                    <p className="text-gray-400 text-sm">No hay campañas enviadas todavía.</p>
+                  )}
+                </div>
+              )}
             </div>
             <div className="bg-gray-800 rounded-2xl border border-gray-700 p-6 space-y-4">
               <h2 className="text-lg font-semibold">Actividad reciente</h2>
@@ -1012,8 +1123,8 @@ export default function NewsletterAdminPage() {
                 <p className="text-sm text-gray-400">Sin jobs pendientes.</p>
               ) : (
                 <ul className="space-y-3">
-                  {pendingJobs.map((job: any) => (
-                    <li key={job.id} className="border border-white/5 rounded-xl p-3 text-sm">
+                  {pendingJobs.map((job: any, index: number) => (
+                    <li key={job.id ?? `job-${index}`} className="border border-white/5 rounded-xl p-3 text-sm">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold">{job.job_type}</span>
                         <span className="text-xs text-gray-400">
@@ -1060,8 +1171,8 @@ export default function NewsletterAdminPage() {
                   }
                   className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
                 >
-                  {groups.map((group) => (
-                    <option key={group.id} value={group.id}>
+                  {groups.map((group, index) => (
+                    <option key={group.id ?? `group-opt-${index}`} value={group.id}>
                       {group.name}
                     </option>
                   ))}
@@ -1149,8 +1260,8 @@ export default function NewsletterAdminPage() {
                     className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-xs"
                   >
                     <option value="">Grupo</option>
-                    {groups.map((group) => (
-                      <option key={group.id} value={group.id}>
+                    {groups.map((group, index) => (
+                      <option key={group.id ?? `group-filter-${index}`} value={group.id}>
                         {group.name}
                       </option>
                     ))}
@@ -1181,8 +1292,8 @@ export default function NewsletterAdminPage() {
                     className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-xs"
                   >
                     <option value="">Elegir grupo…</option>
-                    {groups.map((group) => (
-                      <option key={group.id} value={group.id}>
+                    {groups.map((group, index) => (
+                      <option key={group.id ?? `group-bulk-${index}`} value={group.id}>
                         {group.name}
                       </option>
                     ))}
@@ -1241,8 +1352,8 @@ export default function NewsletterAdminPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredContacts.map((contact) => (
-                      <tr key={contact.id} className="border-b border-white/5 last:border-0">
+                    {filteredContacts.map((contact, index) => (
+                      <tr key={contact.id ?? `contact-${contact.email}-${index}`} className="border-b border-white/5 last:border-0">
                         <td className="py-2 pr-4">
                           <input
                             type="checkbox"
@@ -1347,8 +1458,8 @@ export default function NewsletterAdminPage() {
               ) : groups.length === 0 ? (
                 <p className="text-gray-400 text-sm">Aún no hay grupos definidos.</p>
               ) : (
-                groups.map((group) => (
-                  <div key={group.id} className="bg-gray-800 rounded-2xl border border-gray-700 p-5 flex flex-col gap-3">
+                groups.map((group, index) => (
+                  <div key={group.id ?? `group-${index}`} className="bg-gray-800 rounded-2xl border border-gray-700 p-5 flex flex-col gap-3">
                     <div>
                       <h3 className="text-lg font-semibold">{group.name}</h3>
                       <p className="text-xs text-gray-400">{group.description || 'Sin descripción'}</p>
@@ -1445,9 +1556,9 @@ export default function NewsletterAdminPage() {
                   <p className="text-sm text-gray-400">Este grupo aún no tiene contactos asignados.</p>
                 ) : (
                   <ul className="space-y-2 max-h-64 overflow-y-auto pr-1">
-                    {groupMembers.map((m) => (
+                    {groupMembers.map((m, index) => (
                       <li
-                        key={m.id ?? m.email}
+                        key={m.id ?? (m.email ? `member-${m.email}-${index}` : `member-${index}`)}
                         className="flex items-center justify-between text-sm border border-gray-700 rounded-xl px-3 py-2"
                       >
                         <div>
@@ -1555,7 +1666,7 @@ export default function NewsletterAdminPage() {
                     <div className="bg-cyan-900/20 border border-cyan-700/30 rounded-lg p-3 text-xs text-cyan-200">
                       <strong>¿Cómo funciona?</strong><br />
                       • 25% recibe Asunto A, 25% recibe Asunto B<br />
-                      • Después del tiempo de prueba, se evalúa el ganador<br />
+                      • Se evalúa automáticamente a las 20:00h (España) del día que corresponda<br />
                       • El 50% restante recibe el mail con el asunto ganador
                     </div>
 
@@ -1571,24 +1682,25 @@ export default function NewsletterAdminPage() {
 
                     <div className="grid md:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-xs text-gray-400 block mb-1">Duración del test</label>
-                        <div className="flex gap-2">
+                        <label className="text-xs text-gray-400 block mb-1">⏳ Días de espera antes de evaluar</label>
+                        <div className="flex gap-2 items-center">
                           <input
                             type="number"
                             min="1"
-                            value={campaignForm.testDuration}
-                            onChange={(e) => setCampaignForm((prev) => ({ ...prev, testDuration: parseInt(e.target.value) || 1 }))}
-                            className="flex-1 px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
+                            max="30"
+                            value={campaignForm.testDurationUnit === 'hours' ? Math.ceil(campaignForm.testDuration / 24) : campaignForm.testDuration}
+                            onChange={(e) => setCampaignForm((prev) => ({ 
+                              ...prev, 
+                              testDuration: parseInt(e.target.value) || 1,
+                              testDurationUnit: 'days'
+                            }))}
+                            className="w-20 px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm text-center"
                           />
-                          <select
-                            value={campaignForm.testDurationUnit}
-                            onChange={(e) => setCampaignForm((prev) => ({ ...prev, testDurationUnit: e.target.value as any }))}
-                            className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
-                          >
-                            <option value="hours">Horas</option>
-                            <option value="days">Días</option>
-                          </select>
+                          <span className="text-sm text-gray-400">día(s)</span>
                         </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Se evaluará a las 20:00 UTC tras {campaignForm.testDurationUnit === 'hours' ? Math.ceil(campaignForm.testDuration / 24) : campaignForm.testDuration} día(s)
+                        </p>
                       </div>
 
                       <div>
@@ -1604,6 +1716,15 @@ export default function NewsletterAdminPage() {
                           <option value="combined">🎯 Combinado (clicks + aperturas)</option>
                         </select>
                       </div>
+                    </div>
+                    
+                    <div className="bg-yellow-900/20 border border-yellow-700/30 rounded-lg p-3 text-xs">
+                      <p className="text-yellow-300 font-medium">⏰ Sistema de cron diario</p>
+                      <p className="text-yellow-200/70 mt-1">
+                        El cron se ejecuta <strong>1 vez al día a las 20:00h (España)</strong>. 
+                        Si configuras {campaignForm.testDurationUnit === 'hours' ? Math.ceil(campaignForm.testDuration / 24) : campaignForm.testDuration} día(s), 
+                        la evaluación se hará a las 20:00h del día {campaignForm.testDurationUnit === 'hours' ? Math.ceil(campaignForm.testDuration / 24) : campaignForm.testDuration} después del envío.
+                      </p>
                     </div>
 
                     <div className="bg-gray-900 rounded-lg p-3">
@@ -1778,9 +1899,9 @@ export default function NewsletterAdminPage() {
                           !recipientSearch || 
                           group.name.toLowerCase().includes(recipientSearch.toLowerCase())
                         )
-                        .map((group) => (
+                        .map((group, index) => (
                           <label
-                            key={group.id}
+                            key={group.id ?? `campaign-group-${index}`}
                             className="flex items-center gap-3 p-3 rounded-lg bg-gray-900 hover:bg-gray-800 cursor-pointer transition-colors border border-transparent hover:border-gray-700"
                           >
                             <input
@@ -1976,14 +2097,38 @@ export default function NewsletterAdminPage() {
                   </select>
                 </div>
                 {campaignForm.sendMode === 'scheduled' && (
-                  <div className="md:col-span-2">
-                    <label className="text-xs text-gray-400 block mb-1">Fecha y hora</label>
+                  <div className="md:col-span-2 space-y-2">
+                    <label className="text-xs text-gray-400 block mb-1">📅 Fecha de envío (se enviará a las 20:00 UTC)</label>
                     <input
-                      type="datetime-local"
-                      value={campaignForm.scheduledFor}
-                      onChange={(e) => setCampaignForm((prev) => ({ ...prev, scheduledFor: e.target.value }))}
+                      type="date"
+                      value={campaignForm.scheduledFor.split('T')[0] || ''}
+                      min={new Date().toISOString().split('T')[0]}
+                      onChange={(e) => {
+                        // Establecer siempre a las 20:00 UTC del día seleccionado
+                        const selectedDate = e.target.value;
+                        if (selectedDate) {
+                          setCampaignForm((prev) => ({ 
+                            ...prev, 
+                            scheduledFor: `${selectedDate}T20:00:00.000Z`
+                          }));
+                        }
+                      }}
                       className="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
                     />
+                    <div className="bg-blue-900/30 border border-blue-700/30 rounded-lg p-3 text-xs">
+                      <p className="text-blue-300 font-medium mb-1">⏰ Sistema de envío programado</p>
+                      <p className="text-blue-200/80">
+                        El cron procesa los envíos <strong>una vez al día a las 20:00 hora España</strong>.
+                      </p>
+                      <p className="text-blue-200/60 mt-1">
+                        Tu campaña se enviará el <strong>{campaignForm.scheduledFor ? 
+                          new Date(campaignForm.scheduledFor).toLocaleDateString('es-ES', { 
+                            weekday: 'long', 
+                            day: 'numeric', 
+                            month: 'long' 
+                          }) : 'día seleccionado'}</strong> a las 20:00h.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2032,8 +2177,8 @@ export default function NewsletterAdminPage() {
                 <p className="text-gray-400 text-sm">Aún no se han creado campañas.</p>
               ) : (
                 <div className="space-y-3">
-                  {campaigns.map((campaign) => (
-                    <div key={campaign.id} className="border border-white/5 rounded-xl p-4 flex flex-col gap-2">
+                  {campaigns.map((campaign, index) => (
+                    <div key={campaign.id ?? `campaign-${index}`} className="border border-white/5 rounded-xl p-4 flex flex-col gap-2">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                         <div>
                           <p className="font-semibold">{campaign.title}</p>
@@ -2078,9 +2223,33 @@ export default function NewsletterAdminPage() {
                             });
                             mutateCampaigns();
                           }}
-                          className="px-3 py-1 rounded-lg bg-gray-900 border border-gray-700 text-xs"
+                          className="px-3 py-1 rounded-lg bg-gray-900 border border-gray-700 text-xs hover:bg-gray-800"
                         >
                           Renombrar
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`¿Estás seguro de eliminar la campaña "${campaign.title}"?\n\nEsta acción no se puede deshacer. La campaña se eliminará de:\n• Historial de campañas\n• Tracking\n• Todos los reportes\n\nLos datos de envío y eventos también se eliminarán.`)) {
+                              return;
+                            }
+                            try {
+                              const response = await fetch(`/api/admin/newsletter/campaigns/${campaign.id}`, {
+                                method: 'DELETE',
+                              });
+                              const result = await response.json();
+                              if (result.success) {
+                                alert('✅ Campaña eliminada correctamente');
+                                mutateCampaigns();
+                              } else {
+                                alert(`❌ Error: ${result.error || 'No se pudo eliminar la campaña'}`);
+                              }
+                            } catch (error: any) {
+                              alert(`❌ Error: ${error.message || 'No se pudo eliminar la campaña'}`);
+                            }
+                          }}
+                          className="px-3 py-1 rounded-lg bg-red-600/20 border border-red-600/40 text-red-300 text-xs hover:bg-red-600/30"
+                        >
+                          🗑️ Eliminar
                         </button>
                         {campaign.status === 'scheduled' && (
                           <span className="text-xs text-gray-500">
@@ -2177,7 +2346,11 @@ export default function NewsletterAdminPage() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={() => setCampaignForm(prev => ({ ...prev, templateMode: 'pleia' }))}
+                      onClick={() => {
+                        setCampaignForm(prev => ({ ...prev, templateMode: 'pleia' }));
+                        setTemplateActionMessage('✅ Plantilla PLEIA Visual seleccionada');
+                        setTimeout(() => setActiveTab('campaigns'), 400);
+                      }}
                       className="px-3 py-1 rounded-full bg-cyan-600/20 text-xs text-cyan-200 hover:bg-cyan-600/30 border border-cyan-500/40"
                     >
                       Usar en campaña
@@ -2198,7 +2371,11 @@ export default function NewsletterAdminPage() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
-                      onClick={() => setCampaignForm(prev => ({ ...prev, templateMode: 'minimal' }))}
+                      onClick={() => {
+                        setCampaignForm(prev => ({ ...prev, templateMode: 'minimal' }));
+                        setTemplateActionMessage('✅ Plantilla PLEIA Minimal seleccionada');
+                        setTimeout(() => setActiveTab('campaigns'), 400);
+                      }}
                       className="px-3 py-1 rounded-full bg-gray-600/20 text-xs text-gray-200 hover:bg-gray-600/30 border border-gray-500/40"
                     >
                       Usar en campaña
@@ -2214,8 +2391,8 @@ export default function NewsletterAdminPage() {
                 <p className="text-sm text-gray-400">Aún no tienes plantillas guardadas.</p>
               ) : (
                 <div className="grid md:grid-cols-2 gap-4">
-                  {templates.map((template: any) => (
-                    <div key={template.id} className="rounded-2xl border border-white/10 p-4 space-y-3 bg-[#111a2f]">
+                  {templates.map((template: any, index: number) => (
+                    <div key={template.id ?? `template-${index}`} className="rounded-2xl border border-white/10 p-4 space-y-3 bg-[#111a2f]">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="font-semibold text-white">{template.name}</p>
@@ -2335,8 +2512,8 @@ export default function NewsletterAdminPage() {
                 >
                   <option value="">Sin plantilla</option>
                   <option value="__pleia__">Plantilla PLEIA (oficial)</option>
-                  {templates.map((template: any) => (
-                    <option key={template.id} value={template.id}>
+                  {templates.map((template: any, idx: number) => (
+                    <option key={template.id ?? `saved-mail-template-${idx}`} value={template.id}>
                       {template.name}
                     </option>
                   ))}
@@ -2360,8 +2537,8 @@ export default function NewsletterAdminPage() {
                 <p className="text-sm text-gray-400">Cuando guardes un mail aparecerá aquí.</p>
               ) : (
                 <div className="space-y-4">
-                  {savedMails.map((mail: any) => (
-                    <div key={mail.id} className="rounded-2xl border border-white/10 p-4 bg-[#121b31] space-y-2">
+                  {savedMails.map((mail: any, index: number) => (
+                    <div key={mail.id ?? `saved-mail-${index}`} className="rounded-2xl border border-white/10 p-4 bg-[#121b31] space-y-2">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="font-semibold text-white">{mail.name}</p>
@@ -2497,8 +2674,8 @@ export default function NewsletterAdminPage() {
                             className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
                           >
                             <option value="">Selecciona campaña</option>
-                            {campaigns.map((campaign) => (
-                              <option key={campaign.id} value={campaign.id}>
+                            {campaigns.map((campaign, idx) => (
+                              <option key={campaign.id ?? `workflow-campaign-${idx}`} value={campaign.id}>
                                 {campaign.title}
                               </option>
                             ))}
@@ -2511,8 +2688,8 @@ export default function NewsletterAdminPage() {
                             className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
                           >
                             <option value="">Selecciona grupo</option>
-                            {groups.map((group) => (
-                              <option key={group.id} value={group.id}>
+                            {groups.map((group, idx) => (
+                              <option key={group.id ?? `workflow-add-group-${idx}`} value={group.id}>
                                 {group.name}
                               </option>
                             ))}
@@ -2525,8 +2702,8 @@ export default function NewsletterAdminPage() {
                             className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
                           >
                             <option value="">Selecciona grupo</option>
-                            {groups.map((group) => (
-                              <option key={group.id} value={group.id}>
+                            {groups.map((group, idx) => (
+                              <option key={group.id ?? `workflow-remove-group-${idx}`} value={group.id}>
                                 {group.name}
                               </option>
                             ))}
@@ -2539,8 +2716,8 @@ export default function NewsletterAdminPage() {
                             className="px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 text-sm"
                           >
                             <option value="">Selecciona mail guardado</option>
-                            {savedMails.map((mail: any) => (
-                              <option key={mail.id} value={mail.id}>
+                            {savedMails.map((mail: any, idx: number) => (
+                              <option key={mail.id ?? `workflow-mail-${idx}`} value={mail.id}>
                                 {mail.name} ({mail.category})
                               </option>
                             ))}
@@ -2567,8 +2744,8 @@ export default function NewsletterAdminPage() {
                 <p className="text-gray-400 text-sm">Todavía no tienes workflows configurados.</p>
               ) : (
                 <div className="space-y-3">
-                  {workflows.map((workflow) => (
-                    <div key={workflow.id} className="border border-white/5 rounded-xl p-4 space-y-2">
+                  {workflows.map((workflow, index) => (
+                    <div key={workflow.id ?? `workflow-${index}`} className="border border-white/5 rounded-xl p-4 space-y-2">
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="font-semibold">{workflow.name}</p>
@@ -2666,6 +2843,11 @@ export default function NewsletterAdminPage() {
               ) : (
                 <div className="space-y-4">
                   {(() => {
+                    // Separar campañas incluidas y excluidas
+                    const includedCampaigns = campaigns.filter((c: any) => !c.excluded_from_tracking);
+                    const excludedCampaigns = campaigns.filter((c: any) => c.excluded_from_tracking);
+                    
+                    // Agrupar por categoría (solo incluidas para el cálculo de métricas)
                     const categoryGroups = campaigns.reduce((acc: any, campaign: any) => {
                       const category = campaign.mail_category || 'general';
                       if (!acc[category]) {
@@ -2684,7 +2866,11 @@ export default function NewsletterAdminPage() {
                     };
 
                     return Object.entries(categoryGroups).map(([category, categoryCampaigns]: [string, any]) => {
-                      const categoryStats = categoryCampaigns.reduce((acc: any, c: any) => {
+                      // Solo contar campañas INCLUIDAS para las métricas de categoría
+                      const includedInCategory = categoryCampaigns.filter((c: any) => !c.excluded_from_tracking);
+                      const excludedInCategory = categoryCampaigns.filter((c: any) => c.excluded_from_tracking);
+                      
+                      const categoryStats = includedInCategory.reduce((acc: any, c: any) => {
                         const stats = c.stats || { sent: 0, opened: 0, clicked: 0 };
                         return {
                           sent: acc.sent + stats.sent,
@@ -2706,7 +2892,12 @@ export default function NewsletterAdminPage() {
                                   {categoryLabels[category] || category}
                                 </div>
                                 <div className="text-xs text-gray-400 mt-1">
-                                  {categoryStats.total} campañas enviadas
+                                  {categoryStats.total} campañas incluidas
+                                  {excludedInCategory.length > 0 && (
+                                    <span className="text-gray-500 ml-1">
+                                      ({excludedInCategory.length} excluidas)
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                               <div className="flex gap-4 text-xs">
@@ -2727,101 +2918,130 @@ export default function NewsletterAdminPage() {
                               const cOpenRate = stats.sent > 0 ? (stats.opened / stats.sent) * 100 : 0;
                               const cClickRate = stats.opened > 0 ? (stats.clicked / stats.opened) * 100 : 0;
 
+                              const isExcluded = campaign.excluded_from_tracking;
+
                               return (
-                                <div key={campaign.id} className="bg-gray-800 rounded-lg p-4 hover:bg-gray-700/50 transition-colors">
-                                  <div className="flex items-start justify-between mb-3">
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        <div className="text-sm font-medium text-white truncate">{campaign.subject}</div>
-                                        {campaign.excluded_from_tracking && (
-                                          <span className="text-xs px-2 py-0.5 bg-red-600/20 text-red-300 rounded">
-                                            Excluido
-                                          </span>
-                                        )}
+                                <div 
+                                  key={campaign.id} 
+                                  className={`bg-gray-800 rounded-lg p-4 transition-all duration-300 ${
+                                    isExcluded 
+                                      ? 'opacity-40 hover:opacity-60' 
+                                      : 'hover:bg-gray-700/50'
+                                  }`}
+                                >
+                                  {/* Vista resumida para excluidos */}
+                                  {isExcluded ? (
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex-1 min-w-0 flex items-center gap-2">
+                                        <div className="text-sm font-medium text-gray-400 truncate line-through">{campaign.subject}</div>
+                                        <span className="text-xs px-2 py-0.5 bg-gray-700/50 text-gray-500 rounded whitespace-nowrap">
+                                          Excluido
+                                        </span>
                                       </div>
-                                      {campaign.ab_test_enabled && (
-                                        <div className="flex gap-2 mt-1">
-                                          <span className="text-xs px-2 py-0.5 bg-cyan-600/20 text-cyan-300 rounded">
-                                            🧪 A/B Test
-                                          </span>
-                                          {campaign.ab_test_winner && (
-                                            <span className="text-xs px-2 py-0.5 bg-green-600/20 text-green-300 rounded">
-                                              Ganador: {campaign.ab_test_winner}
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-                                      <div className="text-xs text-gray-400 mt-1 line-clamp-2">{campaign.body?.substring(0, 100)}...</div>
-                                    </div>
-                                    <div className="flex flex-col gap-1">
-                                      <button
-                                        onClick={() => setMailDetailId(campaign.id)}
-                                        className="px-2 py-1 text-xs bg-cyan-600/20 text-cyan-300 rounded hover:bg-cyan-600/30"
-                                      >
-                                        Ver detalle
-                                      </button>
                                       <button
                                         onClick={async () => {
-                                          const newStatus = !campaign.excluded_from_tracking;
                                           await fetch(`/api/admin/newsletter/campaigns/${campaign.id}`, {
                                             method: 'PATCH',
                                             headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ excluded_from_tracking: newStatus }),
+                                            body: JSON.stringify({ excluded_from_tracking: false }),
                                           });
                                           mutateCampaigns();
+                                          mutateAnalytics();
                                         }}
-                                        className={`px-2 py-1 text-xs rounded ${
-                                          campaign.excluded_from_tracking
-                                            ? 'bg-green-600/20 text-green-300 hover:bg-green-600/30'
-                                            : 'bg-red-600/20 text-red-300 hover:bg-red-600/30'
-                                        }`}
+                                        className="px-3 py-1 text-xs rounded bg-green-600/20 text-green-300 hover:bg-green-600/30 whitespace-nowrap ml-2"
                                       >
-                                        {campaign.excluded_from_tracking ? 'Incluir' : 'Excluir'}
+                                        ✓ Incluir
                                       </button>
                                     </div>
-                                  </div>
-                                  
-                                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
-                                    <div className="text-center p-2 bg-gray-900 rounded">
-                                      <div className="text-gray-400">Enviados</div>
-                                      <div className="text-white font-bold">{stats.sent}</div>
-                                    </div>
-                                    <div className="text-center p-2 bg-gray-900 rounded">
-                                      <div className="text-gray-400">Abiertos</div>
-                                      <div className="text-cyan-400 font-bold">{stats.opened}</div>
-                                    </div>
-                                    <div className="text-center p-2 bg-gray-900 rounded">
-                                      <div className="text-gray-400">Clicks</div>
-                                      <div className="text-purple-400 font-bold">{stats.clicked}</div>
-                                    </div>
-                                    <div className="text-center p-2 bg-gray-900 rounded">
-                                      <div className="text-gray-400">Open Rate</div>
-                                      <div className={`font-bold ${cOpenRate > 20 ? 'text-green-400' : cOpenRate > 10 ? 'text-yellow-400' : 'text-red-400'}`}>
-                                        {cOpenRate.toFixed(1)}%
-                                      </div>
-                                    </div>
-                                    <div className="text-center p-2 bg-gray-900 rounded">
-                                      <div className="text-gray-400">CTR</div>
-                                      <div className={`font-bold ${cClickRate > 5 ? 'text-green-400' : cClickRate > 2 ? 'text-yellow-400' : 'text-gray-400'}`}>
-                                        {cClickRate.toFixed(1)}%
-                                      </div>
-                                    </div>
-                                  </div>
-                                  
-                                  {campaign.ab_test_enabled && campaign.ab_test_evaluated_at && (
-                                    <div className="mt-3 pt-3 border-t border-gray-700">
-                                      <div className="text-xs text-gray-400 mb-2">Resultados A/B Test:</div>
-                                      <div className="grid grid-cols-2 gap-2 text-xs">
-                                        <div className="p-2 bg-cyan-900/20 border border-cyan-700/30 rounded">
-                                          <div className="text-cyan-300 font-medium">Variante A</div>
-                                          <div className="text-gray-400">{campaign.subject}</div>
+                                  ) : (
+                                    /* Vista detallada para incluidos */
+                                    <>
+                                      <div className="flex items-start justify-between mb-3">
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <div className="text-sm font-medium text-white truncate">{campaign.subject}</div>
+                                          </div>
+                                          {campaign.ab_test_enabled && (
+                                            <div className="flex gap-2 mt-1">
+                                              <span className="text-xs px-2 py-0.5 bg-cyan-600/20 text-cyan-300 rounded">
+                                                🧪 A/B Test
+                                              </span>
+                                              {campaign.ab_test_winner && (
+                                                <span className="text-xs px-2 py-0.5 bg-green-600/20 text-green-300 rounded">
+                                                  Ganador: {campaign.ab_test_winner}
+                                                </span>
+                                              )}
+                                            </div>
+                                          )}
+                                          <div className="text-xs text-gray-400 mt-1 line-clamp-2">{campaign.body?.substring(0, 100)}...</div>
                                         </div>
-                                        <div className="p-2 bg-purple-900/20 border border-purple-700/30 rounded">
-                                          <div className="text-purple-300 font-medium">Variante B</div>
-                                          <div className="text-gray-400">{campaign.subject_b}</div>
+                                        <div className="flex flex-col gap-1">
+                                          <button
+                                            onClick={() => setMailDetailId(campaign.id)}
+                                            className="px-2 py-1 text-xs bg-cyan-600/20 text-cyan-300 rounded hover:bg-cyan-600/30"
+                                          >
+                                            Ver detalle
+                                          </button>
+                                          <button
+                                            onClick={async () => {
+                                              await fetch(`/api/admin/newsletter/campaigns/${campaign.id}`, {
+                                                method: 'PATCH',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ excluded_from_tracking: true }),
+                                              });
+                                              mutateCampaigns();
+                                              mutateAnalytics();
+                                            }}
+                                            className="px-2 py-1 text-xs rounded bg-red-600/20 text-red-300 hover:bg-red-600/30"
+                                          >
+                                            Excluir
+                                          </button>
                                         </div>
                                       </div>
-                                    </div>
+                                  
+                                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                                        <div className="text-center p-2 bg-gray-900 rounded">
+                                          <div className="text-gray-400">Enviados</div>
+                                          <div className="text-white font-bold">{stats.sent}</div>
+                                        </div>
+                                        <div className="text-center p-2 bg-gray-900 rounded">
+                                          <div className="text-gray-400">Abiertos</div>
+                                          <div className="text-cyan-400 font-bold">{stats.opened}</div>
+                                        </div>
+                                        <div className="text-center p-2 bg-gray-900 rounded">
+                                          <div className="text-gray-400">Clicks</div>
+                                          <div className="text-purple-400 font-bold">{stats.clicked}</div>
+                                        </div>
+                                        <div className="text-center p-2 bg-gray-900 rounded">
+                                          <div className="text-gray-400">Open Rate</div>
+                                          <div className={`font-bold ${cOpenRate > 20 ? 'text-green-400' : cOpenRate > 10 ? 'text-yellow-400' : 'text-red-400'}`}>
+                                            {cOpenRate.toFixed(1)}%
+                                          </div>
+                                        </div>
+                                        <div className="text-center p-2 bg-gray-900 rounded">
+                                          <div className="text-gray-400">CTR</div>
+                                          <div className={`font-bold ${cClickRate > 5 ? 'text-green-400' : cClickRate > 2 ? 'text-yellow-400' : 'text-gray-400'}`}>
+                                            {cClickRate.toFixed(1)}%
+                                          </div>
+                                        </div>
+                                      </div>
+                                  
+                                      {campaign.ab_test_enabled && campaign.ab_test_evaluated_at && (
+                                        <div className="mt-3 pt-3 border-t border-gray-700">
+                                          <div className="text-xs text-gray-400 mb-2">Resultados A/B Test:</div>
+                                          <div className="grid grid-cols-2 gap-2 text-xs">
+                                            <div className="p-2 bg-cyan-900/20 border border-cyan-700/30 rounded">
+                                              <div className="text-cyan-300 font-medium">Variante A</div>
+                                              <div className="text-gray-400">{campaign.subject}</div>
+                                            </div>
+                                            <div className="p-2 bg-purple-900/20 border border-purple-700/30 rounded">
+                                              <div className="text-purple-300 font-medium">Variante B</div>
+                                              <div className="text-gray-400">{campaign.subject_b}</div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               );
@@ -3177,6 +3397,233 @@ function InfoBadge({ text }: { text: string }) {
         </span>
       </button>
       {open && <p className="mt-1 text-gray-300">{text}</p>}
+    </div>
+  );
+}
+
+function MailDetailModal({ campaignId, onClose }: { campaignId: string; onClose: () => void }) {
+  const { data: campaignData, isLoading: campaignLoading } = useSWR(
+    `/api/admin/newsletter/campaigns/${campaignId}`,
+    fetcher
+  );
+  const { data: recipientsData, isLoading: recipientsLoading } = useSWR(
+    `/api/admin/newsletter/campaigns/${campaignId}/recipients`,
+    fetcher
+  );
+  const { data: eventsData, isLoading: eventsLoading } = useSWR(
+    `/api/admin/newsletter/campaigns/${campaignId}/events`,
+    fetcher
+  );
+
+  const campaign = campaignData?.campaign;
+  const recipients = recipientsData?.recipients || [];
+  const events = eventsData?.events || [];
+
+  const openedRecipients = recipients.filter((r: any) => r.opened_at);
+  const clickedRecipients = recipients.filter((r: any) => r.clicked_at);
+  const openRate = recipients.length > 0 ? (openedRecipients.length / recipients.length) * 100 : 0;
+  const clickRate = openedRecipients.length > 0 ? (clickedRecipients.length / openedRecipients.length) * 100 : 0;
+
+  if (campaignLoading || !campaign) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+        <div className="relative bg-gray-950 border border-gray-800 rounded-3xl p-8">
+          <p className="text-white">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative max-w-5xl w-full bg-gray-950 border border-gray-800 rounded-3xl flex flex-col max-h-[90vh] overflow-hidden">
+        {/* Header */}
+        <div className="p-6 border-b border-gray-800 flex items-start justify-between">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs uppercase tracking-[0.3em] text-cyan-400 mb-1">Detalle completo del mail</p>
+            <h2 className="text-2xl font-semibold text-white mb-2">{campaign.subject}</h2>
+            {campaign.ab_test_enabled && campaign.subject_b && (
+              <p className="text-sm text-purple-400">Variante B: {campaign.subject_b}</p>
+            )}
+            <div className="flex items-center gap-3 mt-3 flex-wrap">
+              <span className={`text-xs px-3 py-1 rounded-full ${
+                campaign.status === 'sent' ? 'bg-green-600/20 text-green-300' :
+                campaign.status === 'scheduled' ? 'bg-blue-600/20 text-blue-300' :
+                campaign.status === 'pending' ? 'bg-yellow-600/20 text-yellow-300' :
+                'bg-gray-700 text-gray-300'
+              }`}>
+                {campaign.status.toUpperCase()}
+              </span>
+              {campaign.mail_category && (
+                <span className="text-xs px-3 py-1 rounded-full bg-cyan-600/20 text-cyan-300">
+                  {campaign.mail_category}
+                </span>
+              )}
+              {campaign.ab_test_enabled && (
+                <span className="text-xs px-3 py-1 rounded-full bg-purple-600/20 text-purple-300">
+                  🧪 A/B Test
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-10 h-10 rounded-full bg-gray-900 text-gray-300 hover:bg-gray-800 flex-shrink-0 ml-4"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Métricas principales */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+              <p className="text-xs text-gray-400 mb-1">Enviados</p>
+              <p className="text-2xl font-bold text-white">{recipients.length}</p>
+            </div>
+            <div className="bg-cyan-900/20 rounded-lg p-4 border border-cyan-700/30">
+              <p className="text-xs text-cyan-400 mb-1">Abiertos</p>
+              <p className="text-2xl font-bold text-cyan-300">{openedRecipients.length}</p>
+            </div>
+            <div className="bg-purple-900/20 rounded-lg p-4 border border-purple-700/30">
+              <p className="text-xs text-purple-400 mb-1">Clicks</p>
+              <p className="text-2xl font-bold text-purple-300">{clickedRecipients.length}</p>
+            </div>
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+              <p className="text-xs text-gray-400 mb-1">Open Rate</p>
+              <p className={`text-2xl font-bold ${
+                openRate > 20 ? 'text-green-400' : openRate > 10 ? 'text-yellow-400' : 'text-red-400'
+              }`}>
+                {openRate.toFixed(1)}%
+              </p>
+            </div>
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+              <p className="text-xs text-gray-400 mb-1">CTR</p>
+              <p className={`text-2xl font-bold ${
+                clickRate > 5 ? 'text-green-400' : clickRate > 2 ? 'text-yellow-400' : 'text-gray-400'
+              }`}>
+                {clickRate.toFixed(1)}%
+              </p>
+            </div>
+          </div>
+
+          {/* Información de fechas */}
+          <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+            <h3 className="text-sm font-semibold text-white mb-3">📅 Fechas</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div>
+                <p className="text-gray-400">Creado</p>
+                <p className="text-white">{new Date(campaign.created_at).toLocaleString('es-ES')}</p>
+              </div>
+              {campaign.sent_at && (
+                <div>
+                  <p className="text-gray-400">Enviado</p>
+                  <p className="text-white">{new Date(campaign.sent_at).toLocaleString('es-ES')}</p>
+                </div>
+              )}
+              {campaign.scheduled_for && (
+                <div>
+                  <p className="text-gray-400">Programado para</p>
+                  <p className="text-white">{new Date(campaign.scheduled_for).toLocaleString('es-ES')}</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Cuerpo del mensaje */}
+          <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+            <h3 className="text-sm font-semibold text-white mb-3">📝 Cuerpo del mensaje</h3>
+            <div className="text-sm text-gray-300 whitespace-pre-wrap max-h-60 overflow-y-auto">
+              {campaign.body}
+            </div>
+          </div>
+
+          {/* A/B Test Info */}
+          {campaign.ab_test_enabled && (
+            <div className="bg-purple-900/20 rounded-lg p-4 border border-purple-700/30">
+              <h3 className="text-sm font-semibold text-purple-300 mb-3">🧪 Información A/B Test</h3>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <p className="text-purple-400">Duración del test</p>
+                  <p className="text-white">{campaign.test_duration} {campaign.test_duration_unit}</p>
+                </div>
+                <div>
+                  <p className="text-purple-400">Criterio ganador</p>
+                  <p className="text-white">{campaign.winner_criteria}</p>
+                </div>
+                {campaign.ab_test_winner && (
+                  <div className="col-span-2">
+                    <p className="text-purple-400">Ganador</p>
+                    <p className="text-green-300 font-semibold">Variante {campaign.ab_test_winner}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Usuarios que abrieron */}
+          {openedRecipients.length > 0 && (
+            <div className="bg-cyan-900/20 rounded-lg p-4 border border-cyan-700/30">
+              <h3 className="text-sm font-semibold text-cyan-300 mb-3">👁️ Usuarios que abrieron ({openedRecipients.length})</h3>
+              <div className="max-h-40 overflow-y-auto space-y-1">
+                {openedRecipients.map((r: any) => (
+                  <div key={r.id} className="flex items-center justify-between text-xs py-1 px-2 bg-cyan-950/30 rounded">
+                    <span className="text-cyan-200">{r.email}</span>
+                    <span className="text-cyan-400 text-[10px]">
+                      {new Date(r.opened_at).toLocaleString('es-ES')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Usuarios que hicieron click */}
+          {clickedRecipients.length > 0 && (
+            <div className="bg-purple-900/20 rounded-lg p-4 border border-purple-700/30">
+              <h3 className="text-sm font-semibold text-purple-300 mb-3">🖱️ Usuarios que hicieron click ({clickedRecipients.length})</h3>
+              <div className="max-h-40 overflow-y-auto space-y-1">
+                {clickedRecipients.map((r: any) => (
+                  <div key={r.id} className="flex items-center justify-between text-xs py-1 px-2 bg-purple-950/30 rounded">
+                    <span className="text-purple-200">{r.email}</span>
+                    <span className="text-purple-400 text-[10px]">
+                      {new Date(r.clicked_at).toLocaleString('es-ES')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Eventos recientes */}
+          {events.length > 0 && (
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+              <h3 className="text-sm font-semibold text-white mb-3">📊 Eventos recientes</h3>
+              <div className="max-h-40 overflow-y-auto space-y-1">
+                {events.slice(0, 20).map((event: any) => (
+                  <div key={event.id} className="flex items-center justify-between text-xs py-1 px-2 bg-gray-800 rounded">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${
+                        event.event_type === 'opened' ? 'bg-cyan-400' :
+                        event.event_type === 'clicked' ? 'bg-purple-400' :
+                        event.event_type === 'delivered' ? 'bg-green-400' :
+                        'bg-gray-400'
+                      }`} />
+                      <span className="text-gray-300">{event.event_type}</span>
+                    </div>
+                    <span className="text-gray-500 text-[10px]">
+                      {new Date(event.occurred_at).toLocaleString('es-ES')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

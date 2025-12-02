@@ -13,10 +13,32 @@ export async function GET(request: Request) {
     const now = new Date();
     const startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
+    // Obtener IDs de campañas que NO están excluidas del tracking
+    const { data: includedCampaigns, error: campaignsError } = await supabase
+      .from('newsletter_campaigns')
+      .select('id')
+      .or('excluded_from_tracking.is.null,excluded_from_tracking.eq.false');
+    
+    if (campaignsError) throw campaignsError;
+
+    const includedCampaignIds = (includedCampaigns || []).map(c => c.id);
+
+    // Si no hay campañas incluidas, devolver todo vacío
+    if (includedCampaignIds.length === 0) {
+      return NextResponse.json({
+        success: true,
+        summary: { delivered: 0, opened: 0, clicked: 0 },
+        rates: { openRate: 0, clickRate: 0 },
+        daily: [],
+      });
+    }
+
+    // Obtener eventos SOLO de campañas incluidas
     const { data: events, error } = await supabase
       .from('newsletter_events')
-      .select('event_type, occurred_at')
-      .gte('occurred_at', startDate);
+      .select('event_type, occurred_at, campaign_id')
+      .gte('occurred_at', startDate)
+      .in('campaign_id', includedCampaignIds);
     if (error) throw error;
 
     const summary = {

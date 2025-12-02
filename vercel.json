@@ -22,8 +22,8 @@
   "framework": "nextjs",
   "crons": [
     {
-      "path": "/api/cron/ab-test-evaluator",
-      "schedule": "*/15 * * * *"
+      "path": "/api/cron/newsletter-processor",
+      "schedule": "0 19 * * *"
     }
   ]
 }

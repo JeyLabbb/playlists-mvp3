@@ -174,7 +174,7 @@ const htmlWrapperMinimal = (
 </html>
 `;
 
-// Plantilla PLEIA - Visual con gradientes
+// Plantilla PLEIA - Diseño del mail de Founders (tarjeta azul)
 const htmlWrapper = (
   labelText: string,
   body: string,
@@ -185,142 +185,132 @@ const htmlWrapper = (
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(labelText)}</title>
   <style>
+    body { 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+      line-height: 1.6; 
+      color: #333; 
+      max-width: 600px; 
+      margin: 0 auto; 
+      padding: 20px; 
+      background: #f4f6fb; 
+    }
+    .header { 
+      text-align: center; 
+      margin-bottom: 30px; 
+    }
+    .highlight { 
+      background: linear-gradient(135deg, #36E2B4, #5B8CFF); 
+      color: white; 
+      padding: 20px; 
+      border-radius: 10px; 
+      margin: 20px 0; 
+      text-align: center; 
+    }
+    .highlight h2 { 
+      margin: 0 0 10px 0; 
+      font-size: 20px; 
+    }
+    .highlight p { 
+      margin: 5px 0; 
+    }
+    .cta-button { 
+      display: inline-block; 
+      background: linear-gradient(135deg, #36E2B4, #5B8CFF); 
+      color: white; 
+      padding: 15px 30px; 
+      text-decoration: none; 
+      border-radius: 25px; 
+      font-weight: bold; 
+      margin: 10px; 
+    }
+    .benefits { 
+      background: #f8f9fa; 
+      padding: 20px; 
+      border-radius: 10px; 
+      margin: 20px 0; 
+    }
+    .benefits h3 { 
+      margin-top: 0; 
+      color: #333; 
+    }
+    .benefits ul { 
+      list-style: none; 
+      padding: 0; 
+    }
+    .benefits li { 
+      padding: 8px 0; 
+      border-bottom: 1px solid #eee; 
+    }
+    .benefits li:before { 
+      content: "✨ "; 
+    }
+    .benefits li:last-child { 
+      border-bottom: none; 
+    }
+    .footer { 
+      text-align: center; 
+      margin-top: 30px; 
+      padding-top: 20px; 
+      border-top: 1px solid #ddd; 
+      color: #666; 
+      font-size: 14px; 
+    }
     @media only screen and (max-width: 600px) {
-      .container {
-        width: 100% !important;
-        padding: 0 !important;
+      body { 
+        padding: 10px; 
       }
-      .block {
-        padding: 24px !important;
+      .highlight { 
+        padding: 15px; 
       }
-      .stack {
-        display: block !important;
-        width: 100% !important;
-        padding: 0 !important;
-      }
-      .hero-title {
-        font-size: 26px !important;
-        line-height: 1.25 !important;
-      }
-      .cta-primary,
-      .cta-secondary {
-        width: 100% !important;
-        text-align: center !important;
-        display: block !important;
-        box-sizing: border-box;
-      }
-    }
-    body {
-      background-color: #f4f6fb;
-    }
-    @media (prefers-color-scheme: dark) {
-      body {
-        background-color: #04070d !important;
+      .cta-button { 
+        display: block; 
+        margin: 10px 0; 
       }
     }
   </style>
 </head>
-<body style="margin:0;padding:0;background-color:#f4f6fb;font-family:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:${TEXT_PRIMARY};">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:transparent;">
-    <tr>
-      <td align="center" style="padding:32px 16px;">
-        <table role="presentation" width="620" cellpadding="0" cellspacing="0" class="container" style="max-width:620px;width:100%;">
-          <tr>
-            <td class="block" style="padding:32px;background:${CARD_BG};border-radius:32px;border:1px solid rgba(255,255,255,0.06);box-shadow:0 25px 60px rgba(3,9,18,0.65);background-image:radial-gradient(circle at 0% 0%,rgba(140,111,255,0.25),transparent 55%),radial-gradient(circle at 80% 0%,rgba(34,246,206,0.25),transparent 60%);">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td>
-                    <div style="text-transform:uppercase;letter-spacing:0.32em;font-size:11px;color:${ACCENT};margin-bottom:12px;">
-                      ${escapeHtml(labelText)}
-                    </div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding-top:20px;">
-                    <div style="font-size:15px;line-height:1.75;color:${TEXT_SECONDARY};">
-                      ${body}
-                    </div>
-                  </td>
-                </tr>
-                ${
-                  primaryCta || secondaryCta
-                    ? `
-                <tr>
-                  <td style="padding-top:28px;">
-                    <table role="presentation" cellpadding="0" cellspacing="0">
-                      <tr>
-                        ${
-                          primaryCta
-                            ? `<td class="stack" style="padding:0 12px 12px 0;">
-                          <a href="${primaryCta.url}" class="cta-primary" style="display:inline-block;padding:14px 32px;background:${ACCENT};color:#07131d;border-radius:999px;font-weight:600;text-decoration:none;font-size:15px;">
-                            ${escapeHtml(primaryCta.label)}
-                          </a>
-                        </td>`
-                            : ''
-                        }
-                        ${
-                          secondaryCta
-                            ? `<td class="stack" style="padding:0 0 12px 12px;">
-                          <a href="${secondaryCta.url}" class="cta-secondary" style="display:inline-block;padding:12px 20px;border-radius:14px;border:1px solid rgba(134,111,255,0.4);color:${ACCENT_ALT};font-weight:500;text-decoration:none;font-size:14px;">
-                            ${escapeHtml(secondaryCta.label)} ↗
-                          </a>
-                        </td>`
-                            : ''
-                        }
-                      </tr>
-                    </table>
-                  </td>
-                </tr>`
-                    : ''
-                }
-                <tr>
-                  <td style="padding-top:24px;">
-                    <div style="font-size:12px;color:${TEXT_MUTED};">
-                      Novedades de PLEIA · próximos lanzamientos · accesos rápidos para volver al estudio.
-                    </div>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding-top:20px;border-top:1px solid rgba(255,255,255,0.06);">
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td style="padding-top:16px;">
-                          <div style="font-size:11px;color:${TEXT_MUTED};line-height:1.6;text-align:center;">
-                            ¿Ya no quieres recibir información valiosa sobre nuevas funciones y actualizaciones exclusivas?
-                            <br />
-                            <span style="opacity:0.7;">(Otras personas estarán encantadas de descubrir lo que tú te pierdes 🤷)</span>
-                            <br /><br />
-                            ${
-                              recipientEmail
-                                ? `<a href="${resolveBaseUrl()}/api/newsletter/unsubscribe?email=${encodeURIComponent(recipientEmail)}" style="color:rgba(239,244,255,0.45);text-decoration:underline;font-size:10px;">
-                                Darme de baja (aunque lo lamentaré)
-                              </a>`
-                                : '<span style="color:rgba(239,244,255,0.35);font-size:10px;">Gestiona tus preferencias desde tu perfil</span>'
-                            }
-                          </div>
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding-top:16px;">
-                          <div style="font-size:11px;color:${TEXT_MUTED};text-align:center;">
-                            © ${new Date().getFullYear()} PLEIA · Madrid, España
-                          </div>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
+<body>
+  <div class="header">
+    <h1 style="color: #333; font-size: 24px; margin: 0;">PLEIA 🎵</h1>
+  </div>
+
+  <div class="highlight">
+    <h2>${escapeHtml(labelText)}</h2>
+  </div>
+
+  <div style="font-size: 15px; line-height: 1.7; color: #333;">
+    ${body}
+  </div>
+
+  ${
+    primaryCta || secondaryCta
+      ? `<div style="text-align: center; margin: 30px 0;">
+          ${primaryCta ? `<a href="${primaryCta.url}" class="cta-button">${escapeHtml(primaryCta.label)}</a>` : ''}
+          ${secondaryCta ? `<a href="${secondaryCta.url}" class="cta-button">${escapeHtml(secondaryCta.label)}</a>` : ''}
+        </div>`
+      : ''
+  }
+
+  <div class="footer">
+    <p>¿Tienes alguna pregunta? Responde a este email y te ayudaremos personalmente.</p>
+    <p>¡Gracias por ser parte de esta aventura musical! 🎵</p>
+    <p><strong>El equipo de PLEIA</strong></p>
+    ${
+      recipientEmail
+        ? `<p style="margin-top: 20px; font-size: 11px; color: #999;">
+            ¿Ya no quieres recibir información valiosa sobre nuevas funciones y actualizaciones exclusivas?
+            <br /><span style="opacity:0.7;">(Otras personas estarán encantadas de descubrir lo que tú te pierdes 🤷)</span>
+            <br /><a href="${resolveBaseUrl()}/api/newsletter/unsubscribe?email=${encodeURIComponent(recipientEmail)}" style="color: #999; text-decoration: underline; font-size: 10px;">
+              Darme de baja (aunque lo lamentaré)
+            </a>
+          </p>`
+        : ''
+    }
+    <p style="font-size: 11px; color: #999; margin-top: 10px;">© ${new Date().getFullYear()} PLEIA · Madrid, España</p>
+  </div>
 </body>
 </html>
 `;
@@ -384,9 +374,16 @@ function buildRecipientHtml(params: {
   templateMode?: 'custom' | 'pleia' | 'minimal';
 }) {
   // Elegir wrapper según templateMode
-  const baseHtml = params.templateMode === 'minimal'
-    ? htmlWrapperMinimal(params.labelText, params.body, params.primaryCta, params.recipientEmail)
-    : htmlWrapper(params.labelText, params.body, params.primaryCta, params.secondaryCta, params.recipientEmail);
+  let baseHtml: string;
+  if (params.templateMode === 'minimal') {
+    baseHtml = htmlWrapperMinimal(params.labelText, params.body, params.primaryCta, params.recipientEmail);
+  } else if (params.templateMode === 'pleia') {
+    // Plantilla PLEIA: diseño del mail de Founders (tarjeta azul)
+    baseHtml = htmlWrapper(params.labelText, params.body, params.primaryCta, params.secondaryCta, params.recipientEmail);
+  } else {
+    // Custom: diseño básico sin mucho estilo
+    baseHtml = htmlWrapperMinimal(params.labelText, params.body, params.primaryCta, params.recipientEmail);
+  }
   
   if (!params.baseUrl || !params.campaignId || !params.recipientId) {
     return baseHtml;

@@ -5,7 +5,8 @@
 
 import { getSupabaseAdmin } from '../supabase/server';
 import { generateOutOfCreditsEmailHTML, generateOutOfCreditsEmailText } from './templates/outOfCredits';
-import { ensureContactByEmail } from '../newsletter/server';
+import { ensureContactByEmail, getNewsletterAdminClient } from '../newsletter/server';
+import { ensureOutOfCreditsWorkflow } from '../newsletter/workflows';
 
 export type OutOfCreditsEmailTrackingResult =
   | { ok: true; emailSent: true; campaignId: string; recipientId: string }
@@ -65,7 +66,14 @@ export async function sendOutOfCreditsEmailWithTracking(
     console.log('[OUT_OF_CREDITS_TRACKING] ===== SENDING TRACKED EMAIL =====');
     console.log('[OUT_OF_CREDITS_TRACKING] User:', normalizedEmail);
 
-    // 1. Ensure contact exists in newsletter system
+    // 1. Ensure workflow exists in Newsletter HQ
+    const newsletterClient = await getNewsletterAdminClient();
+    const workflowId = await ensureOutOfCreditsWorkflow(newsletterClient);
+    if (workflowId) {
+      console.log('[OUT_OF_CREDITS_TRACKING] Workflow ensured:', workflowId);
+    }
+
+    // 2. Ensure contact exists in newsletter system
     const contact = await ensureContactByEmail(supabase, normalizedEmail, {
       name: normalizedEmail.split('@')[0],
       origin: 'out_of_credits_automation',
@@ -73,16 +81,20 @@ export async function sendOutOfCreditsEmailWithTracking(
 
     console.log('[OUT_OF_CREDITS_TRACKING] Contact ensured:', contact.id);
 
-    // 2. Get or create "Out of Credits" campaign
+    // 3. Get or create "Out of Credits" campaign
     const now = new Date().toISOString();
-    const campaignName = 'Out of Credits · Automatic';
+    const campaignTitle = 'Out of Credits · Automático';
     const campaignSlug = 'out-of-credits-automatic';
 
-    let { data: existingCampaign } = await supabase
+    // Buscar por title y metadata.slug (ya que no existe columna slug)
+    let { data: existingCampaigns } = await supabase
       .from('newsletter_campaigns')
-      .select('id')
-      .eq('slug', campaignSlug)
-      .maybeSingle();
+      .select('id, title, metadata')
+      .eq('title', campaignTitle);
+
+    let existingCampaign = existingCampaigns && existingCampaigns.length > 0
+      ? existingCampaigns.find((c: any) => c.metadata?.slug === campaignSlug) || existingCampaigns[0]
+      : null;
 
     let campaignId: string;
 
@@ -90,20 +102,30 @@ export async function sendOutOfCreditsEmailWithTracking(
       campaignId = existingCampaign.id;
       console.log('[OUT_OF_CREDITS_TRACKING] Using existing campaign:', campaignId);
     } else {
-      // Create campaign
+      // Create campaign linked to workflow
       const { data: newCampaign, error: campaignError } = await supabase
         .from('newsletter_campaigns')
         .insert({
-          name: campaignName,
-          slug: campaignSlug,
+          title: campaignTitle,
           subject: 'Te has quedado sin playlists IA… pero tengo algo para ti.',
-          title: 'PLEIA',
-          body: 'Email automático cuando usuario agota sus créditos',
+          preheader: 'Opciones para continuar creando playlists ilimitadas',
+          body: 'Email automático cuando usuario agota sus créditos. Ofrece 2 opciones: invitar amigos (gratis) o Founder Pass (5€). Con tracking completo de aperturas y clicks.',
           primary_cta_label: 'Quiero playlists ilimitadas',
           primary_cta_url: 'https://playlists.jeylabbb.com/pricing',
           status: 'active',
-          type: 'automated',
+          send_mode: 'immediate',
+          created_by: 'system',
+          metadata: {
+            slug: campaignSlug,
+            type: 'automated',
+            workflow_id: workflowId || null,
+            mail_category: 'retention',
+            tracking_enabled: true,
+            automated: true,
+            trigger: 'out_of_credits',
+          },
           created_at: now,
+          updated_at: now,
         })
         .select('id')
         .single();
@@ -115,9 +137,23 @@ export async function sendOutOfCreditsEmailWithTracking(
 
       campaignId = newCampaign.id;
       console.log('[OUT_OF_CREDITS_TRACKING] Created new campaign:', campaignId);
+      
+      // Update workflow with campaign reference
+      if (workflowId) {
+        await supabase
+          .from('newsletter_workflow_steps')
+          .update({
+            action_config: {
+              campaign_id: campaignId,
+              tracking_enabled: true,
+            },
+          })
+          .eq('workflow_id', workflowId)
+          .eq('step_order', 0);
+      }
     }
 
-    // 3. Create recipient entry
+    // 4. Create recipient entry
     const { data: recipient, error: recipientError } = await supabase
       .from('newsletter_campaign_recipients')
       .insert({
@@ -137,7 +173,7 @@ export async function sendOutOfCreditsEmailWithTracking(
 
     console.log('[OUT_OF_CREDITS_TRACKING] Recipient created:', recipient.id);
 
-    // 4. Generate email content with tracking URLs
+    // 5. Generate email content with tracking URLs
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://playlists.jeylabbb.com';
     const pricingUrl = `${baseUrl}/pricing`;
     
@@ -160,7 +196,7 @@ export async function sendOutOfCreditsEmailWithTracking(
       ? htmlContent.replace('</body>', `${pixelTag}</body>`)
       : `${htmlContent}${pixelTag}`;
 
-    // 5. Send email via Resend (same config as other emails)
+    // 6. Send email via Resend (same config as other emails)
     const apiKey = process.env.RESEND_API_KEY;
     const rawFrom = process.env.RESEND_FROM || process.env.RESEND_NEWSLETTER_FROM || 'PLEIA <pleia@jeylabbb.com>';
     const from = rawFrom.replace(/^["']|["']$/g, '').trim();
@@ -215,7 +251,7 @@ export async function sendOutOfCreditsEmailWithTracking(
 
     console.log('[OUT_OF_CREDITS_TRACKING] ✅ Email sent via Resend');
 
-    // 6. Update recipient status to sent
+    // 7. Update recipient status to sent
     await supabase
       .from('newsletter_campaign_recipients')
       .update({
@@ -225,7 +261,7 @@ export async function sendOutOfCreditsEmailWithTracking(
       })
       .eq('id', recipient.id);
 
-    // 7. Record delivery event
+    // 8. Record delivery event
     await supabase.from('newsletter_events').insert({
       campaign_id: campaignId,
       recipient_id: recipient.id,
@@ -236,7 +272,7 @@ export async function sendOutOfCreditsEmailWithTracking(
 
     console.log('[OUT_OF_CREDITS_TRACKING] ✅ Tracking events created');
 
-    // 8. Mark email as sent in users table
+    // 9. Mark email as sent in users table
     await supabase
       .from('users')
       .update({
