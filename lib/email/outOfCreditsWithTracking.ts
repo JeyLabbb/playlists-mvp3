@@ -109,7 +109,29 @@ export async function sendOutOfCreditsEmailWithTracking(
           title: campaignTitle,
           subject: 'Te has quedado sin playlists IA… pero tengo algo para ti.',
           preheader: 'Opciones para continuar creando playlists ilimitadas',
-          body: 'Email automático cuando usuario agota sus créditos. Ofrece 2 opciones: invitar amigos (gratis) o Founder Pass (5€). Con tracking completo de aperturas y clicks.',
+          body: `Hey,
+
+he visto que te has quedado sin usos en PLEIA.
+
+Y antes de que cierres la pestaña pensando "bueno, ya está", te cuento algo rápido.
+
+Hay un motivo por el que PLEIA te ha enganchado: te ahorra tiempo, te inspira, y te crea playlists que tú no podrías hacer ni en media hora.
+
+Y sé que jode quedarse justo en lo mejor. Ese momento de escribir un prompt y que bam, aparece una playlist que encaja contigo.
+
+Por eso tienes dos caminos desde aquí (y ambos te desbloquean acceso ilimitado para siempre):
+
+👉 Opción 1 – Rápida
+Invita a 3 amigos con tu enlace y listo. Acceso ilimitado de por vida. (No pagas nada. Literal.)
+
+👉 Opción 2 – Directa
+Hazte founder por 5€ y accede para siempre. Sin límites. Sin mensualidades.
+
+Solo los primeros miles tendrán acceso ilimitado. Después esto cambiará.
+
+Nos vemos dentro.
+
+— MTRYX, fundadores de PLEIA`,
           primary_cta_label: 'Quiero playlists ilimitadas',
           primary_cta_url: 'https://playlists.jeylabbb.com/pricing',
           status: 'active',
