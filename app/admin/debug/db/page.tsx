@@ -412,15 +412,25 @@ function UsersList() {
         </div>
       </div>
       
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="text-sm text-gray-400">
-          Mostrando: {filteredUsers.length} de {allUsers.length} usuarios {!hasData && data?.error && `(Error: ${data.error})`}
+          Mostrando: {filteredUsers.length} de {allUsers.length} usuarios 
+          {data?.timestamp && (
+            <span className="ml-2 text-xs text-gray-500">
+              (actualizado: {new Date(data.timestamp).toLocaleTimeString('es-ES')})
+            </span>
+          )}
+          {!hasData && data?.error && <span className="text-red-400 ml-2">(Error: {data.error})</span>}
         </div>
         <button
-          onClick={() => mutate()}
-          className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white text-sm rounded transition-colors flex items-center gap-1"
+          onClick={() => {
+            console.log('[ADMIN] Manual refresh triggered');
+            mutate();
+          }}
+          disabled={isLoading}
+          className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 disabled:bg-gray-600 text-white text-sm rounded transition-colors flex items-center gap-1"
         >
-          🔄 Actualizar
+          {isLoading ? '⏳ Cargando...' : '🔄 Actualizar'}
         </button>
       </div>
       {filteredUsers.length > 0 ? (
