@@ -198,6 +198,10 @@ export default function Home() {
   const [statusText, setStatusText] = useState("");
   const progTimer = useRef(null);
   const paywallTimerRef = useRef(null);
+  
+  // Agent thinking (pensamientos del agente)
+  const [agentThoughts, setAgentThoughts] = useState([]);
+  const [isAgentMode, setIsAgentMode] = useState(true); // Nuevo sistema de agente habilitado por defecto
 
   // Playlist creation options
   const [playlistName] = useState(""); // Keep for compatibility but use customPlaylistName
@@ -688,7 +692,205 @@ export default function Home() {
     return intent;
   }
 
-  // Generate playlist using streaming SSE
+  // ═══════════════════════════════════════════════════════════════
+  // NUEVO: Generar playlist usando el Agente PLEIA
+  // ═══════════════════════════════════════════════════════════════
+  async function generatePlaylistWithAgent(prompt, wanted, customPlaylistName) {
+    return new Promise((resolve, reject) => {
+      let allTracks = [];
+      let eventSource;
+      let usageConsumed = false;
+      let completed = false;
+
+      // Limpiar pensamientos anteriores
+      setAgentThoughts([]);
+
+      const finalizeGeneration = (payload = {}) => {
+        if (completed) return;
+        completed = true;
+
+        const target = payload.totalTracks ?? wanted;
+        if (Array.isArray(payload.tracks) && payload.tracks.length > 0) {
+          allTracks = payload.tracks.slice(0, target);
+        }
+
+        setTracks([...allTracks]);
+        setPlaylistMeta(payload.playlist || null);
+
+        finishProgress();
+        setIsGenerationComplete(true);
+        setStatusText(`✅ ¡Listo! ${allTracks.length} canciones encontradas`);
+
+        if (eventSource) {
+          eventSource.close();
+        }
+
+        resolve({
+          tracks: allTracks,
+          totalSoFar: allTracks.length,
+          playlist: payload.playlist || null
+        });
+      };
+
+      try {
+        // Crear EventSource para el agente
+        const params = new URLSearchParams({
+          prompt,
+          target_tracks: wanted.toString(),
+          playlist_name: customPlaylistName || safeDefaultName(prompt)
+        });
+        
+        const streamUrl = new URL('/api/agent/stream', window.location.origin);
+        streamUrl.search = params.toString();
+        eventSource = new EventSource(streamUrl.toString());
+
+        // Evento: Agente inicia
+        eventSource.addEventListener('AGENT_START', (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            bumpPhase(data.message || 'Iniciando agente...', 10);
+            setStatusText(`🤖 ${data.message || 'Iniciando agente...'}`);
+          } catch (e) {
+            console.error('[AGENT] Error parsing AGENT_START:', e);
+          }
+        });
+
+        // Evento: Pensamiento del agente (se acumulan)
+        eventSource.addEventListener('AGENT_THINKING', (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.thought) {
+              setAgentThoughts(prev => [...prev, data.thought]);
+              setStatusText(`💭 ${data.thought}`);
+            }
+          } catch (e) {
+            console.error('[AGENT] Error parsing AGENT_THINKING:', e);
+          }
+        });
+
+        // Evento: Plan generado
+        eventSource.addEventListener('AGENT_PLAN', (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            bumpPhase(`Ejecutando ${data.steps} pasos...`, 20);
+          } catch (e) {
+            console.error('[AGENT] Error parsing AGENT_PLAN:', e);
+          }
+        });
+
+        // Evento: Herramienta inicia
+        eventSource.addEventListener('TOOL_START', (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            const progress = 20 + (data.stepIndex / data.totalSteps) * 60;
+            bumpPhase(`Paso ${data.stepIndex}/${data.totalSteps}: ${data.tool}`, progress);
+          } catch (e) {
+            console.error('[AGENT] Error parsing TOOL_START:', e);
+          }
+        });
+
+        // Evento: Herramienta completada
+        eventSource.addEventListener('TOOL_COMPLETE', (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            setStatusText(`✓ ${data.tool}: ${data.tracksFound} canciones (${data.totalSoFar}/${data.target})`);
+          } catch (e) {
+            console.error('[AGENT] Error parsing TOOL_COMPLETE:', e);
+          }
+        });
+
+        // Evento: Chunk de tracks
+        eventSource.addEventListener('TRACKS_CHUNK', async (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            
+            // Consumir uso en el primer chunk
+            if (!usageConsumed && data.tracks && data.tracks.length > 0) {
+              usageConsumed = true;
+              setUsageLoading(true);
+              try {
+                const latestUsage = await refreshUsage();
+                if (latestUsage) {
+                  setUsageData(latestUsage);
+                }
+              } catch (error) {
+                console.error('[AGENT] Error refreshing usage:', error);
+              } finally {
+                setUsageLoading(false);
+              }
+            }
+
+            // Actualizar tracks parciales
+            allTracks = [...allTracks, ...data.tracks];
+            setTracks([...allTracks]);
+            
+            const progress = Math.round((data.totalSoFar / data.target) * 100);
+            bumpPhase(`Encontradas ${data.totalSoFar}/${data.target} canciones`, 20 + progress * 0.6);
+          } catch (e) {
+            console.error('[AGENT] Error parsing TRACKS_CHUNK:', e);
+          }
+        });
+
+        // Evento: Completado
+        eventSource.addEventListener('DONE', (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log('[AGENT] DONE received:', data);
+            
+            // Añadir pensamiento final
+            setAgentThoughts(prev => [...prev, data.message || '¡Playlist completada!']);
+            
+            bumpPhase('¡Completado!', 100);
+            finalizeGeneration(data);
+          } catch (e) {
+            console.error('[AGENT] Error parsing DONE:', e);
+          }
+        });
+
+        // Evento: Error
+        eventSource.addEventListener('ERROR', (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.error('[AGENT] ERROR event:', data);
+            setError(data.error || 'Error generando playlist');
+            setAgentThoughts(prev => [...prev, `❌ Error: ${data.error}`]);
+          } catch (e) {
+            setError('Error desconocido');
+          }
+          if (eventSource) {
+            eventSource.close();
+          }
+          finishProgress();
+          reject(new Error('Agent error'));
+        });
+
+        // Error de conexión
+        eventSource.onerror = (error) => {
+          console.error('[AGENT] EventSource error:', error);
+          if (!completed) {
+            if (allTracks.length > 0) {
+              finalizeGeneration({ tracks: allTracks, totalTracks: allTracks.length });
+            } else {
+              setError('Error de conexión con el agente');
+              finishProgress();
+              reject(new Error('Connection error'));
+            }
+          }
+          if (eventSource) {
+            eventSource.close();
+          }
+        };
+
+      } catch (error) {
+        console.error('[AGENT] Error:', error);
+        setError(error.message);
+        finishProgress();
+        reject(error);
+      }
+    });
+  }
+
+  // Generate playlist using streaming SSE (sistema clásico)
   async function generatePlaylistWithStreaming(prompt, wanted, customPlaylistName) {
     return new Promise((resolve, reject) => {
       let allTracks = [];
@@ -1284,8 +1486,12 @@ export default function Home() {
       
       // Use streaming SSE for both mobile and desktop - SAME LOGIC
       if (sessionUser) {
-        // Both mobile and desktop use streaming - EXACTLY THE SAME
-        await generatePlaylistWithStreaming(prompt, wanted, customPlaylistName);
+        // Usar el sistema de agente si está habilitado, sino el clásico
+        if (isAgentMode) {
+          await generatePlaylistWithAgent(prompt, wanted, customPlaylistName);
+        } else {
+          await generatePlaylistWithStreaming(prompt, wanted, customPlaylistName);
+        }
       } else {
         // Use regular fetch for demo or development
         const playlistRes = await fetch(endpoint, {
@@ -1847,6 +2053,28 @@ export default function Home() {
                     message={statusText} 
                     show={loading || (progress > 0 && progress < 100)} 
                   />
+                  
+                  {/* Pensamientos del Agente PLEIA */}
+                  {isAgentMode && agentThoughts.length > 0 && (
+                    <div className="mt-4 space-y-2 max-h-48 overflow-y-auto">
+                      {agentThoughts.slice(-5).map((thought, idx) => (
+                        <div 
+                          key={idx}
+                          className={`text-sm px-3 py-2 rounded-lg transition-all duration-300 ${
+                            idx === agentThoughts.slice(-5).length - 1
+                              ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20'
+                              : 'bg-white/5 text-white/60'
+                          }`}
+                          style={{
+                            opacity: 1 - (agentThoughts.slice(-5).length - 1 - idx) * 0.2,
+                            transform: idx === agentThoughts.slice(-5).length - 1 ? 'scale(1)' : 'scale(0.98)'
+                          }}
+                        >
+                          💭 {thought}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </>
               )}
             </div>
