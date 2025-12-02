@@ -271,8 +271,12 @@ IMPORTANTE:
 // ============== TOOL EXECUTION ==============
 
 async function executeToolCall(toolCall: OpenAI.Chat.Completions.ChatCompletionMessageToolCall) {
-  const toolName = toolCall.function.name;
-  const toolArgs = toolCall.function.arguments;
+  // Type guard para asegurar que es un tool call de función
+  if (!('function' in toolCall)) {
+    throw new Error('Invalid tool call: missing function property');
+  }
+  const toolName = (toolCall as any).function.name;
+  const toolArgs = (toolCall as any).function.arguments;
   const parsedArgs = JSON.parse(toolArgs);
 
   console.log('[TOOL] Executing:', toolName, parsedArgs);
