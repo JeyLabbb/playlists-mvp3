@@ -116,22 +116,22 @@ export async function GET(request: NextRequest) {
         // También extraer exclusiones del prompt original (por si el LLM no las puso en el plan)
         // Buscar patrones como "sin X", "no X", "excluir X", "sin canciones de X"
         const promptLower = prompt.toLowerCase();
-        
-        // Patrón mejorado: "sin [canciones de] X" o "no [quiero] X" o "excluir X"
+
+        // Patrón mejorado: detectar exclusiones como 'sin X', 'no X', 'excluir X' de forma case-insensitive
         const exclusionPatterns = [
-          /sin\s+(?:canciones?\s+de\s+|música\s+de\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ\s]+?)(?:\.|,|$|y|o|con|de|del|la|el|los|las|para)/gi,
-          /no\s+(?:quiero\s+|quieres\s+)?(?:canciones?\s+de\s+|música\s+de\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ\s]+?)(?:\.|,|$|y|o|con|de|del|la|el|los|las|para)/gi,
-          /excluir\s+(?:a\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ\s]+?)(?:\.|,|$|y|o|con|de|del|la|el|los|las|para)/gi,
+          /sin\s+(?:canciones?\s+de\s+|música\s+de\s+)?([a-záéíóúñ0-9\s]+?)(?:\.|,|$|y|o|con|de|del|la|el|los|las|para)/gi,
+          /no\s+(?:quiero\s+|quieres\s+)?(?:canciones?\s+de\s+|música\s+de\s+)?([a-záéíóúñ0-9\s]+?)(?:\.|,|$|y|o|con|de|del|la|el|los|las|para)/gi,
+          /excluir\s+(?:a\s+)?([a-záéíóúñ0-9\s]+?)(?:\.|,|$|y|o|con|de|del|la|el|los|las|para)/gi,
         ];
-        
+
         for (const pattern of exclusionPatterns) {
           let match;
-          while ((match = pattern.exec(prompt)) !== null) {
+          while ((match = pattern.exec(promptLower)) !== null) {
             const artistName = match[1].trim();
             // Filtrar palabras comunes que no son artistas
             const commonWords = ['canciones', 'música', 'playlist', 'lista', 'tracks', 'songs', 'artistas', 'rock', 'pop', 'rap', 'hip', 'hop'];
-            if (artistName.length > 2 && !commonWords.includes(artistName.toLowerCase())) {
-              bannedArtists.add(artistName.toLowerCase());
+            if (artistName.length > 2 && !commonWords.includes(artistName)) {
+              bannedArtists.add(artistName);
               console.log(`[AGENT-STREAM] ⚠️ Detected banned artist from prompt: "${artistName}"`);
             }
           }
@@ -609,17 +609,47 @@ export async function GET(request: NextRequest) {
         sendThinking('Creando tu playlist en Spotify...');
         
         // Asegurar que no excedemos el target
-        const finalTracks = allTracks.slice(0, targetTracks);
-        
+        let finalTracks = allTracks.slice(0, targetTracks);
+
         console.log('[AGENT-STREAM] Final tracks after slice:', finalTracks.length, '/', targetTracks);
-        
+
         // Si tenemos más tracks de los pedidos, ya están cortados arriba
         if (allTracks.length > targetTracks) {
           console.log('[AGENT-STREAM] Trimmed from', allTracks.length, 'to', finalTracks.length);
         }
-        
+
+        // Fallback creativo final si seguimos sin canciones
         if (finalTracks.length === 0) {
-          console.error('[AGENT-STREAM] ERROR: No tracks found after all tools executed');
+          console.warn('[AGENT-STREAM] No tracks after plan + fill. Trying ultimate creative fallback...');
+          try {
+            const fallbackStep: ToolCall = {
+              tool: 'generate_creative_tracks',
+              params: {
+                theme: prompt,
+                genre: 'reggaeton, latin, urbano',
+                count: targetTracks * 2,
+                artists_to_exclude: Array.from(bannedArtists),
+              },
+              reason: 'Fallback creativo final cuando las demás herramientas no han devuelto canciones.',
+            };
+
+            const fallbackResult = await executeToolCall(fallbackStep, accessToken, {
+              allTracksSoFar: [],
+              usedTrackIds: new Set<string>(),
+            });
+
+            const fallbackFiltered = filterBannedArtists(fallbackResult.tracks);
+            allTracks.push(...fallbackFiltered);
+            finalTracks = allTracks.slice(0, targetTracks);
+
+            console.log('[AGENT-STREAM] Creative fallback added', fallbackFiltered.length, 'tracks. Final now:', finalTracks.length);
+          } catch (fallbackError) {
+            console.error('[AGENT-STREAM] Ultimate creative fallback failed:', fallbackError);
+          }
+        }
+
+        if (finalTracks.length === 0) {
+          console.error('[AGENT-STREAM] ERROR: No tracks found after all tools executed (even after fallback)');
           sendEvent('ERROR', { error: 'No se encontraron canciones después de ejecutar todas las herramientas' });
           controller.close();
           return;
