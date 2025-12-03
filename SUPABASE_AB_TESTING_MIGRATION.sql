@@ -37,3 +37,4 @@ UPDATE newsletter_campaigns
 SET mail_category = 'general' 
 WHERE mail_category IS NULL;
 
+

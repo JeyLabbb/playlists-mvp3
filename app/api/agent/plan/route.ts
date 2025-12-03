@@ -56,17 +56,34 @@ Número de canciones solicitado: ${target_tracks}
 
 Analiza el prompt y genera un plan de ejecución usando las herramientas disponibles.
 
-⚠️ ATENCIÓN ESPECIAL:
-- Si el usuario dice "sin X", "no X", "excluir X": AÑADE X a artists_to_exclude en generate_creative_tracks
-- Si el usuario dice "artistas tipo X podrían ser Y, Z": AÑADE Y, Z a artists_to_include O usa get_similar_style con seed_artists que incluya Y, Z
-- Si el usuario recomienda artistas específicos: INCLÚYELOS en el plan (get_artist_tracks o get_similar_style)
+⚠️ ATENCIÓN ESPECIAL - CASOS CRÍTICOS:
 
-Recuerda:
+1. **"Como X pero sin X" o "tipo X pero sin X"**:
+   - DEBES usar get_similar_style con seed_artists=['X'] y include_seed_artists=false
+   - NO uses generate_creative_tracks como primera opción
+   - El sistema filtrará automáticamente a X de todos los tracks, pero usa get_similar_style PRIMERO
+
+2. **Exclusiones ("sin X", "no X", "excluir X")**:
+   - El sistema detectará automáticamente estas exclusiones
+   - Si usas generate_creative_tracks, AÑADE X a artists_to_exclude
+   - Las exclusiones se aplicarán a TODAS las herramientas automáticamente
+
+3. **Artistas recomendados ("artistas tipo X podrían ser Y, Z")**:
+   - AÑADE Y, Z a artists_to_include en generate_creative_tracks O
+   - Usa get_similar_style con seed_artists que incluya Y, Z
+   - Estos artistas tendrán PRIORIDAD en el relleno
+
+4. **Artistas específicos pedidos explícitamente**:
+   - INCLÚYELOS en el plan con get_artist_tracks o get_similar_style
+   - Añádelos a requested_artists en el plan
+
+REGLAS GENERALES:
 - Usa máximo 5-6 herramientas
 - SIEMPRE incluye adjust_distribution al final
 - Los caps deben sumar aproximadamente ${Math.ceil(target_tracks * 1.3)} (para compensar duplicados)
 - Genera pensamientos naturales que expliquen tu razonamiento
-- RESPETA TODAS las exclusiones y recomendaciones del usuario`;
+- RESPETA TODAS las exclusiones y recomendaciones del usuario
+- Para "como X pero sin X": USA get_similar_style PRIMERO, NO generate_creative_tracks`;
 
     console.log('[AGENT-PLAN] Calling OpenAI...');
 

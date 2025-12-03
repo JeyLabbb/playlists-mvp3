@@ -358,3 +358,4 @@ FROM newsletter_templates;
 -- 3. Verificar que el cron job se activa
 -- 4. ¡Crear tu primera campaña con A/B testing!
 
+

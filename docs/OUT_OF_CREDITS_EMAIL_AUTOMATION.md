@@ -260,3 +260,4 @@ Si un usuario reporta no haber recibido el email:
 **Versión:** 1.0  
 **Responsable:** MTRYX Team
 
+

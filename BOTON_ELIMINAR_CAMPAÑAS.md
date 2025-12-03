@@ -272,3 +272,4 @@ npm run dev
 
 ¿Listo para usarlo? Reinicia la app y empieza a limpiar campañas! 🚀
 
+

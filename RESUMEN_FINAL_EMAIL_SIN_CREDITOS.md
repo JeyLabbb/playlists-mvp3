@@ -215,3 +215,4 @@ Todo está preparado y testeado. Solo ejecuta el SQL y haz deploy.
 **Fecha:** 2 Diciembre 2025  
 **Versión:** 1.0.0 - Production Ready
 
+

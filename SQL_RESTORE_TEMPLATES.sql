@@ -39,3 +39,4 @@ GROUP BY template_mode;
 -- Las campañas volverán a usar sus templates originales
 -- Solo Welcome Founder Pass usará la plantilla PLEIA (la del card azul)
 
+

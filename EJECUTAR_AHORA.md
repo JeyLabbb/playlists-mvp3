@@ -247,3 +247,4 @@ cd /Users/jorgemig/Desktop/JeyLabbb/JL_IA_PLEIA/playlists-mvp && bash COMANDOS_C
 
 **¿Ejecutamos?** El sistema está listo para funcionar.
 
+

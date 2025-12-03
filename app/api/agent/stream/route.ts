@@ -62,7 +62,18 @@ export async function GET(request: NextRequest) {
       };
 
       const sendThinking = (thought: string) => {
-        sendEvent('AGENT_THINKING', { thought, timestamp: Date.now() });
+        // Limpiar cualquier emoji del mensaje antes de enviarlo (más agresivo)
+        const cleanThought = thought
+          .replace(/💭\s*/g, '')
+          .replace(/🤔\s*/g, '')
+          .replace(/💬\s*/g, '')
+          .replace(/[\u{1F4AD}\u{1F914}\u{1F4AC}\u{1F4A4}]/gu, '') // Unicode ranges para emojis de pensamiento
+          .replace(/[\u2600-\u27BF]/g, '') // Rango general de emojis
+          .replace(/\s+/g, ' ') // Normalizar espacios
+          .trim();
+        if (cleanThought) {
+          sendEvent('AGENT_THINKING', { thought: cleanThought, timestamp: Date.now() });
+        }
       };
 
       try {
@@ -127,13 +138,26 @@ export async function GET(request: NextRequest) {
         for (const pattern of exclusionPatterns) {
           let match;
           while ((match = pattern.exec(promptLower)) !== null) {
-            const artistName = match[1].trim();
-            // Filtrar palabras comunes que no son artistas
+            const rawName = match[1].trim();
             const commonWords = ['canciones', 'música', 'playlist', 'lista', 'tracks', 'songs', 'artistas', 'rock', 'pop', 'rap', 'hip', 'hop'];
-            if (artistName.length > 2 && !commonWords.includes(artistName)) {
-              bannedArtists.add(artistName);
-              console.log(`[AGENT-STREAM] ⚠️ Detected banned artist from prompt: "${artistName}"`);
+
+            // Descartar palabras genéricas y ruido
+            if (rawName.length <= 2 || commonWords.includes(rawName)) {
+              continue;
             }
+
+            // Nombre base detectado en el prompt (ya en minúsculas)
+            let artistName = rawName;
+
+            // PARCHE: el regex a veces corta "bad bunny" → "bad bunn"
+            if (artistName === 'bad bunn') {
+              artistName = 'bad bunny';
+            }
+
+            bannedArtists.add(artistName);
+            console.log(
+              `[AGENT-STREAM] ⚠️ Detected banned artist from prompt: "${artistName}" (raw: "${rawName}")`
+            );
           }
         }
         
@@ -201,7 +225,11 @@ export async function GET(request: NextRequest) {
             const trackArtists = track.artists?.map((a: any) => a.name.toLowerCase()) || [];
             const hasBannedArtist = trackArtists.some(artist => bannedArtists.has(artist));
             if (hasBannedArtist) {
-              console.log(`[AGENT-STREAM] ⚠️ Filtered out track "${track.name}" - contains banned artist`);
+              const bannedFound = trackArtists.filter(artist => bannedArtists.has(artist));
+              console.log(`[AGENT-STREAM] ⚠️ FILTERED OUT: "${track.name}" by [${track.artists?.map((a: any) => a.name).join(', ')}]`);
+              console.log(`[AGENT-STREAM] ⚠️ REASON: Contains banned artist(s): [${bannedFound.join(', ')}]`);
+              console.log(`[AGENT-STREAM] ⚠️ All track artists: [${trackArtists.join(', ')}]`);
+              console.log(`[AGENT-STREAM] ⚠️ Banned list: [${Array.from(bannedArtists).join(', ')}]`);
               return false;
             }
             return true;
@@ -210,6 +238,11 @@ export async function GET(request: NextRequest) {
 
         for (let i = 0; i < plan.execution_plan.length; i++) {
           const step = plan.execution_plan[i];
+          
+          console.log(`[AGENT-STREAM] ===== TOOL ${i + 1}/${plan.execution_plan.length}: ${step.tool} =====`);
+          console.log(`[AGENT-STREAM] Tool params:`, JSON.stringify(step.params, null, 2));
+          console.log(`[AGENT-STREAM] Banned artists at start: [${Array.from(bannedArtists).join(', ')}]`);
+          console.log(`[AGENT-STREAM] Total tracks before: ${allTracks.length}`);
           
           // Emitir pensamiento sobre la herramienta actual
           sendThinking(step.reason);
@@ -228,8 +261,17 @@ export async function GET(request: NextRequest) {
             bannedArtists
           });
 
+          console.log(`[AGENT-STREAM] Tool returned ${result.tracks.length} raw tracks`);
+          if (result.tracks.length > 0) {
+            console.log(`[AGENT-STREAM] First 3 tracks from tool:`, result.tracks.slice(0, 3).map(t => ({
+              name: t.name,
+              artists: t.artists?.map(a => a.name).join(', ') || 'unknown'
+            })));
+          }
+
           // Filtrar tracks excluidos ANTES de añadirlos
           const filteredTracks = filterBannedArtists(result.tracks);
+          console.log(`[AGENT-STREAM] After filtering banned artists: ${filteredTracks.length} tracks (filtered ${result.tracks.length - filteredTracks.length})`);
 
           // Añadir tracks (excepto adjust_distribution que reordena)
           if (step.tool === 'adjust_distribution') {
@@ -239,6 +281,9 @@ export async function GET(request: NextRequest) {
           } else {
             allTracks.push(...filteredTracks);
           }
+
+          console.log(`[AGENT-STREAM] Total tracks after ${step.tool}: ${allTracks.length}`);
+          console.log(`[AGENT-STREAM] ===== END TOOL ${i + 1}: ${step.tool} =====\n`);
 
           // Solo emitir progreso interno (sin mensaje visible al usuario)
           sendEvent('TOOL_COMPLETE', {
@@ -260,10 +305,12 @@ export async function GET(request: NextRequest) {
 
         // Si no hemos conseguido nada pero hay artistas vetados (caso tpico: "como X pero sin X"),
         // intentamos una pasada de emergencia con get_similar_style para artistas similares al vetado.
-        if (allTracks.length == 0 && bannedArtists.size > 0) {
+        const minTracksThreshold = Math.floor(targetTracks / 3);
+        if (allTracks.length < minTracksThreshold && bannedArtists.size > 0) {
           try {
             const seedArtists = Array.from(bannedArtists);
-            console.log('[AGENT-STREAM] No tracks after initial plan. Running emergency get_similar_style with seeds:', seedArtists);
+            console.log(`[AGENT-STREAM] Only ${allTracks.length} tracks after initial plan (threshold: ${minTracksThreshold}). Running emergency get_similar_style with seeds:`, seedArtists);
+            sendThinking('Buscando artistas similares al estilo solicitado...');
 
             const emergencyStep: ToolCall = {
               tool: 'get_similar_style',
@@ -296,6 +343,11 @@ export async function GET(request: NextRequest) {
           const missing = targetTracks - allTracks.length;
           console.log(`[AGENT-STREAM] Missing ${missing} tracks, attempting to fill with recommendations...`);
           sendThinking(`Encontré ${allTracks.length} canciones, buscando ${missing} más para completar...`);
+          
+          // Timeout de 5 segundos: si faltan muy pocas canciones (1-3), usar generación creativa después de 5s
+          const fillStartTime = Date.now();
+          const FILL_TIMEOUT_MS = 5000; // 5 segundos
+          const shouldUseQuickFallback = missing <= 3; // Solo para 1-3 canciones faltantes
           
           try {
             // Helper para shuffle aleatorio (Fisher-Yates)
@@ -530,12 +582,26 @@ export async function GET(request: NextRequest) {
             // Convertir el Map a array y mezclarlo para variar el orden de artistas
             const artistEntries = shuffle([...tracksByArtist.entries()]);
             
-            // Ahora añadir tracks de forma equilibrada: 1 de cada artista, luego 2º de cada, etc.
-            let round = 0;
-            const maxRounds = 10; // Máximo 10 canciones por artista
-            
-            while (allTracks.length < targetTracks && round < maxRounds) {
-              let addedThisRound = false;
+            // Si no hay artistas, no podemos rellenar
+            if (artistEntries.length === 0) {
+              console.log('[AGENT-STREAM] ⚠️ No artists available for fill, skipping balanced fill');
+            } else {
+              // CRÍTICO: Añadir tracks de forma equilibrada: 1 de cada artista, luego 2º de cada, etc.
+              // Continuar hasta llegar al target o quedarnos sin tracks
+              let round = 0;
+              const maxRounds = Math.max(20, Math.ceil(targetTracks / Math.max(1, artistEntries.length))); // Aumentar rounds según necesidad, evitar división por 0
+              
+              console.log(`[AGENT-STREAM] Starting balanced fill: ${allTracks.length}/${targetTracks} tracks, ${artistEntries.length} artists, max ${maxRounds} rounds`);
+              
+              while (allTracks.length < targetTracks && round < maxRounds) {
+              // Verificar timeout: si faltan pocas canciones y pasaron más de 5s, salir del bucle
+              const fillElapsed = Date.now() - fillStartTime;
+              if (shouldUseQuickFallback && fillElapsed > FILL_TIMEOUT_MS) {
+                console.log(`[AGENT-STREAM] ⏱️ Fill timeout reached (${fillElapsed}ms) during balanced fill. Breaking loop to use quick fallback...`);
+                break;
+              }
+              
+              let addedThisRound = 0;
               
               // Mezclar el orden de artistas en cada ronda para más variedad
               const shuffledEntries = shuffle(artistEntries);
@@ -543,10 +609,34 @@ export async function GET(request: NextRequest) {
               for (const [artistName, artistTracks] of shuffledEntries) {
                 if (allTracks.length >= targetTracks) break;
                 
-                // Obtener el track de esta ronda para este artista
+                // Obtener el track de esta ronda para este artista (round = índice en el array)
                 if (round < artistTracks.length) {
                   const track = artistTracks[round];
-                  if (usedTrackIds.has(track.id)) continue;
+                  
+                  // Verificar duplicados
+                  if (usedTrackIds.has(track.id)) {
+                    // Si este track ya está usado, intentar el siguiente de este artista
+                    let foundAlternative = false;
+                    for (let altRound = round + 1; altRound < Math.min(round + 5, artistTracks.length); altRound++) {
+                      const altTrack = artistTracks[altRound];
+                      if (!usedTrackIds.has(altTrack.id)) {
+                        // Usar este track alternativo
+                        const trackArtists = altTrack.artists?.map((a: any) => a.name.toLowerCase()) || [];
+                        const hasBannedArtist = trackArtists.some(artist => bannedArtists.has(artist));
+                        
+                        if (!hasBannedArtist) {
+                          usedTrackIds.add(altTrack.id);
+                          allTracks.push(altTrack);
+                          addedThisRound++;
+                          foundAlternative = true;
+                          console.log(`[AGENT-STREAM] ✅ FILL: Added "${altTrack.name}" by ${artistName} (round ${round}, alt ${altRound})`);
+                          break;
+                        }
+                      }
+                    }
+                    if (foundAlternative) continue;
+                    else continue; // Saltar este artista en esta ronda
+                  }
                   
                   // CRÍTICO: Verificar restricciones de colaboración
                   const artistNameLower = artistName.toLowerCase();
@@ -577,35 +667,209 @@ export async function GET(request: NextRequest) {
                   const hasBannedArtist = trackArtists.some(artist => bannedArtists.has(artist));
                   
                   if (hasBannedArtist) {
-                    console.log(`[AGENT-STREAM] ⚠️ Skipping track "${track.name}" - contains banned artist`);
+                    const bannedFound = trackArtists.filter(artist => bannedArtists.has(artist));
+                    console.log(`[AGENT-STREAM] ⚠️ FILL SKIP: "${track.name}" by [${track.artists?.map((a: any) => a.name).join(', ')}]`);
+                    console.log(`[AGENT-STREAM] ⚠️ REASON: Contains banned: [${bannedFound.join(', ')}]`);
                     continue;
                   }
                   
                   // Añadir el track si pasa todas las verificaciones
                   usedTrackIds.add(track.id);
                   allTracks.push(track);
-                  addedThisRound = true;
+                  addedThisRound++;
+                  console.log(`[AGENT-STREAM] ✅ FILL: Added "${track.name}" by ${artistName} (round ${round}, total: ${allTracks.length}/${targetTracks})`);
                 }
               }
               
-              // Si no añadimos nada en esta ronda, no hay más tracks disponibles
-              if (!addedThisRound) {
-                console.log(`[AGENT-STREAM] No more tracks available at round ${round}`);
-                break;
+              // Si no añadimos nada en esta ronda, intentar buscar más tracks de los artistas existentes
+              if (addedThisRound === 0) {
+                console.log(`[AGENT-STREAM] ⚠️ No tracks added in round ${round}, but still need ${targetTracks - allTracks.length} more`);
+                
+                // Intentar buscar más tracks de los artistas que ya tenemos
+                let foundMore = false;
+                for (const [artistName, existingTracks] of artistEntries) {
+                  if (allTracks.length >= targetTracks) break;
+                  if (existingTracks.length <= round + 5) {
+                    // Este artista tiene pocos tracks, intentar buscar más
+                    try {
+                      const searchUrl = `https://api.spotify.com/v1/search?q=artist:${encodeURIComponent(artistName)}&type=track&limit=20&offset=${existingTracks.length}`;
+                      const searchResponse = await fetch(searchUrl, {
+                        headers: { Authorization: `Bearer ${accessToken}` }
+                      });
+                      
+                      if (searchResponse.ok) {
+                        const searchData = await searchResponse.json();
+                        const newTracks = (searchData.tracks?.items || [])
+                          .filter((t: any) => {
+                            const trackArtists = t.artists?.map((a: any) => a.name.toLowerCase()) || [];
+                            const hasBannedArtist = trackArtists.some(artist => bannedArtists.has(artist));
+                            return !hasBannedArtist && 
+                                   trackArtists.includes(artistName.toLowerCase()) && 
+                                   t.id && !usedTrackIds.has(t.id);
+                          })
+                          .map((track: any) => ({
+                            id: track.id,
+                            name: track.name,
+                            uri: track.uri,
+                            artists: track.artists?.map((a: any) => ({ id: a.id, name: a.name })) || [],
+                            album: track.album ? {
+                              id: track.album.id,
+                              name: track.album.name,
+                              images: track.album.images || []
+                            } : undefined
+                          }));
+                        
+                        if (newTracks.length > 0) {
+                          existingTracks.push(...newTracks);
+                          tracksByArtist.set(artistName, existingTracks);
+                          foundMore = true;
+                          console.log(`[AGENT-STREAM] 🔍 Found ${newTracks.length} more tracks for "${artistName}"`);
+                        }
+                      }
+                    } catch (searchErr) {
+                      console.warn(`[AGENT-STREAM] Error searching more tracks for ${artistName}:`, searchErr);
+                    }
+                  }
+                }
+                
+                // Si no encontramos más tracks después de buscar, salir
+                if (!foundMore) {
+                  console.log(`[AGENT-STREAM] No more tracks available at round ${round}, stopping fill`);
+                  break;
+                }
               }
               
               round++;
             }
             
-            console.log(`[AGENT-STREAM] After balanced fill: ${allTracks.length} tracks (${round} rounds)`);
+            console.log(`[AGENT-STREAM] ✅ After balanced fill: ${allTracks.length}/${targetTracks} tracks (${round} rounds, ${allTracks.length < targetTracks ? 'INCOMPLETE' : 'COMPLETE'})`);
+            
+            // Si aún faltan tracks y pasaron más de 5 segundos, usar generación creativa rápida
+            const fillElapsed = Date.now() - fillStartTime;
+            if (allTracks.length < targetTracks && shouldUseQuickFallback && fillElapsed > FILL_TIMEOUT_MS) {
+              const stillMissing = targetTracks - allTracks.length;
+              console.log(`[AGENT-STREAM] ⏱️ Fill timeout reached (${fillElapsed}ms). Still missing ${stillMissing} tracks. Using quick creative fallback...`);
+              sendThinking(`Generando ${stillMissing} canción${stillMissing > 1 ? 'es' : ''} final${stillMissing > 1 ? 'es' : ''}...`);
+              
+              try {
+                const quickFallbackStep: ToolCall = {
+                  tool: 'generate_creative_tracks',
+                  params: {
+                    theme: prompt,
+                    count: stillMissing * 5, // Pedir más para compensar filtrados
+                    artists_to_exclude: Array.from(bannedArtists),
+                  },
+                  reason: 'Fallback rápido después de timeout de 5s para completar las últimas canciones.',
+                };
+
+                const quickFallbackResult = await executeToolCall(quickFallbackStep, accessToken, {
+                  allTracksSoFar: allTracks,
+                  usedTrackIds,
+                  bannedArtists
+                });
+
+                const quickFiltered = filterBannedArtists(quickFallbackResult.tracks);
+                allTracks.push(...quickFiltered.slice(0, stillMissing));
+                console.log(`[AGENT-STREAM] Quick fallback added ${Math.min(quickFiltered.length, stillMissing)} tracks. Total now: ${allTracks.length}`);
+              } catch (quickError) {
+                console.error('[AGENT-STREAM] Quick fallback failed:', quickError);
+              }
+            }
+          }
           } catch (fillError) {
             console.error('[AGENT-STREAM] Error filling tracks:', fillError);
+            console.error('[AGENT-STREAM] Fill error details:', fillError instanceof Error ? fillError.stack : fillError);
             // Continuar sin rellenar
           }
         }
         
         // ═══════════════════════════════════════════════════════════════
-        // FASE 4: Crear playlist en Spotify
+        // FASE 3.5: Fallback creativo final SOLO si seguimos sin canciones o muy pocas
+        // ═══════════════════════════════════════════════════════════════
+        
+        const minTracksForCreativeFallback = Math.floor(targetTracks / 3);
+        if (allTracks.length < minTracksForCreativeFallback) {
+          console.warn(`[AGENT-STREAM] Only ${allTracks.length} tracks after plan + fill (threshold: ${minTracksForCreativeFallback}). Trying ultimate creative fallback...`);
+          sendThinking('Usando generación creativa como último recurso...');
+          try {
+            // Detectar género del prompt si es posible
+            const promptLower = prompt.toLowerCase();
+            let detectedGenre = '';
+            if (promptLower.includes('reggaeton') || promptLower.includes('latin') || promptLower.includes('urbano')) {
+              detectedGenre = 'reggaeton, latin, urbano';
+            } else if (promptLower.includes('rock')) {
+              detectedGenre = 'rock, alternative';
+            } else if (promptLower.includes('pop')) {
+              detectedGenre = 'pop';
+            } else if (promptLower.includes('hip hop') || promptLower.includes('rap')) {
+              detectedGenre = 'hip hop, rap';
+            }
+
+            const fallbackStep: ToolCall = {
+              tool: 'generate_creative_tracks',
+              params: {
+                theme: prompt,
+                genre: detectedGenre || undefined,
+                count: targetTracks * 3, // Pedir MÁS para compensar filtrados
+                artists_to_exclude: Array.from(bannedArtists),
+              },
+              reason: 'Fallback creativo final cuando las demás herramientas no han devuelto suficientes canciones.',
+            };
+
+            const fallbackResult = await executeToolCall(fallbackStep, accessToken, {
+              allTracksSoFar: allTracks,
+              usedTrackIds,
+              bannedArtists
+            });
+
+            const fallbackFiltered = filterBannedArtists(fallbackResult.tracks);
+            allTracks.push(...fallbackFiltered);
+
+            console.log('[AGENT-STREAM] Creative fallback added', fallbackFiltered.length, 'tracks. Total now:', allTracks.length);
+          } catch (fallbackError) {
+            console.error('[AGENT-STREAM] Ultimate creative fallback failed:', fallbackError);
+          }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // FASE 4: Ajustar distribución final (si no se hizo ya)
+        // ═══════════════════════════════════════════════════════════════
+        
+        // Verificar si adjust_distribution ya se ejecutó en el plan
+        const hasAdjustDistribution = plan.execution_plan.some(step => step.tool === 'adjust_distribution');
+        
+        if (!hasAdjustDistribution && allTracks.length > 0) {
+          console.log('[AGENT-STREAM] adjust_distribution not in plan, calling it now before finalizing...');
+          sendThinking('Ajustando la distribución final para variedad...');
+          
+          try {
+            const distResult = await executeToolCall(
+              {
+                tool: 'adjust_distribution',
+                params: {
+                  total_target: targetTracks,
+                  shuffle: true,
+                  avoid_consecutive_same_artist: true,
+                  max_per_artist: Math.ceil(targetTracks / 10), // Máximo ~10% del total por artista
+                },
+                reason: 'Ajustar variedad y distribución final por artista',
+              },
+              accessToken,
+              { allTracksSoFar: allTracks, usedTrackIds, bannedArtists }
+            );
+            
+            // Reemplazar allTracks con los tracks ajustados
+            allTracks.length = 0;
+            allTracks.push(...distResult.tracks);
+            console.log('[AGENT-STREAM] Distribution adjusted. Final tracks:', allTracks.length);
+          } catch (distError) {
+            console.error('[AGENT-STREAM] Error adjusting distribution:', distError);
+            // Continuar sin ajustar
+          }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // FASE 5: Crear playlist en Spotify
         // ═══════════════════════════════════════════════════════════════
         
         sendThinking('Creando tu playlist en Spotify...');
@@ -613,42 +877,49 @@ export async function GET(request: NextRequest) {
         // Asegurar que no excedemos el target
         let finalTracks = allTracks.slice(0, targetTracks);
 
+        console.log('[AGENT-STREAM] ===== FINAL TRACKS CHECK =====');
         console.log('[AGENT-STREAM] Final tracks after slice:', finalTracks.length, '/', targetTracks);
+        
+        if (allTracks.length > targetTracks) {
+          console.log('[AGENT-STREAM] Trimmed from', allTracks.length, 'to', finalTracks.length);
+        } else if (finalTracks.length < targetTracks) {
+          console.log('[AGENT-STREAM] ⚠️ Only', finalTracks.length, 'tracks available (target:', targetTracks, ')');
+        }
+        console.log('[AGENT-STREAM] Banned artists: [', Array.from(bannedArtists).join(', '), ']');
+        
+        // VERIFICAR FINAL: ¿Hay algún track con artista banneado?
+        const tracksWithBanned: any[] = [];
+        for (const track of finalTracks) {
+          const trackArtists = track.artists?.map((a: any) => a.name.toLowerCase()) || [];
+          const hasBanned = trackArtists.some(artist => bannedArtists.has(artist));
+          if (hasBanned) {
+            const bannedFound = trackArtists.filter(artist => bannedArtists.has(artist));
+            tracksWithBanned.push({
+              name: track.name,
+              artists: track.artists?.map((a: any) => a.name).join(', '),
+              banned: bannedFound
+            });
+          }
+        }
+        
+        if (tracksWithBanned.length > 0) {
+          console.error('[AGENT-STREAM] ❌❌❌ ERROR: Found', tracksWithBanned.length, 'tracks with BANNED artists in final playlist!');
+          tracksWithBanned.forEach(t => {
+            console.error(`[AGENT-STREAM] ❌ "${t.name}" by [${t.artists}] - Contains banned: [${t.banned.join(', ')}]`);
+          });
+        } else {
+          console.log('[AGENT-STREAM] ✅ No banned artists found in final tracks');
+        }
+        
+        console.log('[AGENT-STREAM] First 5 final tracks:', finalTracks.slice(0, 5).map(t => ({
+          name: t.name,
+          artists: t.artists?.map((a: any) => a.name).join(', ')
+        })));
+        console.log('[AGENT-STREAM] ===== END FINAL CHECK =====');
 
         // Si tenemos más tracks de los pedidos, ya están cortados arriba
         if (allTracks.length > targetTracks) {
           console.log('[AGENT-STREAM] Trimmed from', allTracks.length, 'to', finalTracks.length);
-        }
-
-        // Fallback creativo final si seguimos sin canciones
-        if (finalTracks.length === 0) {
-          console.warn('[AGENT-STREAM] No tracks after plan + fill. Trying ultimate creative fallback...');
-          try {
-            const fallbackStep: ToolCall = {
-              tool: 'generate_creative_tracks',
-              params: {
-                theme: prompt,
-                genre: 'reggaeton, latin, urbano',
-                count: targetTracks * 2,
-                artists_to_exclude: Array.from(bannedArtists),
-              },
-              reason: 'Fallback creativo final cuando las demás herramientas no han devuelto canciones.',
-            };
-
-            const fallbackResult = await executeToolCall(fallbackStep, accessToken, {
-              allTracksSoFar: [],
-              usedTrackIds: new Set<string>(),
-              bannedArtists
-            });
-
-            const fallbackFiltered = filterBannedArtists(fallbackResult.tracks);
-            allTracks.push(...fallbackFiltered);
-            finalTracks = allTracks.slice(0, targetTracks);
-
-            console.log('[AGENT-STREAM] Creative fallback added', fallbackFiltered.length, 'tracks. Final now:', finalTracks.length);
-          } catch (fallbackError) {
-            console.error('[AGENT-STREAM] Ultimate creative fallback failed:', fallbackError);
-          }
         }
 
         if (finalTracks.length === 0) {

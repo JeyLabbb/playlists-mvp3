@@ -114,3 +114,4 @@ ORDER BY total_campaigns DESC;
 -- Ejecuta este script completo en tu consola SQL de Supabase
 -- Luego reinicia tu aplicación Next.js para que los cambios tengan efecto
 
+

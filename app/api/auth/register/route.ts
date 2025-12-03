@@ -223,6 +223,49 @@ export async function POST(request: Request) {
       );
     }
 
+    // CRÍTICO: Auto-confirmar el email SIEMPRE para que el usuario pueda iniciar sesión inmediatamente
+    // No enviamos emails de confirmación, así que confirmamos automáticamente
+    if (data?.user?.id) {
+      try {
+        const admin = getSupabaseAdmin();
+        if (admin) {
+          const { error: confirmError } = await admin.auth.admin.updateUserById(
+            data.user.id,
+            { email_confirm: true }
+          );
+          if (confirmError) {
+            console.error('[AUTH] ❌ CRITICAL: Failed to auto-confirm email:', confirmError);
+            // Si falla la confirmación, el usuario no podrá iniciar sesión
+            // Por eso es crítico que funcione
+            return NextResponse.json(
+              { ok: false, error: 'Error al confirmar el email. Por favor, intenta de nuevo.' },
+              { status: 500 }
+            );
+          } else {
+            console.log('[AUTH] ✅ Email auto-confirmed for user:', email);
+          }
+        } else {
+          console.error('[AUTH] ❌ CRITICAL: Admin client not available for email confirmation');
+          return NextResponse.json(
+            { ok: false, error: 'Error de configuración del servidor. Por favor, contacta al soporte.' },
+            { status: 500 }
+          );
+        }
+      } catch (confirmErr) {
+        console.error('[AUTH] ❌ CRITICAL: Error during email auto-confirmation:', confirmErr);
+        return NextResponse.json(
+          { ok: false, error: 'Error al confirmar el email. Por favor, intenta de nuevo.' },
+          { status: 500 }
+        );
+      }
+    } else {
+      console.error('[AUTH] ❌ CRITICAL: No user ID returned from signUp');
+      return NextResponse.json(
+        { ok: false, error: 'Error al crear la cuenta. Por favor, intenta de nuevo.' },
+        { status: 500 }
+      );
+    }
+
     await updateKvProfile(email, name, newsletterOptIn);
     await upsertPleiaUser({ email, userId: data?.user?.id, newsletterOptIn });
     await syncNewsletter(email, newsletterOptIn);

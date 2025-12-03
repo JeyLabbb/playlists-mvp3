@@ -198,3 +198,4 @@ await fetch('/api/admin/newsletter/campaigns', {
 - [ ] Dashboard de insights con tendencias
 - [ ] Recomendaciones automáticas basadas en histórico
 
+

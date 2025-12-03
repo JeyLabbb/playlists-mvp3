@@ -320,3 +320,4 @@ El sistema enviará emails automáticamente y podrás ver TODO en Newsletter HQ.
 **Versión:** 2.0 - Con Tracking Completo  
 **Status:** ✅ PRODUCTION READY
 
+

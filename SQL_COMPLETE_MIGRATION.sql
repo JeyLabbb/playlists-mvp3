@@ -206,3 +206,4 @@ ORDER BY total_campaigns DESC;
 -- Si ves resultados sin errores arriba, la migración fue exitosa.
 -- Reinicia tu aplicación Next.js para que los cambios tengan efecto.
 
+

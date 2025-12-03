@@ -202,6 +202,16 @@ export default function Home() {
   // Agent thinking (pensamientos del agente que se van acumulando)
   const [agentThoughts, setAgentThoughts] = useState([]);
   const [isAgentMode, setIsAgentMode] = useState(true); // Nuevo sistema de agente habilitado por defecto
+  const agentThoughtsScrollRef = useRef(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+
+  // Auto-scroll al final cuando cambian los mensajes (si el usuario no ha hecho scroll manual)
+  useEffect(() => {
+    if (shouldAutoScroll && agentThoughtsScrollRef.current && agentThoughts.length > 0) {
+      const scrollElement = agentThoughtsScrollRef.current;
+      scrollElement.scrollTop = scrollElement.scrollHeight;
+    }
+  }, [agentThoughts, shouldAutoScroll]);
 
   // Playlist creation options
   const [playlistName] = useState(""); // Keep for compatibility but use customPlaylistName
@@ -755,7 +765,7 @@ export default function Home() {
           }
         });
 
-        // Evento: Pensamiento del agente (se acumulan, máximo 5)
+        // Evento: Pensamiento del agente (se acumulan, máximo 10 para permitir scroll)
         eventSource.addEventListener('AGENT_THINKING', (event) => {
           try {
             const data = JSON.parse(event.data);
@@ -765,8 +775,8 @@ export default function Home() {
                 if (prev.length > 0 && prev[prev.length - 1] === data.thought) {
                   return prev;
                 }
-                // Mantener máximo 5 pensamientos visibles
-                const newThoughts = [...prev, data.thought].slice(-5);
+                // Mantener máximo 10 pensamientos para permitir scroll
+                const newThoughts = [...prev, data.thought].slice(-10);
                 return newThoughts;
               });
             }
@@ -2070,19 +2080,47 @@ export default function Home() {
                   
                   {/* Pensamientos del Agente PLEIA - se van acumulando sutilmente */}
                   {isAgentMode && agentThoughts.length > 0 && (
-                    <div className="mt-4 space-y-1 text-center">
-                      {agentThoughts.map((thought, idx) => (
-                        <div 
-                          key={`${idx}-${thought.slice(0, 20)}`}
-                          className="text-sm text-white/40 italic"
-                          style={{
-                            animation: 'fade-in 0.5s ease-out',
-                            opacity: 0.3 + (idx / agentThoughts.length) * 0.5 // Los más recientes más visibles
-                          }}
-                        >
-                          {idx === agentThoughts.length - 1 ? '💭 ' : '· '}{thought}
-                        </div>
-                      ))}
+                    <div 
+                      ref={agentThoughtsScrollRef}
+                      className="mt-4 space-y-1 text-center max-h-32 overflow-y-auto agent-thoughts-scroll px-2"
+                      style={{
+                        scrollbarWidth: 'thin',
+                        scrollbarColor: 'rgba(255, 255, 255, 0.2) transparent'
+                      }}
+                      onScroll={(e) => {
+                        // Detectar si el usuario hace scroll manual
+                        const element = e.target;
+                        const isAtBottom = element.scrollHeight - element.scrollTop <= element.clientHeight + 10;
+                        setShouldAutoScroll(isAtBottom);
+                      }}
+                    >
+                      {agentThoughts.map((thought, idx) => {
+                        const isLast = idx === agentThoughts.length - 1;
+                        // Limpiar el texto de cualquier emoji (más agresivo)
+                        const cleanThought = thought
+                          .replace(/💭\s*/g, '')
+                          .replace(/🤔\s*/g, '')
+                          .replace(/💬\s*/g, '')
+                          .replace(/[\u{1F4AD}\u{1F914}\u{1F4AC}\u{1F4A4}]/gu, '') // Unicode ranges para emojis de pensamiento
+                          .replace(/[\u2600-\u27BF]/g, '') // Rango general de emojis
+                          .replace(/\s+/g, ' ') // Normalizar espacios
+                          .trim();
+                        return (
+                          <div 
+                            key={`${idx}-${cleanThought.slice(0, 20)}`}
+                            className={`text-sm text-white/40 italic ${isLast ? 'thinking-wave' : ''}`}
+                            style={isLast ? {
+                              opacity: 0.3 + (idx / agentThoughts.length) * 0.5
+                            } : {
+                              animation: 'fade-in 0.5s ease-out',
+                              opacity: 0.3 + (idx / agentThoughts.length) * 0.5
+                            }}
+                            data-is-last={isLast}
+                          >
+                            {isLast ? '' : '· '}{cleanThought}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </>

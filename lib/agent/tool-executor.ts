@@ -61,7 +61,11 @@ export async function executeToolCall(
   const startTime = Date.now();
   let tracks: Track[] = [];
 
-  console.log(`[AGENT-EXECUTOR] Executing tool: ${toolCall.tool}`, toolCall.params);
+  console.log(`[AGENT-EXECUTOR] ===== EXECUTING TOOL: ${toolCall.tool} =====`);
+  console.log(`[AGENT-EXECUTOR] Params:`, JSON.stringify(toolCall.params, null, 2));
+  console.log(`[AGENT-EXECUTOR] Banned artists in context: [${context.bannedArtists ? Array.from(context.bannedArtists).join(', ') : 'none'}]`);
+  console.log(`[AGENT-EXECUTOR] Tracks so far: ${context.allTracksSoFar.length}`);
+  console.log(`[AGENT-EXECUTOR] Used track IDs: ${context.usedTrackIds.size}`);
 
   try {
     switch (toolCall.tool) {
@@ -105,17 +109,31 @@ export async function executeToolCall(
         console.warn(`[AGENT-EXECUTOR] Unknown tool: ${toolCall.tool}`);
         tracks = [];
     }
+    
+    console.log(`[AGENT-EXECUTOR] Tool ${toolCall.tool} returned ${tracks.length} tracks BEFORE filtering`);
 
     // Filtrar duplicados Y artistas banneados (solo para herramientas que añaden tracks nuevos)
+    const beforeFilter = tracks.length;
     tracks = tracks.filter(track => {
-      if (!track.id || context.usedTrackIds.has(track.id)) return false;
+      if (!track.id || context.usedTrackIds.has(track.id)) {
+        if (!track.id) {
+          console.log(`[AGENT-EXECUTOR] ⚠️ SKIP (no ID): "${track.name}"`);
+        } else {
+          console.log(`[AGENT-EXECUTOR] ⚠️ SKIP (duplicate): "${track.name}" (ID: ${track.id})`);
+        }
+        return false;
+      }
       
       // Filtrar artistas banneados
       if (context.bannedArtists && context.bannedArtists.size > 0) {
         const trackArtists = track.artists?.map((a: any) => a.name.toLowerCase()) || [];
         const hasBannedArtist = trackArtists.some(artist => context.bannedArtists!.has(artist));
         if (hasBannedArtist) {
-          console.log(`[AGENT-EXECUTOR] ⚠️ Filtered out track "${track.name}" - contains banned artist`);
+          const bannedFound = trackArtists.filter(artist => context.bannedArtists!.has(artist));
+          console.log(`[AGENT-EXECUTOR] ⚠️ FILTERED OUT: "${track.name}" by [${track.artists?.map((a: any) => a.name).join(', ')}]`);
+          console.log(`[AGENT-EXECUTOR] ⚠️ REASON: Contains banned artist(s): [${bannedFound.join(', ')}]`);
+          console.log(`[AGENT-EXECUTOR] ⚠️ All track artists (lowercase): [${trackArtists.join(', ')}]`);
+          console.log(`[AGENT-EXECUTOR] ⚠️ Banned list: [${Array.from(context.bannedArtists).join(', ')}]`);
           return false;
         }
       }
@@ -123,6 +141,7 @@ export async function executeToolCall(
       context.usedTrackIds.add(track.id);
       return true;
     });
+    console.log(`[AGENT-EXECUTOR] Filtered ${beforeFilter} → ${tracks.length} tracks (removed ${beforeFilter - tracks.length})`);
 
     const executionTimeMs = Date.now() - startTime;
     console.log(`[AGENT-EXECUTOR] Tool ${toolCall.tool} completed: ${tracks.length} tracks in ${executionTimeMs}ms`);
@@ -508,8 +527,13 @@ async function executeGetSimilarStyle(
   const { seed_artists, limit = 20, include_seed_artists = false } = params;
   const tracks: Track[] = [];
   const artistIds: string[] = [];
+  const foundSimilarArtists = new Set<string>(); // Artistas similares encontrados (para búsqueda adicional)
+  const usedTrackIdsForCollabs = new Set<string>(); // IDs de tracks ya usados en búsqueda de colaboraciones
 
+  console.log(`[GET_SIMILAR_STYLE] ===== START =====`);
   console.log(`[GET_SIMILAR_STYLE] Seeds: [${seed_artists.join(', ')}], limit: ${limit}`);
+  console.log(`[GET_SIMILAR_STYLE] Include seed artists: ${include_seed_artists}`);
+  console.log(`[GET_SIMILAR_STYLE] Banned artists: [${bannedArtists ? Array.from(bannedArtists).join(', ') : 'none'}]`);
 
   // 1. Resolver IDs de artistas semilla
   for (const artistName of seed_artists.slice(0, 5)) {
@@ -533,7 +557,259 @@ async function executeGetSimilarStyle(
     return [];
   }
 
-  // 2. Obtener recomendaciones de Spotify (múltiples llamadas para más variedad)
+  // 2. PRIMERO: Buscar colaboraciones directas del artista semilla (colaboradores nivel 1)
+  // Esto es crítico para casos "estilo de X pero sin X" - encontrar artistas que colaboran con X
+  console.log(`[GET_SIMILAR_STYLE] 🔍 STEP 1: Searching direct collaborations from seed artists...`);
+  const collaboratorsLevel1 = new Set<string>(); // Artistas que colaboran directamente con los seeds
+  
+  for (const seedArtistId of artistIds.slice(0, 3)) {
+    if (tracks.length >= limit) break;
+    
+    // Buscar top tracks del seed artist para encontrar colaboradores
+    const seedTopTracks = await fetch(
+      `https://api.spotify.com/v1/artists/${seedArtistId}/top-tracks?market=ES`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    
+    if (seedTopTracks.ok) {
+      const seedTracksData = await seedTopTracks.json();
+      const seedTracks = seedTracksData.tracks || [];
+      
+      for (const track of seedTracks.slice(0, 20)) {
+        const trackArtistNames = track.artists.map((a: any) => a.name.toLowerCase());
+        const trackArtistIds = track.artists.map((a: any) => a.id);
+        
+        // Verificar si el seed artist está en el track
+        const hasSeedArtist = trackArtistIds.includes(seedArtistId) || 
+                             seed_artists.some(seed => 
+                               trackArtistNames.some(name => name.includes(seed.toLowerCase()) || seed.toLowerCase().includes(name))
+                             );
+        
+        if (hasSeedArtist && track.artists.length > 1) {
+          // Este track tiene colaboraciones - extraer los otros artistas
+          track.artists.forEach((artist: any) => {
+            const artistName = artist.name.toLowerCase();
+            const artistId = artist.id;
+            
+            // No incluir el seed artist ni artistas banneados
+            const isSeed = seed_artists.some(seed => 
+              artistName.includes(seed.toLowerCase()) || seed.toLowerCase().includes(artistName)
+            ) || trackArtistIds.includes(seedArtistId);
+            
+            const isBanned = bannedArtists && bannedArtists.has(artistName);
+            
+            if (!isSeed && !isBanned) {
+              collaboratorsLevel1.add(artist.name); // Guardar nombre original (no lowercase)
+              console.log(`[GET_SIMILAR_STYLE] ✅ Found collaborator L1: "${artist.name}" (from seed artist)`);
+            }
+          });
+        }
+      }
+    }
+  }
+  
+  console.log(`[GET_SIMILAR_STYLE] Found ${collaboratorsLevel1.size} direct collaborators (L1)`);
+  
+  // 3. Buscar tracks de los colaboradores nivel 1 (artistas que colaboran con X)
+  if (collaboratorsLevel1.size > 0 && tracks.length < limit) {
+    console.log(`[GET_SIMILAR_STYLE] 🔍 STEP 2: Getting tracks from L1 collaborators...`);
+    // Limitar a máximo 8 colaboradores L1 para no hacer demasiadas llamadas API
+    const maxL1ToProcess = Math.min(8, Math.ceil(limit / 3));
+    const collaboratorsArray = Array.from(collaboratorsLevel1).slice(0, maxL1ToProcess);
+    console.log(`[GET_SIMILAR_STYLE] Processing ${collaboratorsArray.length} L1 collaborators (of ${collaboratorsLevel1.size} found)`);
+    
+    for (const collaboratorName of collaboratorsArray) {
+      if (tracks.length >= limit) break;
+      
+      try {
+        // Buscar el artista colaborador
+        const collabSearch = await fetch(
+          `https://api.spotify.com/v1/search?q=${encodeURIComponent(collaboratorName)}&type=artist&limit=1`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        
+        if (collabSearch.ok) {
+          const collabData = await collabSearch.json();
+          const collabArtist = collabData.artists?.items?.[0];
+          
+          if (collabArtist) {
+            // Obtener top tracks del colaborador
+            const collabTopTracks = await fetch(
+              `https://api.spotify.com/v1/artists/${collabArtist.id}/top-tracks?market=ES`,
+              { headers: { Authorization: `Bearer ${accessToken}` } }
+            );
+            
+            if (collabTopTracks.ok) {
+              const collabTracksData = await collabTopTracks.json();
+              const collabTracks = (collabTracksData.tracks || [])
+                .filter((t: any) => {
+                  const trackArtistNames = t.artists.map((a: any) => a.name.toLowerCase());
+                  
+                  // Excluir seed artists
+                  const hasSeedArtist = seed_artists.some(seed => 
+                    trackArtistNames.some(name => name.includes(seed.toLowerCase()) || seed.toLowerCase().includes(name))
+                  );
+                  if (hasSeedArtist) return false;
+                  
+                  // Filtrar artistas banneados
+                  if (bannedArtists && bannedArtists.size > 0) {
+                    const hasBannedArtist = trackArtistNames.some(artist => bannedArtists.has(artist));
+                    if (hasBannedArtist) return false;
+                  }
+                  
+                  return t.id && !usedTrackIdsForCollabs.has(t.id);
+                })
+                .slice(0, 5)
+                .map(normalizeTrack);
+              
+              for (const track of collabTracks) {
+                if (tracks.length >= limit) break;
+                if (!tracks.some(t => t.id === track.id)) {
+                  usedTrackIdsForCollabs.add(track.id);
+                  tracks.push(track);
+                  console.log(`[GET_SIMILAR_STYLE] ✅ Added track from L1 "${collaboratorName}": "${track.name}" (${tracks.length}/${limit})`);
+                }
+              }
+            }
+          }
+        }
+      } catch (collabErr) {
+        console.warn(`[GET_SIMILAR_STYLE] Error getting tracks from collaborator ${collaboratorName}:`, collabErr);
+      }
+    }
+  }
+  
+  // 4. Buscar colaboradores de colaboradores (nivel 2) - colaboradores de los L1
+  const collaboratorsLevel2 = new Set<string>();
+  if (collaboratorsLevel1.size > 0 && tracks.length < limit) {
+    console.log(`[GET_SIMILAR_STYLE] 🔍 STEP 3: Searching L2 collaborators (collaborators of collaborators)...`);
+    // Limitar a máximo 5 L1 para buscar L2 (para no hacer demasiadas llamadas)
+    const maxL1ForL2 = Math.min(5, Math.ceil(limit / 4));
+    const l1Array = Array.from(collaboratorsLevel1).slice(0, maxL1ForL2);
+    console.log(`[GET_SIMILAR_STYLE] Processing ${l1Array.length} L1 artists to find L2 collaborators`);
+    
+    for (const l1Artist of l1Array) {
+      if (tracks.length >= limit) break;
+      
+      try {
+        const l1Search = await fetch(
+          `https://api.spotify.com/v1/search?q=${encodeURIComponent(l1Artist)}&type=artist&limit=1`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        
+        if (l1Search.ok) {
+          const l1Data = await l1Search.json();
+          const l1ArtistObj = l1Data.artists?.items?.[0];
+          
+          if (l1ArtistObj) {
+            const l1TopTracks = await fetch(
+              `https://api.spotify.com/v1/artists/${l1ArtistObj.id}/top-tracks?market=ES`,
+              { headers: { Authorization: `Bearer ${accessToken}` } }
+            );
+            
+            if (l1TopTracks.ok) {
+              const l1TracksData = await l1TopTracks.json();
+              const l1Tracks = l1TracksData.tracks || [];
+              
+              for (const track of l1Tracks.slice(0, 15)) {
+                const trackArtistNames = track.artists.map((a: any) => a.name.toLowerCase());
+                
+                // Encontrar otros artistas en las colaboraciones del L1
+                track.artists.forEach((artist: any) => {
+                  const artistName = artist.name.toLowerCase();
+                  const isL1 = collaboratorsLevel1.has(artist.name);
+                  const isSeed = seed_artists.some(seed => 
+                    artistName.includes(seed.toLowerCase()) || seed.toLowerCase().includes(artistName)
+                  );
+                  const isBanned = bannedArtists && bannedArtists.has(artistName);
+                  
+                  if (!isL1 && !isSeed && !isBanned && track.artists.length > 1) {
+                    collaboratorsLevel2.add(artist.name);
+                    console.log(`[GET_SIMILAR_STYLE] ✅ Found collaborator L2: "${artist.name}" (from L1 "${l1Artist}")`);
+                  }
+                });
+              }
+            }
+          }
+        }
+      } catch (l2Err) {
+        console.warn(`[GET_SIMILAR_STYLE] Error searching L2 for ${l1Artist}:`, l2Err);
+      }
+    }
+    
+    console.log(`[GET_SIMILAR_STYLE] Found ${collaboratorsLevel2.size} L2 collaborators`);
+    
+    // Obtener tracks de los L2
+    if (collaboratorsLevel2.size > 0 && tracks.length < limit) {
+      // Limitar a máximo 6 L2 para no hacer demasiadas llamadas
+      const maxL2ToProcess = Math.min(6, Math.ceil((limit - tracks.length) / 2));
+      const l2Array = Array.from(collaboratorsLevel2).slice(0, maxL2ToProcess);
+      console.log(`[GET_SIMILAR_STYLE] Processing ${l2Array.length} L2 collaborators (of ${collaboratorsLevel2.size} found) to get tracks`);
+      
+      for (const l2Artist of l2Array) {
+        if (tracks.length >= limit) break;
+        
+        try {
+          const l2Search = await fetch(
+            `https://api.spotify.com/v1/search?q=${encodeURIComponent(l2Artist)}&type=artist&limit=1`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          
+          if (l2Search.ok) {
+            const l2Data = await l2Search.json();
+            const l2ArtistObj = l2Data.artists?.items?.[0];
+            
+            if (l2ArtistObj) {
+              const l2TopTracks = await fetch(
+                `https://api.spotify.com/v1/artists/${l2ArtistObj.id}/top-tracks?market=ES`,
+                { headers: { Authorization: `Bearer ${accessToken}` } }
+              );
+              
+              if (l2TopTracks.ok) {
+                const l2TracksData = await l2TopTracks.json();
+                const l2Tracks = (l2TracksData.tracks || [])
+                  .filter((t: any) => {
+                    const trackArtistNames = t.artists.map((a: any) => a.name.toLowerCase());
+                    
+                    // Excluir seed artists y L1
+                    const hasSeedOrL1 = seed_artists.some(seed => 
+                      trackArtistNames.some(name => name.includes(seed.toLowerCase()) || seed.toLowerCase().includes(name))
+                    ) || trackArtistNames.some(name => 
+                      Array.from(collaboratorsLevel1).some(l1 => name.includes(l1.toLowerCase()) || l1.toLowerCase().includes(name))
+                    );
+                    if (hasSeedOrL1) return false;
+                    
+                    // Filtrar artistas banneados
+                    if (bannedArtists && bannedArtists.size > 0) {
+                      const hasBannedArtist = trackArtistNames.some(artist => bannedArtists.has(artist));
+                      if (hasBannedArtist) return false;
+                    }
+                    
+                    return t.id && !usedTrackIdsForCollabs.has(t.id);
+                  })
+                  .slice(0, 3)
+                  .map(normalizeTrack);
+                
+                for (const track of l2Tracks) {
+                  if (tracks.length >= limit) break;
+                  if (!tracks.some(t => t.id === track.id)) {
+                    usedTrackIdsForCollabs.add(track.id);
+                    tracks.push(track);
+                    console.log(`[GET_SIMILAR_STYLE] ✅ Added track from L2 "${l2Artist}": "${track.name}" (${tracks.length}/${limit})`);
+                  }
+                }
+              }
+            }
+          }
+        } catch (l2TrackErr) {
+          console.warn(`[GET_SIMILAR_STYLE] Error getting tracks from L2 ${l2Artist}:`, l2TrackErr);
+        }
+      }
+    }
+  }
+
+  // 5. Obtener recomendaciones de Spotify (múltiples llamadas para más variedad)
+  // Esto se hace DESPUÉS de buscar colaboraciones para complementar
   const maxRecommendations = Math.min(limit * 3, 100); // Aumentar a 3x el límite
   const seedArtists = artistIds.slice(0, 5).join(',');
   
@@ -546,7 +822,6 @@ async function executeGetSimilarStyle(
   if (recsResponse.ok) {
     const recsData = await recsResponse.json();
     const recTracks = recsData.tracks || [];
-    const foundSimilarArtists = new Set<string>();
 
     for (const track of recTracks) {
       const trackArtistIds = track.artists.map((a: any) => a.id);
@@ -562,27 +837,44 @@ async function executeGetSimilarStyle(
       if (bannedArtists && bannedArtists.size > 0) {
         const hasBannedArtist = trackArtistNames.some(artist => bannedArtists.has(artist));
         if (hasBannedArtist) {
-          console.log(`[GET_SIMILAR_STYLE] ⚠️ Skipping track "${track.name}" - contains banned artist`);
+          const bannedFound = trackArtistNames.filter(artist => bannedArtists.has(artist));
+          console.log(`[GET_SIMILAR_STYLE] ⚠️ SKIP: "${track.name}" by [${track.artists.map((a: any) => a.name).join(', ')}]`);
+          console.log(`[GET_SIMILAR_STYLE] ⚠️ REASON: Contains banned: [${bannedFound.join(', ')}]`);
           continue;
         }
       }
 
       if (include_seed_artists || (!isSeedArtist && !isSeedArtistByName)) {
-        tracks.push(normalizeTrack(track));
-        // Guardar artistas similares encontrados para buscar sus colaboraciones
-        trackArtistNames.forEach(name => {
-          if (!seed_artists.some(s => name.includes(s.toLowerCase()) || s.toLowerCase().includes(name))) {
-            foundSimilarArtists.add(name);
+        // Solo añadir si no está ya en tracks (evitar duplicados de colaboraciones)
+        if (!tracks.some(t => t.id === track.id) && !usedTrackIdsForCollabs.has(track.id)) {
+          tracks.push(normalizeTrack(track));
+          // Guardar artistas similares encontrados para buscar sus colaboraciones (si aún necesitamos más)
+          if (tracks.length < limit) {
+            trackArtistNames.forEach(name => {
+              if (!seed_artists.some(s => name.includes(s.toLowerCase()) || s.toLowerCase().includes(name))) {
+                // No añadir si ya está en L1 o L2
+                const isL1 = Array.from(collaboratorsLevel1).some(l1 => 
+                  name.includes(l1.toLowerCase()) || l1.toLowerCase().includes(name)
+                );
+                const isL2 = Array.from(collaboratorsLevel2).some(l2 => 
+                  name.includes(l2.toLowerCase()) || l2.toLowerCase().includes(name)
+                );
+                if (!isL1 && !isL2) {
+                  foundSimilarArtists.add(name);
+                }
+              }
+            });
           }
-        });
+        }
       }
 
       if (tracks.length >= limit) break;
     }
     
-    // 3. Buscar colaboraciones de los artistas similares encontrados (colaboradores de colaboradores)
+    // 6. Buscar tracks adicionales de artistas similares encontrados en recomendaciones (complemento)
+    // Esto es adicional a las colaboraciones L1/L2 que ya buscamos arriba
     if (tracks.length < limit && foundSimilarArtists.size > 0) {
-      console.log(`[GET_SIMILAR_STYLE] Found ${foundSimilarArtists.size} similar artists, searching their collaborations...`);
+      console.log(`[GET_SIMILAR_STYLE] 🔍 STEP 4: Getting additional tracks from ${foundSimilarArtists.size} similar artists (from recommendations)...`);
       const similarArtistsArray = Array.from(foundSimilarArtists).slice(0, 10);
       
       for (const similarArtist of similarArtistsArray) {
@@ -620,15 +912,17 @@ async function executeGetSimilarStyle(
                     if (hasBannedArtist) return false;
                   }
                   
-                  return true;
+                  return t.id && !usedTrackIdsForCollabs.has(t.id) && !tracks.some(tr => tr.id === t.id);
                 })
-                .slice(0, 5)
+                .slice(0, 3)
                 .map(normalizeTrack);
               
               for (const track of similarTracks) {
                 if (tracks.length >= limit) break;
                 if (!tracks.some(t => t.id === track.id)) {
+                  usedTrackIdsForCollabs.add(track.id);
                   tracks.push(track);
+                  console.log(`[GET_SIMILAR_STYLE] ✅ Added track from similar "${similarArtist}": "${track.name}" (${tracks.length}/${limit})`);
                 }
               }
             }
@@ -638,7 +932,7 @@ async function executeGetSimilarStyle(
     }
   }
 
-  // 3. Si include_seed_artists, añadir top tracks de los seeds
+  // 7. Si include_seed_artists, añadir top tracks de los seeds (solo si se solicita explícitamente)
   if (include_seed_artists && tracks.length < limit) {
     for (const artistId of artistIds) {
       if (tracks.length >= limit) break;
@@ -661,7 +955,12 @@ async function executeGetSimilarStyle(
     }
   }
 
-  console.log(`[GET_SIMILAR_STYLE] Found ${tracks.length} similar tracks`);
+  console.log(`[GET_SIMILAR_STYLE] ===== END =====`);
+  console.log(`[GET_SIMILAR_STYLE] 📊 SUMMARY:`);
+  console.log(`[GET_SIMILAR_STYLE]   - L1 Collaborators found: ${collaboratorsLevel1.size}`);
+  console.log(`[GET_SIMILAR_STYLE]   - L2 Collaborators found: ${collaboratorsLevel2.size}`);
+  console.log(`[GET_SIMILAR_STYLE]   - Similar artists from recommendations: ${foundSimilarArtists.size}`);
+  console.log(`[GET_SIMILAR_STYLE]   - Total tracks found: ${tracks.length} (returning ${Math.min(tracks.length, limit)})`);
   return tracks.slice(0, limit);
 }
 
@@ -692,7 +991,11 @@ async function executeGenerateCreativeTracks(
     artists_to_exclude = []
   } = params;
 
+  console.log(`[GENERATE_CREATIVE] ===== START =====`);
   console.log(`[GENERATE_CREATIVE] mood=${mood}, theme=${theme}, genre=${genre}, era=${era}, count=${count}`);
+  console.log(`[GENERATE_CREATIVE] artists_to_include: [${artists_to_include.join(', ')}]`);
+  console.log(`[GENERATE_CREATIVE] artists_to_exclude: [${artists_to_exclude.join(', ')}]`);
+  console.log(`[GENERATE_CREATIVE] Banned artists: [${bannedArtists ? Array.from(bannedArtists).join(', ') : 'none'}]`);
 
   const tracks: Track[] = [];
   
@@ -914,11 +1217,15 @@ Return ONLY the JSON object, no other text.`;
                   const artistTracks = (topTracksData.tracks || [])
                     .filter((t: any) => {
                       const trackArtistNames = t.artists.map((a: any) => a.name.toLowerCase());
-                      // Filtrar colaboraciones con artistas banneados
-                      if (bannedArtists && bannedArtists.size > 0) {
-                        const hasBannedArtist = trackArtistNames.some(artist => bannedArtists.has(artist));
-                        if (hasBannedArtist) return false;
-                      }
+            // Filtrar colaboraciones con artistas banneados
+            if (bannedArtists && bannedArtists.size > 0) {
+              const hasBannedArtist = trackArtistNames.some(artist => bannedArtists.has(artist));
+              if (hasBannedArtist) {
+                const bannedFound = trackArtistNames.filter(artist => bannedArtists.has(artist));
+                console.log(`[GENERATE_CREATIVE] ⚠️ SKIP: "${t.name}" - contains banned: [${bannedFound.join(', ')}]`);
+                return false;
+              }
+            }
                       if (artists_to_exclude.some(ex => trackArtistNames.includes(ex.toLowerCase()))) return false;
                       return true;
                     })
@@ -962,7 +1269,11 @@ Return ONLY the JSON object, no other text.`;
             // Filtrar artistas banneados del contexto (incluyendo colaboraciones)
             if (bannedArtists && bannedArtists.size > 0) {
               const hasBannedArtist = artistNames.some(artist => bannedArtists.has(artist));
-              if (hasBannedArtist) return false;
+              if (hasBannedArtist) {
+                const bannedFound = artistNames.filter(artist => bannedArtists.has(artist));
+                console.log(`[GENERATE_CREATIVE] ⚠️ SKIP: "${t.name}" - contains banned: [${bannedFound.join(', ')}]`);
+                return false;
+              }
             }
             return true;
           })
@@ -978,7 +1289,8 @@ Return ONLY the JSON object, no other text.`;
     }
   }
 
-  console.log(`[GENERATE_CREATIVE] Generated ${tracks.length} tracks`);
+  console.log(`[GENERATE_CREATIVE] ===== END =====`);
+  console.log(`[GENERATE_CREATIVE] Generated ${tracks.length} tracks (returning ${Math.min(tracks.length, count)})`);
   return tracks.slice(0, count);
 }
 

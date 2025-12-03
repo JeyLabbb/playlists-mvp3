@@ -18,3 +18,4 @@ WHERE out_of_credits_email_sent = FALSE;
 COMMENT ON COLUMN users.out_of_credits_email_sent IS 'Flag to track if the user has received the "out of credits" email when they first attempted to generate a playlist with 0 remaining uses';
 COMMENT ON COLUMN users.out_of_credits_email_sent_at IS 'Timestamp when the out of credits email was sent';
 
+

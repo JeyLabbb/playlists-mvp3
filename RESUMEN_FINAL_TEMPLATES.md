@@ -131,3 +131,4 @@ Los cambios en el código ya están aplicados. Reinicia la app y envía un nuevo
 **¿Necesitas ayuda?**  
 Revisa `RESTAURAR_TEMPLATES_INSTRUCCIONES.md` para instrucciones detalladas.
 
+

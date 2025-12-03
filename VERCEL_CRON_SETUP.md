@@ -266,3 +266,4 @@ curl -X POST http://localhost:3000/api/admin/newsletter/ab-test-evaluate \
 5. ✅ Deploy y verificar
 6. 🎉 ¡Listo! El A/B testing es completamente automático
 
+

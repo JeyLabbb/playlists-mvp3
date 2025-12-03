@@ -165,3 +165,4 @@ FROM newsletter_templates
 WHERE created_by = 'system'
 ORDER BY is_default DESC, created_at DESC;
 
+
