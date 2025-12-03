@@ -256,7 +256,39 @@ export async function GET(request: NextRequest) {
         // ═══════════════════════════════════════════════════════════════
 
         console.log('[AGENT-STREAM] All tools executed. Total tracks collected:', allTracks.length);
-        
+
+        // Si no hemos conseguido nada pero hay artistas vetados (caso tpico: "como X pero sin X"),
+        // intentamos una pasada de emergencia con get_similar_style para artistas similares al vetado.
+        if (allTracks.length == 0 && bannedArtists.size > 0) {
+          try {
+            const seedArtists = Array.from(bannedArtists);
+            console.log('[AGENT-STREAM] No tracks after initial plan. Running emergency get_similar_style with seeds:', seedArtists);
+
+            const emergencyStep: ToolCall = {
+              tool: 'get_similar_style',
+              params: {
+                seed_artists: seedArtists,
+                limit: targetTracks * 2,
+                include_seed_artists: false,
+                style_modifier: 'mismo estilo pero sin incluir nunca al artista original',
+              },
+              reason: 'Buscar artistas y canciones similares a los artistas vetados, pero sin incluirlos, para poder ofrecer alternativas.',
+            };
+
+            const emergencyResult = await executeToolCall(emergencyStep, accessToken, {
+              allTracksSoFar: allTracks,
+              usedTrackIds,
+            });
+
+            const emergencyFiltered = filterBannedArtists(emergencyResult.tracks);
+            allTracks.push(...emergencyFiltered);
+
+            console.log('[AGENT-STREAM] Emergency similar-style step added', emergencyFiltered.length, 'tracks. Total now:', allTracks.length);
+          } catch (emergencyError) {
+            console.error('[AGENT-STREAM] Emergency similar-style fallback failed:', emergencyError);
+          }
+        }
+
         // Si faltan tracks, intentar rellenar con recomendaciones
         if (allTracks.length < targetTracks && allTracks.length > 0) {
           const missing = targetTracks - allTracks.length;
