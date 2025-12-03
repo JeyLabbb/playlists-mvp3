@@ -69,7 +69,7 @@ export async function executeToolCall(
         break;
       
       case 'get_collaborations':
-        tracks = await executeGetCollaborations(accessToken, toolCall.params);
+        tracks = await executeGetCollaborations(accessToken, toolCall.params as any);
         break;
       
       case 'get_similar_style':
