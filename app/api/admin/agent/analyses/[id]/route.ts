@@ -2,10 +2,13 @@ import { NextResponse } from 'next/server';
 import { ensureAdminAccess } from '@/lib/admin/session';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 
+// Actualiza el flag excluded_from_reports de un análisis concreto
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
+
   try {
     const adminAccess = await ensureAdminAccess(request);
     if (!adminAccess.ok) {
@@ -33,7 +36,7 @@ export async function PATCH(
     const { error } = await supabase
       .from('pleia_agent_analyses')
       .update({ excluded_from_reports })
-      .eq('id', params.id);
+      .eq('id', id);
 
     if (error) {
       console.error('[AGENT-ANALYSES-ID] Error updating analysis:', error);
@@ -43,14 +46,20 @@ export async function PATCH(
     return NextResponse.json({ success: true });
   } catch (e: any) {
     console.error('[AGENT-ANALYSES-ID] PATCH unexpected error:', e);
-    return NextResponse.json({ success: false, error: e.message || 'Unexpected error' }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: e?.message || 'Unexpected error' },
+      { status: 500 },
+    );
   }
 }
 
+// Elimina completamente un análisis (para limpieza manual)
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
+
   try {
     const adminAccess = await ensureAdminAccess(request);
     if (!adminAccess.ok) {
@@ -68,7 +77,7 @@ export async function DELETE(
     const { error } = await supabase
       .from('pleia_agent_analyses')
       .delete()
-      .eq('id', params.id);
+      .eq('id', id);
 
     if (error) {
       console.error('[AGENT-ANALYSES-ID] Error deleting analysis:', error);
@@ -78,8 +87,9 @@ export async function DELETE(
     return NextResponse.json({ success: true });
   } catch (e: any) {
     console.error('[AGENT-ANALYSES-ID] DELETE unexpected error:', e);
-    return NextResponse.json({ success: false, error: e.message || 'Unexpected error' }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: e?.message || 'Unexpected error' },
+      { status: 500 },
+    );
   }
 }
-
-
