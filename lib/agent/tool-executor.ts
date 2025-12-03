@@ -55,6 +55,7 @@ export async function executeToolCall(
   context: {
     allTracksSoFar: Track[];
     usedTrackIds: Set<string>;
+    bannedArtists?: Set<string>;
   }
 ): Promise<ToolResult> {
   const startTime = Date.now();
@@ -73,11 +74,11 @@ export async function executeToolCall(
         break;
       
       case 'get_similar_style':
-        tracks = await executeGetSimilarStyle(accessToken, toolCall.params as any);
+        tracks = await executeGetSimilarStyle(accessToken, toolCall.params as any, context.bannedArtists);
         break;
       
       case 'generate_creative_tracks':
-        tracks = await executeGenerateCreativeTracks(accessToken, toolCall.params as any);
+        tracks = await executeGenerateCreativeTracks(accessToken, toolCall.params as any, context.bannedArtists);
         break;
       
       case 'search_playlists':
@@ -105,9 +106,20 @@ export async function executeToolCall(
         tracks = [];
     }
 
-    // Filtrar duplicados (solo para herramientas que añaden tracks nuevos)
+    // Filtrar duplicados Y artistas banneados (solo para herramientas que añaden tracks nuevos)
     tracks = tracks.filter(track => {
       if (!track.id || context.usedTrackIds.has(track.id)) return false;
+      
+      // Filtrar artistas banneados
+      if (context.bannedArtists && context.bannedArtists.size > 0) {
+        const trackArtists = track.artists?.map((a: any) => a.name.toLowerCase()) || [];
+        const hasBannedArtist = trackArtists.some(artist => context.bannedArtists!.has(artist));
+        if (hasBannedArtist) {
+          console.log(`[AGENT-EXECUTOR] ⚠️ Filtered out track "${track.name}" - contains banned artist`);
+          return false;
+        }
+      }
+      
       context.usedTrackIds.add(track.id);
       return true;
     });
@@ -490,7 +502,8 @@ async function executeGetSimilarStyle(
     limit?: number;
     include_seed_artists?: boolean;
     style_modifier?: string;
-  }
+  },
+  bannedArtists?: Set<string>
 ): Promise<Track[]> {
   const { seed_artists, limit = 20, include_seed_artists = false } = params;
   const tracks: Track[] = [];
@@ -533,9 +546,24 @@ async function executeGetSimilarStyle(
 
     for (const track of recTracks) {
       const trackArtistIds = track.artists.map((a: any) => a.id);
+      const trackArtistNames = track.artists.map((a: any) => a.name.toLowerCase());
       const isSeedArtist = trackArtistIds.some((id: string) => artistIds.includes(id));
+      
+      // Filtrar por nombre también (por si el ID no coincide pero el nombre sí)
+      const isSeedArtistByName = seed_artists.some(seed => 
+        trackArtistNames.some(name => name.includes(seed.toLowerCase()) || seed.toLowerCase().includes(name))
+      );
 
-      if (include_seed_artists || !isSeedArtist) {
+      // Filtrar artistas banneados
+      if (bannedArtists && bannedArtists.size > 0) {
+        const hasBannedArtist = trackArtistNames.some(artist => bannedArtists.has(artist));
+        if (hasBannedArtist) {
+          console.log(`[GET_SIMILAR_STYLE] ⚠️ Skipping track "${track.name}" - contains banned artist`);
+          continue;
+        }
+      }
+
+      if (include_seed_artists || (!isSeedArtist && !isSeedArtistByName)) {
         tracks.push(normalizeTrack(track));
       }
 
@@ -584,7 +612,8 @@ async function executeGenerateCreativeTracks(
     count?: number;
     artists_to_include?: string[];
     artists_to_exclude?: string[];
-  }
+  },
+  bannedArtists?: Set<string>
 ): Promise<Track[]> {
   const { 
     mood, 
@@ -707,14 +736,27 @@ Return ONLY the JSON object, no other text.`;
       }
     } else {
       // Construir queries basadas en los parámetros
+      // IMPORTANTE: Para géneros, buscar playlists o usar "genre:" en vez de buscar el nombre literal
       if (genre) {
-        queries.push(...genre.split(',').map(g => g.trim()));
+        // En vez de buscar "reggaeton" como nombre, buscar playlists del género o tracks con ese tag
+        const genreTerms = genre.split(',').map(g => g.trim());
+        for (const g of genreTerms) {
+          // Buscar playlists del género (más confiable que buscar tracks con nombre del género)
+          queries.push(`playlist:${g}`, `tag:${g}`);
+          // También buscar tracks del género pero con formato correcto
+          queries.push(`genre:${g}`);
+        }
       }
       if (mood) {
         queries.push(...mood.split(',').map(m => `${m.trim()} music`));
       }
       if (theme) {
-        queries.push(theme);
+        // Solo añadir theme si no es un género (para evitar buscar "reggaeton" como nombre de canción)
+        const themeLower = theme.toLowerCase();
+        const isGenreName = ['reggaeton', 'reggae', 'hip hop', 'rap', 'pop', 'rock', 'jazz', 'blues', 'country', 'electronic', 'dance', 'latin', 'salsa', 'bachata', 'merengue'].some(g => themeLower.includes(g));
+        if (!isGenreName) {
+          queries.push(theme);
+        }
       }
     }
 
@@ -754,7 +796,14 @@ Return ONLY the JSON object, no other text.`;
         const queryTracks = (data.tracks?.items || [])
           .filter((t: any) => {
             const artistNames = t.artists.map((a: any) => a.name.toLowerCase());
-            return !artists_to_exclude.some(ex => artistNames.includes(ex.toLowerCase()));
+            // Filtrar artistas excluidos del params
+            if (artists_to_exclude.some(ex => artistNames.includes(ex.toLowerCase()))) return false;
+            // Filtrar artistas banneados del contexto
+            if (bannedArtists && bannedArtists.size > 0) {
+              const hasBannedArtist = artistNames.some(artist => bannedArtists.has(artist));
+              if (hasBannedArtist) return false;
+            }
+            return true;
           })
           .map(normalizeTrack);
         

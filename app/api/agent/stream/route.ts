@@ -221,10 +221,11 @@ export async function GET(request: NextRequest) {
             params: step.params
           });
 
-          // Ejecutar la herramienta
+          // Ejecutar la herramienta (pasar bannedArtists para filtrado interno)
           const result = await executeToolCall(step, accessToken, {
             allTracksSoFar: allTracks,
-            usedTrackIds
+            usedTrackIds,
+            bannedArtists
           });
 
           // Filtrar tracks excluidos ANTES de añadirlos
@@ -278,6 +279,7 @@ export async function GET(request: NextRequest) {
             const emergencyResult = await executeToolCall(emergencyStep, accessToken, {
               allTracksSoFar: allTracks,
               usedTrackIds,
+              bannedArtists
             });
 
             const emergencyFiltered = filterBannedArtists(emergencyResult.tracks);
@@ -636,6 +638,7 @@ export async function GET(request: NextRequest) {
             const fallbackResult = await executeToolCall(fallbackStep, accessToken, {
               allTracksSoFar: [],
               usedTrackIds: new Set<string>(),
+              bannedArtists
             });
 
             const fallbackFiltered = filterBannedArtists(fallbackResult.tracks);
