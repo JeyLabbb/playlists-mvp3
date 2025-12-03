@@ -28,7 +28,7 @@ export async function POST(request: Request) {
             const { data: users, error: listError } = await admin.auth.admin.listUsers();
             
             if (!listError && users?.users) {
-              const user = users.users.find(u => u.email?.toLowerCase() === email.toLowerCase());
+              const user = users.users.find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
               
               if (user) {
                 // Auto-confirmar el email
