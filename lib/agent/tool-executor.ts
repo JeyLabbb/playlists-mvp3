@@ -86,7 +86,7 @@ export async function executeToolCall(
       
       case 'adjust_distribution':
         // adjust_distribution NO pasa por filtro de duplicados porque reordena tracks existentes
-        tracks = await executeAdjustDistribution(context.allTracksSoFar, toolCall.params);
+        tracks = await executeAdjustDistribution(context.allTracksSoFar, toolCall.params as any);
         // Devolver directamente sin filtrar
         const executionTimeMs = Date.now() - startTime;
         console.log(`[AGENT-EXECUTOR] Tool ${toolCall.tool} completed: ${tracks.length} tracks in ${executionTimeMs}ms`);
