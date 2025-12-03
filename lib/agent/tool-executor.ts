@@ -73,15 +73,15 @@ export async function executeToolCall(
         break;
       
       case 'get_similar_style':
-        tracks = await executeGetSimilarStyle(accessToken, toolCall.params);
+        tracks = await executeGetSimilarStyle(accessToken, toolCall.params as any);
         break;
       
       case 'generate_creative_tracks':
-        tracks = await executeGenerateCreativeTracks(accessToken, toolCall.params);
+        tracks = await executeGenerateCreativeTracks(accessToken, toolCall.params as any);
         break;
       
       case 'search_playlists':
-        tracks = await executeSearchPlaylists(accessToken, toolCall.params);
+        tracks = await executeSearchPlaylists(accessToken, toolCall.params as any);
         break;
       
       case 'adjust_distribution':
