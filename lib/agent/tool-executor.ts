@@ -836,7 +836,14 @@ Return ONLY the JSON object, no other text.`;
         const artistTracks = (data.tracks?.items || [])
           .filter((t: any) => {
             const artistNames = t.artists.map((a: any) => a.name.toLowerCase());
-            return !artists_to_exclude.some(ex => artistNames.includes(ex.toLowerCase()));
+            // Filtrar artistas excluidos
+            if (artists_to_exclude.some(ex => artistNames.includes(ex.toLowerCase()))) return false;
+            // Filtrar artistas banneados (incluyendo colaboraciones)
+            if (bannedArtists && bannedArtists.size > 0) {
+              const hasBannedArtist = artistNames.some(artist => bannedArtists.has(artist));
+              if (hasBannedArtist) return false;
+            }
+            return true;
           })
           .slice(0, 5)
           .map(normalizeTrack);
@@ -844,8 +851,97 @@ Return ONLY the JSON object, no other text.`;
       }
     }
 
+    // Si hay género y faltan tracks, usar LLM para generar lista de artistas del género y luego buscar sus tracks
+    if (genre && tracks.length < count) {
+      const genreTerms = genre.split(',').map(g => g.trim());
+      console.log(`[GENERATE_CREATIVE] Genre detected: ${genreTerms.join(', ')}, asking LLM for artists of this genre`);
+      
+      try {
+        const openai = new (await import('openai')).default({
+          apiKey: process.env.OPENAI_API_KEY
+        });
+        
+        const artistPrompt = `You are a music expert. Given the genre(s): ${genreTerms.join(', ')}, generate a list of ${Math.min(20, (count - tracks.length) * 2)} well-known artists in this genre.
+${artists_to_exclude.length > 0 ? `DO NOT include these artists: ${artists_to_exclude.join(', ')}` : ''}
+${bannedArtists && bannedArtists.size > 0 ? `DO NOT include these artists: ${Array.from(bannedArtists).join(', ')}` : ''}
+${artists_to_include.length > 0 ? `PREFER including these artists if they fit: ${artists_to_include.join(', ')}` : ''}
+
+Return ONLY a JSON object with this exact format:
+{
+  "artists": ["Artist Name 1", "Artist Name 2", ...]
+}
+
+Return ONLY the JSON object, no other text.`;
+
+        const artistCompletion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: 'You are a music expert. Return ONLY valid JSON with an "artists" array of artist names.' },
+            { role: 'user', content: artistPrompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 1000,
+          response_format: { type: 'json_object' }
+        });
+
+        const artistContent = artistCompletion.choices[0]?.message?.content;
+        if (artistContent) {
+          const parsedArtists = JSON.parse(artistContent);
+          const llmArtists = parsedArtists.artists || [];
+          
+          console.log(`[GENERATE_CREATIVE] LLM generated ${llmArtists.length} artists for genre`);
+          
+          // Buscar tracks de estos artistas
+          for (const artistName of llmArtists.slice(0, 15)) {
+            if (tracks.length >= count) break;
+            
+            const artistSearchResponse = await fetch(
+              `https://api.spotify.com/v1/search?q=artist:"${encodeURIComponent(artistName)}"&type=artist&limit=1`,
+              { headers: { Authorization: `Bearer ${accessToken}` } }
+            );
+            
+            if (artistSearchResponse.ok) {
+              const artistData = await artistSearchResponse.json();
+              const foundArtist = artistData.artists?.items?.[0];
+              if (foundArtist) {
+                const artistTracksResponse = await fetch(
+                  `https://api.spotify.com/v1/artists/${foundArtist.id}/top-tracks?market=ES`,
+                  { headers: { Authorization: `Bearer ${accessToken}` } }
+                );
+                
+                if (artistTracksResponse.ok) {
+                  const topTracksData = await artistTracksResponse.json();
+                  const artistTracks = (topTracksData.tracks || [])
+                    .filter((t: any) => {
+                      const trackArtistNames = t.artists.map((a: any) => a.name.toLowerCase());
+                      // Filtrar colaboraciones con artistas banneados
+                      if (bannedArtists && bannedArtists.size > 0) {
+                        const hasBannedArtist = trackArtistNames.some(artist => bannedArtists.has(artist));
+                        if (hasBannedArtist) return false;
+                      }
+                      if (artists_to_exclude.some(ex => trackArtistNames.includes(ex.toLowerCase()))) return false;
+                      return true;
+                    })
+                    .slice(0, 3)
+                    .map(normalizeTrack);
+                  
+                  for (const track of artistTracks) {
+                    if (tracks.length >= count) break;
+                    if (!tracks.some(t => t.id === track.id)) {
+                      tracks.push(track);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (genreError) {
+        console.error('[GENERATE_CREATIVE] Error getting artists from LLM for genre:', genreError);
+      }
+    }
     
-    // Buscar por queries de mood/theme (NO géneros ni búsquedas directas por género en Spotify)
+    // Buscar por queries de mood/theme (NO géneros como términos directos de búsqueda de tracks)
     const tracksPerQuery = Math.ceil((count - tracks.length) / Math.max(queries.length, 1));
     
     for (const query of queries.slice(0, 5)) {
