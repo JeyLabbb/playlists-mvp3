@@ -369,23 +369,24 @@ export default function PricingPage() {
                     >
                       Tu enlace de invitación:
                     </label>
-                    <div className="flex gap-2">
+                    {/* En móvil, apilar elementos para evitar overflow horizontal */}
+                    <div className="flex flex-col sm:flex-row gap-2 sm:items-stretch">
                       <input
                         type="text"
                         value={generateReferralLink(session.user.email)}
                         readOnly
-                        className="flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm"
+                        className="w-full sm:flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm"
                       />
                       <button
                         onClick={copyReferralLink}
-                        className="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors text-sm"
+                        className="w-full sm:w-auto px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors text-sm"
                       >
                         {copied ? '✓' : 'Copiar'}
                       </button>
                       {isMobile && (
                         <button
                           onClick={shareReferralLink}
-                          className="px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center"
+                          className="w-full sm:w-auto px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center"
                           title="Compartir en WhatsApp, Instagram, etc."
                         >
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

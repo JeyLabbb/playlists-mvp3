@@ -183,22 +183,17 @@ input::placeholder, textarea::placeholder {
 }
 
 .loading-dots::after {
-  content: '';
-  animation: loading-dots 1.5s infinite;
+  content: '...';
+  animation: loading-dots-pulse 1.5s ease-in-out infinite;
+  opacity: 0.3;
 }
 
-@keyframes loading-dots {
-  0%, 20% {
-    content: '';
+@keyframes loading-dots-pulse {
+  0%, 100% {
+    opacity: 0.3;
   }
-  40% {
-    content: '.';
-  }
-  60% {
-    content: '..';
-  }
-  80%, 100% {
-    content: '...';
+  50% {
+    opacity: 1;
   }
 }
 

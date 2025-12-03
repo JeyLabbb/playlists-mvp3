@@ -13,11 +13,14 @@ export async function GET(request: Request) {
     const now = new Date();
     const startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Obtener IDs de campañas que NO están excluidas del tracking
+    // Obtener IDs de campañas que:
+    // - Tienen tracking habilitado
+    // - NO están excluidas explícitamente del tracking
     const { data: includedCampaigns, error: campaignsError } = await supabase
       .from('newsletter_campaigns')
       .select('id')
-      .or('excluded_from_tracking.is.null,excluded_from_tracking.eq.false');
+      .eq('tracking_enabled', true)
+      .eq('excluded_from_tracking', false);
     
     if (campaignsError) throw campaignsError;
 
@@ -36,11 +39,12 @@ export async function GET(request: Request) {
     // Obtener eventos SOLO de campañas incluidas
     const { data: events, error } = await supabase
       .from('newsletter_events')
-      .select('event_type, occurred_at, campaign_id')
+      .select('event_type, occurred_at, campaign_id, recipient_id')
       .gte('occurred_at', startDate)
       .in('campaign_id', includedCampaignIds);
     if (error) throw error;
 
+    // Contar por usuario único (campaign_id + recipient_id) para evitar duplicados
     const summary = {
       delivered: 0,
       opened: 0,
@@ -48,20 +52,36 @@ export async function GET(request: Request) {
     };
     const daily: Record<string, { delivered: number; opened: number; clicked: number }> = {};
 
+    const deliveredSet = new Set<string>();
+    const openedSet = new Set<string>();
+    const clickedSet = new Set<string>();
+
     (events || []).forEach((event) => {
       const day = new Date(event.occurred_at).toISOString().slice(0, 10);
+      const key = `${event.campaign_id}:${event.recipient_id}`;
+
       if (!daily[day]) {
         daily[day] = { delivered: 0, opened: 0, clicked: 0 };
       }
+
       if (event.event_type === 'delivered') {
-        summary.delivered += 1;
-        daily[day].delivered += 1;
+        if (!deliveredSet.has(key)) {
+          deliveredSet.add(key);
+          summary.delivered += 1;
+          daily[day].delivered += 1;
+        }
       } else if (event.event_type === 'opened') {
-        summary.opened += 1;
-        daily[day].opened += 1;
+        if (!openedSet.has(key)) {
+          openedSet.add(key);
+          summary.opened += 1;
+          daily[day].opened += 1;
+        }
       } else if (event.event_type === 'clicked') {
-        summary.clicked += 1;
-        daily[day].clicked += 1;
+        if (!clickedSet.has(key)) {
+          clickedSet.add(key);
+          summary.clicked += 1;
+          daily[day].clicked += 1;
+        }
       }
     });
 

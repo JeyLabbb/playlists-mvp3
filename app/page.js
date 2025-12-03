@@ -199,7 +199,7 @@ export default function Home() {
   const progTimer = useRef(null);
   const paywallTimerRef = useRef(null);
   
-  // Agent thinking (pensamientos del agente)
+  // Agent thinking (pensamientos del agente que se van acumulando)
   const [agentThoughts, setAgentThoughts] = useState([]);
   const [isAgentMode, setIsAgentMode] = useState(true); // Nuevo sistema de agente habilitado por defecto
 
@@ -755,13 +755,20 @@ export default function Home() {
           }
         });
 
-        // Evento: Pensamiento del agente (se acumulan)
+        // Evento: Pensamiento del agente (se acumulan, máximo 5)
         eventSource.addEventListener('AGENT_THINKING', (event) => {
           try {
             const data = JSON.parse(event.data);
             if (data.thought) {
-              setAgentThoughts(prev => [...prev, data.thought]);
-              setStatusText(`💭 ${data.thought}`);
+              setAgentThoughts(prev => {
+                // Evitar duplicados consecutivos
+                if (prev.length > 0 && prev[prev.length - 1] === data.thought) {
+                  return prev;
+                }
+                // Mantener máximo 5 pensamientos visibles
+                const newThoughts = [...prev, data.thought].slice(-5);
+                return newThoughts;
+              });
             }
           } catch (e) {
             console.error('[AGENT] Error parsing AGENT_THINKING:', e);
@@ -778,28 +785,32 @@ export default function Home() {
           }
         });
 
-        // Evento: Herramienta inicia
+        // Evento: Herramienta inicia (solo log, progreso silencioso)
         eventSource.addEventListener('TOOL_START', (event) => {
           try {
             const data = JSON.parse(event.data);
+            console.log(`[AGENT] Tool ${data.tool} starting (step ${data.stepIndex}/${data.totalSteps})`);
             const progress = 20 + (data.stepIndex / data.totalSteps) * 60;
-            bumpPhase(`Paso ${data.stepIndex}/${data.totalSteps}: ${data.tool}`, progress);
+            bumpPhase('', progress); // Progreso silencioso, sin mensaje
           } catch (e) {
             console.error('[AGENT] Error parsing TOOL_START:', e);
           }
         });
 
-        // Evento: Herramienta completada
+        // Evento: Herramienta completada (solo progreso, sin mensaje visible)
         eventSource.addEventListener('TOOL_COMPLETE', (event) => {
           try {
             const data = JSON.parse(event.data);
-            setStatusText(`✓ ${data.tool}: ${data.tracksFound} canciones (${data.totalSoFar}/${data.target})`);
+            console.log(`[AGENT] Tool ${data.tool} complete: ${data.tracksFound} tracks`);
+            // Actualizar progreso silenciosamente
+            const progress = Math.min(data.totalSoFar / data.target, 1);
+            bumpPhase('', 20 + progress * 60);
           } catch (e) {
             console.error('[AGENT] Error parsing TOOL_COMPLETE:', e);
           }
         });
 
-        // Evento: Chunk de tracks
+        // Evento: Chunk de tracks (consumir uso, pero sin mostrar mensaje)
         eventSource.addEventListener('TRACKS_CHUNK', async (event) => {
           try {
             const data = JSON.parse(event.data);
@@ -824,8 +835,9 @@ export default function Home() {
             allTracks = [...allTracks, ...data.tracks];
             setTracks([...allTracks]);
             
-            const progress = Math.round((data.totalSoFar / data.target) * 100);
-            bumpPhase(`Encontradas ${data.totalSoFar}/${data.target} canciones`, 20 + progress * 0.6);
+            // Solo actualizar progreso, sin mensaje que se quede bugeado
+            const progress = Math.min(data.totalSoFar / data.target, 1);
+            bumpPhase('', 20 + progress * 60);
           } catch (e) {
             console.error('[AGENT] Error parsing TRACKS_CHUNK:', e);
           }
@@ -837,10 +849,11 @@ export default function Home() {
             const data = JSON.parse(event.data);
             console.log('[AGENT] DONE received:', data);
             
-            // Añadir pensamiento final
-            setAgentThoughts(prev => [...prev, data.message || '¡Playlist completada!']);
+            // Limpiar TODOS los pensamientos y status inmediatamente al completar
+            setAgentThoughts([]);
+            setStatusText(''); // Limpiar cualquier mensaje residual
             
-            bumpPhase('¡Completado!', 100);
+            bumpPhase('', 100); // Sin mensaje, solo progreso
             finalizeGeneration(data);
           } catch (e) {
             console.error('[AGENT] Error parsing DONE:', e);
@@ -853,9 +866,10 @@ export default function Home() {
             const data = JSON.parse(event.data);
             console.error('[AGENT] ERROR event:', data);
             setError(data.error || 'Error generando playlist');
-            setAgentThoughts(prev => [...prev, `❌ Error: ${data.error}`]);
+            setAgentThoughts([]); // Limpiar pensamientos en error
           } catch (e) {
             setError('Error desconocido');
+            setAgentThoughts([]);
           }
           if (eventSource) {
             eventSource.close();
@@ -2054,23 +2068,19 @@ export default function Home() {
                     show={loading || (progress > 0 && progress < 100)} 
                   />
                   
-                  {/* Pensamientos del Agente PLEIA */}
+                  {/* Pensamientos del Agente PLEIA - se van acumulando sutilmente */}
                   {isAgentMode && agentThoughts.length > 0 && (
-                    <div className="mt-4 space-y-2 max-h-48 overflow-y-auto">
-                      {agentThoughts.slice(-5).map((thought, idx) => (
+                    <div className="mt-4 space-y-1 text-center">
+                      {agentThoughts.map((thought, idx) => (
                         <div 
-                          key={idx}
-                          className={`text-sm px-3 py-2 rounded-lg transition-all duration-300 ${
-                            idx === agentThoughts.slice(-5).length - 1
-                              ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20'
-                              : 'bg-white/5 text-white/60'
-                          }`}
+                          key={`${idx}-${thought.slice(0, 20)}`}
+                          className="text-sm text-white/40 italic"
                           style={{
-                            opacity: 1 - (agentThoughts.slice(-5).length - 1 - idx) * 0.2,
-                            transform: idx === agentThoughts.slice(-5).length - 1 ? 'scale(1)' : 'scale(0.98)'
+                            animation: 'fade-in 0.5s ease-out',
+                            opacity: 0.3 + (idx / agentThoughts.length) * 0.5 // Los más recientes más visibles
                           }}
                         >
-                          💭 {thought}
+                          {idx === agentThoughts.length - 1 ? '💭 ' : '· '}{thought}
                         </div>
                       ))}
                     </div>

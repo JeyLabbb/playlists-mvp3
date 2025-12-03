@@ -55,11 +55,18 @@ export async function POST(request: NextRequest) {
 Número de canciones solicitado: ${target_tracks}
 
 Analiza el prompt y genera un plan de ejecución usando las herramientas disponibles.
+
+⚠️ ATENCIÓN ESPECIAL:
+- Si el usuario dice "sin X", "no X", "excluir X": AÑADE X a artists_to_exclude en generate_creative_tracks
+- Si el usuario dice "artistas tipo X podrían ser Y, Z": AÑADE Y, Z a artists_to_include O usa get_similar_style con seed_artists que incluya Y, Z
+- Si el usuario recomienda artistas específicos: INCLÚYELOS en el plan (get_artist_tracks o get_similar_style)
+
 Recuerda:
 - Usa máximo 5-6 herramientas
 - SIEMPRE incluye adjust_distribution al final
 - Los caps deben sumar aproximadamente ${Math.ceil(target_tracks * 1.3)} (para compensar duplicados)
-- Genera pensamientos naturales que expliquen tu razonamiento`;
+- Genera pensamientos naturales que expliquen tu razonamiento
+- RESPETA TODAS las exclusiones y recomendaciones del usuario`;
 
     console.log('[AGENT-PLAN] Calling OpenAI...');
 
@@ -98,9 +105,19 @@ Recuerda:
               total_target: {
                 type: 'number',
                 description: 'Número total de tracks objetivo'
+              },
+              fill_strategy: {
+                type: 'string',
+                enum: ['only_requested_artists', 'similar_artists', 'any_from_genre', 'recommendations'],
+                description: 'Estrategia para rellenar si faltan tracks. "only_requested_artists" si el usuario dice SOLO de X artistas, "similar_artists" para tipo/estilo de, "any_from_genre" para prompts abstractos'
+              },
+              requested_artists: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Lista de artistas explícitamente pedidos por el usuario'
               }
             },
-            required: ['thinking', 'execution_plan', 'total_target']
+            required: ['thinking', 'execution_plan', 'total_target', 'fill_strategy']
           }
         }
       }],
@@ -182,6 +199,31 @@ function validateAndEnrichPlan(plan: ExecutionPlan, targetTracks: number): Execu
 
   // Asegurar total_target
   plan.total_target = plan.total_target || targetTracks;
+
+  // Asegurar fill_strategy (default: recommendations)
+  if (!plan.fill_strategy) {
+    plan.fill_strategy = 'recommendations';
+  }
+
+  // Extraer artistas de las herramientas si no se especificaron
+  if (!plan.requested_artists || plan.requested_artists.length === 0) {
+    const artists: string[] = [];
+    for (const step of plan.execution_plan) {
+      if (step.tool === 'get_artist_tracks' && step.params?.artist) {
+        artists.push(step.params.artist);
+      }
+      if (step.tool === 'get_collaborations') {
+        if (step.params?.main_artist) artists.push(step.params.main_artist);
+        if (step.params?.must_collaborate_with) {
+          artists.push(...step.params.must_collaborate_with);
+        }
+      }
+    }
+    plan.requested_artists = [...new Set(artists)];
+  }
+
+  console.log('[AGENT-PLAN] Fill strategy:', plan.fill_strategy);
+  console.log('[AGENT-PLAN] Requested artists:', plan.requested_artists);
 
   // Verificar que adjust_distribution está al final
   const lastTool = plan.execution_plan[plan.execution_plan.length - 1];

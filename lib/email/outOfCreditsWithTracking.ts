@@ -7,6 +7,7 @@ import { getSupabaseAdmin } from '../supabase/server';
 import { generateOutOfCreditsEmailHTML, generateOutOfCreditsEmailText } from './templates/outOfCredits';
 import { ensureContactByEmail, getNewsletterAdminClient } from '../newsletter/server';
 import { ensureOutOfCreditsWorkflow } from '../newsletter/workflows';
+import { ensureMailEnv, getResendClient } from '../resend';
 
 export type OutOfCreditsEmailTrackingResult =
   | { ok: true; emailSent: true; campaignId: string; recipientId: string }
@@ -83,7 +84,7 @@ export async function sendOutOfCreditsEmailWithTracking(
 
     // 3. Get or create "Out of Credits" campaign
     const now = new Date().toISOString();
-    const campaignTitle = 'Out of Credits · Automático';
+    const campaignTitle = 'Out of Credits';
     const campaignSlug = 'out-of-credits-automatic';
 
     // Buscar por title y metadata.slug (ya que no existe columna slug)
@@ -218,45 +219,24 @@ Nos vemos dentro.
       ? htmlContent.replace('</body>', `${pixelTag}</body>`)
       : `${htmlContent}${pixelTag}`;
 
-    // 6. Send email via Resend (same config as other emails)
-    const apiKey = process.env.RESEND_API_KEY;
-    const rawFrom = process.env.RESEND_FROM || process.env.RESEND_NEWSLETTER_FROM || 'PLEIA <pleia@jeylabbb.com>';
-    const from = rawFrom.replace(/^["']|["']$/g, '').trim();
-    const replyTo = process.env.CONTACT_EMAIL || undefined;
+    // 6. Send email via Resend usando la misma configuración base que el welcome mail
+    const { from } = ensureMailEnv();
+    const resend = getResendClient();
 
-    if (!apiKey) {
-      console.error('[OUT_OF_CREDITS_TRACKING] ❌ RESEND_API_KEY missing');
-      return { ok: false, error: 'RESEND_API_KEY missing' };
-    }
+    console.log('[OUT_OF_CREDITS_TRACKING] Sending via Resend (SDK)...');
 
-    console.log('[OUT_OF_CREDITS_TRACKING] Sending via Resend...');
-
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
+    try {
+      const result = await resend.emails.send({
         from,
         to: [normalizedEmail],
         subject: 'Te has quedado sin playlists IA… pero tengo algo para ti.',
         html: trackedHtml,
         text: textContent,
-        ...(replyTo ? { reply_to: replyTo } : {}),
-      }),
-    });
+      });
 
-    let data: any = null;
-    try {
-      data = await response.json();
-    } catch {
-      data = null;
-    }
-
-    if (!response.ok || data?.error) {
-      const message = data?.error?.message || data?.message || `HTTP ${response.status}`;
+      console.log('[OUT_OF_CREDITS_TRACKING] ✅ Email sent via Resend', result);
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
       console.error('[OUT_OF_CREDITS_TRACKING] ❌ Resend failed:', message);
       
       // Update recipient status to failed
@@ -270,8 +250,6 @@ Nos vemos dentro.
 
       return { ok: false, error: message };
     }
-
-    console.log('[OUT_OF_CREDITS_TRACKING] ✅ Email sent via Resend');
 
     // 7. Update recipient status to sent
     await supabase

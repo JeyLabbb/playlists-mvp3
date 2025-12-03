@@ -125,7 +125,7 @@ export default function FeedbackGate({ currentPrompt = '' }: Props) {
       comments: comentariosRef.current?.value ?? '',
       prompt: currentPrompt,  // ← AUTORELLENADO
       playlistId: playlist.id,
-      userEmail: 'jeylabbb@gmail.com', // For testing
+      userEmail: undefined,
     };
 
     try {
@@ -137,6 +137,7 @@ export default function FeedbackGate({ currentPrompt = '' }: Props) {
       
       if (response.ok) {
         console.log('[FEEDBACK] Submitted successfully');
+        alert('¡Gracias por tu colaboración! ✅');
       } else {
         console.error('[FEEDBACK] Error:', await response.text());
       }
@@ -184,8 +185,12 @@ export default function FeedbackGate({ currentPrompt = '' }: Props) {
                   ref={i === 0 ? firstFocusRef : undefined}
                   onClick={() => {
                     const newSelected = [...aciertosSelected];
-                    newSelected[i] = !newSelected[i];
+                    const nextValue = !newSelected[i];
+                    newSelected[i] = nextValue;
                     setAciertosSelected(newSelected);
+                    if (nextValue) {
+                      appendChip(aciertosRef, c);
+                    }
                   }}
                   className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
                     aciertosSelected[i] 
@@ -216,8 +221,12 @@ export default function FeedbackGate({ currentPrompt = '' }: Props) {
                   type="button"
                   onClick={() => {
                     const newSelected = [...fallosSelected];
-                    newSelected[i] = !newSelected[i];
+                    const nextValue = !newSelected[i];
+                    newSelected[i] = nextValue;
                     setFallosSelected(newSelected);
+                    if (nextValue) {
+                      appendChip(fallosRef, c);
+                    }
                   }}
                   className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
                     fallosSelected[i] 

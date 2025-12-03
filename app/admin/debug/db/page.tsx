@@ -557,7 +557,7 @@ export default function AdminDebugDB() {
   const [data, setData] = useState<DebugData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'prompts' | 'usage' | 'playlists' | 'users' | 'payments'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'prompts' | 'usage' | 'playlists' | 'users' | 'payments' | 'agent'>('overview');
   const [chartData, setChartData] = useState<{
     prompts: ChartData[];
     usage: ChartData[];
@@ -595,6 +595,10 @@ export default function AdminDebugDB() {
     playlists: [],
     payments: []
   });
+
+  const [agentAnalyses, setAgentAnalyses] = useState<any[] | null>(null);
+  const [agentSummary, setAgentSummary] = useState<string | null>(null);
+  const [agentLoading, setAgentLoading] = useState(false);
   
   const router = useRouter();
 
@@ -687,6 +691,23 @@ export default function AdminDebugDB() {
         playlists: fillMissingDays(realData.playlists, last30Days),
         payments: fillMissingDays(realData.payments, last30Days)
       });
+    }
+  };
+
+  const fetchAgentAnalyses = async () => {
+    try {
+      setAgentLoading(true);
+      const res = await fetch('/api/admin/agent/analyses?limit=40');
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json?.error || 'No se pudieron cargar los análisis del agente');
+      }
+      setAgentAnalyses(json.analyses || []);
+      setAgentSummary(json.globalSummary || null);
+    } catch (error: any) {
+      console.error('[ADMIN] Error fetching agent analyses:', error);
+    } finally {
+      setAgentLoading(false);
     }
   };
 
@@ -842,6 +863,12 @@ export default function AdminDebugDB() {
     }
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (activeTab === 'agent' && agentAnalyses === null && !agentLoading) {
+      fetchAgentAnalyses();
+    }
+  }, [activeTab, agentAnalyses, agentLoading]);
+
   if (loading) {
     return (
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-gray-800 flex items-center justify-center">
@@ -961,7 +988,8 @@ export default function AdminDebugDB() {
               { key: 'usage', label: 'Uso', icon: '⚡' },
               { key: 'playlists', label: 'Playlists', icon: '🎵' },
               { key: 'users', label: 'Usuarios', icon: '👥' },
-              { key: 'payments', label: 'Pagos', icon: '💳' }
+              { key: 'payments', label: 'Pagos', icon: '💳' },
+              { key: 'agent', label: 'Análisis de agente', icon: '🧠' },
             ].map((tab) => (
               <button
                 key={tab.key}
@@ -1101,6 +1129,192 @@ export default function AdminDebugDB() {
                   <p className="text-lg sm:text-2xl font-bold text-white">{data?.counts[metric.key as keyof typeof data.counts] || 0}</p>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'agent' && (
+          <div className="space-y-6 sm:space-y-8">
+            {/* Resumen global arriba del todo */}
+            <div className="bg-gradient-to-br from-blue-900/60 via-slate-900 to-indigo-900/60 border border-blue-500/30 rounded-2xl p-5 sm:p-6 shadow-lg">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <h3 className="text-base sm:text-lg font-semibold text-white flex items-center gap-2">
+                    <span>🧠 Análisis global del agente</span>
+                  </h3>
+                  <p className="text-xs sm:text-sm text-blue-100/80 mt-1">
+                    Conclusiones generadas por OpenAI a partir de los últimos prompts, playlists y feedbacks.
+                  </p>
+                </div>
+                <button
+                  onClick={fetchAgentAnalyses}
+                  disabled={agentLoading}
+                  className="ml-3 px-3 py-1.5 rounded-lg text-xs bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 text-white flex items-center gap-1"
+                >
+                  {agentLoading ? 'Actualizando…' : '↻ Recalcular'}
+                </button>
+              </div>
+              <div className="mt-3 text-sm sm:text-base text-blue-50/90 leading-relaxed whitespace-pre-line">
+                {agentLoading && !agentSummary && (
+                  <p className="text-xs text-blue-100/70">Calculando resumen con OpenAI…</p>
+                )}
+                {!agentLoading && !agentSummary && (
+                  <p className="text-xs text-blue-100/70">
+                    Aún no hay suficientes análisis guardados. Genera algunas playlists con el agente y recoge feedback.
+                  </p>
+                )}
+                {agentSummary && (
+                  <p>{agentSummary}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Lista de casos individuales */}
+            <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-4 sm:p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm sm:text-base font-semibold text-gray-100 flex items-center gap-2">
+                  <span>Casos recientes del agente</span>
+                  <span className="text-xs text-gray-400">
+                    ({agentAnalyses?.length || 0} últimos)
+                  </span>
+                </h3>
+              </div>
+
+              {agentLoading && !agentAnalyses && (
+                <p className="text-sm text-gray-400">Cargando análisis del agente…</p>
+              )}
+
+              {!agentLoading && (agentAnalyses?.length || 0) === 0 && (
+                <p className="text-sm text-gray-400">
+                  Todavía no hay entradas en <code className="text-xs bg-black/40 px-1 py-0.5 rounded">pleia_agent_analyses</code>.
+                </p>
+              )}
+
+              <div className="space-y-4 mt-2">
+                {agentAnalyses?.map((row) => (
+                  <div
+                    key={row.id}
+                    className="rounded-xl border border-gray-800 bg-gray-950/60 p-4 hover:border-blue-500/40 transition-colors"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-gray-500">
+                          {new Date(row.created_at).toLocaleString('es-ES')}
+                          {row.user_id && (
+                            <span className="ml-2 text-[11px] text-gray-500/80">
+                              · user: {row.user_id.slice(0, 8)}…
+                            </span>
+                          )}
+                          {row.playlist_id && (
+                            <span className="ml-2 text-[11px] text-gray-500/80">
+                              · playlist: {row.playlist_id}
+                            </span>
+                          )}
+                        </p>
+                        <p className="mt-1 text-sm text-gray-100 line-clamp-2">
+                          <span className="font-semibold text-blue-200">Prompt:</span>{' '}
+                          {row.prompt}
+                        </p>
+                      </div>
+                    </div>
+
+                    {row.feedback && (
+                      <div className="mt-2 grid gap-2 sm:grid-cols-3 text-xs sm:text-[13px]">
+                        <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg p-2">
+                          <div className="text-emerald-300 font-semibold mb-1">Rating</div>
+                          <div className="text-emerald-100">
+                            {row.feedback.rating ?? '—'}
+                          </div>
+                        </div>
+                        <div className="bg-emerald-900/20 border border-emerald-700/30 rounded-lg p-2 sm:col-span-1">
+                          <div className="text-emerald-300 font-semibold mb-1">Aciertos</div>
+                          <div className="text-emerald-50 line-clamp-3">
+                            {row.feedback.positives || '—'}
+                          </div>
+                        </div>
+                        <div className="bg-orange-900/20 border border-orange-700/30 rounded-lg p-2 sm:col-span-1">
+                          <div className="text-orange-300 font-semibold mb-1">A mejorar</div>
+                          <div className="text-orange-50 line-clamp-3">
+                            {row.feedback.negatives || '—'}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {row.analysis && (
+                      <div className="mt-3">
+                        <details className="group">
+                          <summary className="cursor-pointer text-xs text-gray-400 group-open:text-gray-200 flex items-center gap-1">
+                            <span>Ver análisis detallado del agente</span>
+                            <span className="text-[10px] opacity-70">(OpenAI)</span>
+                          </summary>
+                          <div className="mt-2 text-xs sm:text-[13px] text-gray-200 leading-relaxed whitespace-pre-line">
+                            {row.analysis}
+                          </div>
+                        </details>
+                      </div>
+                    )}
+
+                    {!row.analysis && (
+                      <p className="mt-2 text-xs text-gray-500">
+                        (Aún no se ha generado análisis para este caso)
+                      </p>
+                    )}
+
+                    {/* Controles: excluir / eliminar */}
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-gray-500">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(`/api/admin/agent/analyses/${row.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ excluded_from_reports: !row.excluded_from_reports }),
+                            });
+                            if (!res.ok) {
+                              console.error('[ADMIN] Error toggling exclude for analysis', row.id, await res.text());
+                            } else {
+                              fetchAgentAnalyses();
+                            }
+                          } catch (e) {
+                            console.error('[ADMIN] Error toggling exclude:', e);
+                          }
+                        }}
+                        className={`px-2 py-1 rounded border text-xs ${
+                          row.excluded_from_reports
+                            ? 'border-emerald-500 text-emerald-400'
+                            : 'border-yellow-500 text-yellow-400'
+                        }`}
+                      >
+                        {row.excluded_from_reports ? '✓ Incluir en análisis' : '✕ Excluir de análisis'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!confirm('¿Eliminar este análisis del agente? Esta acción no se puede deshacer.')) return;
+                          try {
+                            const res = await fetch(`/api/admin/agent/analyses/${row.id}`, {
+                              method: 'DELETE',
+                            });
+                            if (!res.ok) {
+                              console.error('[ADMIN] Error deleting analysis', row.id, await res.text());
+                            } else {
+                              fetchAgentAnalyses();
+                            }
+                          } catch (e) {
+                            console.error('[ADMIN] Error deleting analysis:', e);
+                          }
+                        }}
+                        className="px-2 py-1 rounded border border-red-500 text-red-400 text-xs"
+                      >
+                        🗑 Eliminar análisis
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

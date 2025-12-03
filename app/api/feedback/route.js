@@ -1,47 +1,57 @@
 import { NextResponse } from 'next/server';
-import { Resend } from 'resend';
-
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const RESEND_FROM = process.env.RESEND_FROM || 'onboarding@resend.dev';
-const FEEDBACK_TO = process.env.FEEDBACK_TO || process.env.ALLOWLIST_TO || 'jeylabbb@gmail.com';
-
-const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
+import { sendFeedbackEmail } from '../../../lib/resend';
+import { getPleiaServerUser } from '../../../lib/auth/serverUser';
+import { getSupabaseAdmin } from '../../../lib/supabase/server';
 
 export async function POST(req) {
   try {
-    const { rating, positives, negatives, comments, prompt, playlistId, userEmail } = await req.json();
+    const { rating, positives, negatives, comments, prompt, playlistId, userEmail, model } = await req.json();
 
-    if (!resend) {
-      console.error('[FEEDBACK] Missing RESEND_API_KEY');
-      return NextResponse.json({ error: 'Email service not configured' }, { status: 500 });
+    // Resolver email del usuario: primero body, luego sesión
+    let sessionEmail = userEmail;
+    try {
+      const pleiaUser = await getPleiaServerUser();
+      if (!sessionEmail && pleiaUser?.email) {
+        sessionEmail = pleiaUser.email;
+      }
+    } catch (e) {
+      console.warn('[FEEDBACK] No se pudo obtener pleiaUser para feedback:', e?.message || e);
     }
 
-    const lines = [
-      `Rating: ${rating ?? '-'}`,
-      `Prompt/Intent: ${prompt?.trim() || '-'}`,
-      `Playlist: ${playlistId || '-'}`,
-      `Usuario: ${userEmail || 'anónimo'}`,
-      `Fecha: ${new Date().toISOString()}`,
-      '',
-      '✅ Aciertos',
-      (positives?.trim() || '—'),
-      '',
-      '🛠️ A mejorar',
-      (negatives?.trim() || '—'),
-      '',
-      '💬 Comentarios',
-      (comments?.trim() || '—'),
-    ];
+    const payload = {
+      rating,
+      positives: positives ? [positives] : [],
+      negatives: negatives ? [negatives] : [],
+      comments,
+      playlistId,
+      playlistUrl: undefined,
+      sessionEmail,
+      intentText: prompt,
+      model: model || 'agent',
+    };
 
-    // Crear estrellitas para el asunto
-    const stars = '⭐'.repeat(rating || 0) + '☆'.repeat(5 - (rating || 0));
-    
-    await resend.emails.send({
-      from: RESEND_FROM,
-      to: FEEDBACK_TO,
-      subject: `${stars} Feedback playlist (${playlistId || '-'})`,
-      text: lines.join('\n'),
-    });
+    await sendFeedbackEmail(payload);
+
+    // Intentar adjuntar feedback a un análisis de agente existente (si hay playlistId)
+    if (playlistId) {
+      try {
+        const supabase = getSupabaseAdmin();
+        if (supabase) {
+          const feedbackPayload = {
+            rating,
+            positives,
+            negatives,
+            comments,
+          };
+          await supabase
+            .from('pleia_agent_analyses')
+            .update({ feedback: feedbackPayload })
+            .eq('playlist_id', playlistId);
+        }
+      } catch (linkError) {
+        console.warn('[FEEDBACK] No se pudo enlazar feedback con pleia_agent_analyses:', linkError);
+      }
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error('[FEEDBACK] Error:', e);

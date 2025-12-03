@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { generateAgentSystemPrompt, ExecutionPlan, ToolCall } from '@/lib/agent/tools';
 import { executeToolCall, Track, ToolResult } from '@/lib/agent/tool-executor';
+import { logAgentAnalysis } from '@/lib/agent/analysis';
 import { getPleiaServerUser } from '@/lib/auth/serverUser';
 import { getHubAccessToken } from '@/lib/spotify/hubAuth';
 import { createPlaylist, addTracksToPlaylist } from '@/lib/spotify/playlist';
@@ -84,10 +85,12 @@ export async function GET(request: NextRequest) {
 
         console.log('[AGENT-STREAM] Plan generated:', plan.execution_plan.length, 'steps');
 
-        // Emitir todos los pensamientos del plan
-        for (const thought of plan.thinking) {
-          sendThinking(thought);
-          await delay(300); // Pequeña pausa para efecto visual
+        // Emitir solo el primer pensamiento del plan (resumen general)
+        if (plan.thinking && plan.thinking.length > 0) {
+          // Combinar los pensamientos en uno más completo
+          const mainThought = plan.thinking[0];
+          sendThinking(mainThought);
+          await delay(500);
         }
 
         sendEvent('AGENT_PLAN', { 
@@ -96,11 +99,114 @@ export async function GET(request: NextRequest) {
         });
 
         // ═══════════════════════════════════════════════════════════════
-        // FASE 2: Ejecutar herramientas
+        // FASE 2: Extraer exclusiones y artistas recomendados del plan
+        // ═══════════════════════════════════════════════════════════════
+
+        // Extraer exclusiones (banned_artists) del plan
+        const bannedArtists = new Set<string>();
+        for (const step of plan.execution_plan) {
+          if (step.tool === 'generate_creative_tracks' && step.params?.artists_to_exclude) {
+            const excluded = Array.isArray(step.params.artists_to_exclude) 
+              ? step.params.artists_to_exclude 
+              : [step.params.artists_to_exclude];
+            excluded.forEach((artist: string) => bannedArtists.add(artist.toLowerCase()));
+          }
+        }
+        
+        // También extraer exclusiones del prompt original (por si el LLM no las puso en el plan)
+        // Buscar patrones como "sin X", "no X", "excluir X", "sin canciones de X"
+        const promptLower = prompt.toLowerCase();
+        
+        // Patrón mejorado: "sin [canciones de] X" o "no [quiero] X" o "excluir X"
+        const exclusionPatterns = [
+          /sin\s+(?:canciones?\s+de\s+|música\s+de\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ\s]+?)(?:\.|,|$|y|o|con|de|del|la|el|los|las|para)/gi,
+          /no\s+(?:quiero\s+|quieres\s+)?(?:canciones?\s+de\s+|música\s+de\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ\s]+?)(?:\.|,|$|y|o|con|de|del|la|el|los|las|para)/gi,
+          /excluir\s+(?:a\s+)?([A-ZÁÉÍÓÚÑ][a-záéíóúñ\s]+?)(?:\.|,|$|y|o|con|de|del|la|el|los|las|para)/gi,
+        ];
+        
+        for (const pattern of exclusionPatterns) {
+          let match;
+          while ((match = pattern.exec(prompt)) !== null) {
+            const artistName = match[1].trim();
+            // Filtrar palabras comunes que no son artistas
+            const commonWords = ['canciones', 'música', 'playlist', 'lista', 'tracks', 'songs', 'artistas', 'rock', 'pop', 'rap', 'hip', 'hop'];
+            if (artistName.length > 2 && !commonWords.includes(artistName.toLowerCase())) {
+              bannedArtists.add(artistName.toLowerCase());
+              console.log(`[AGENT-STREAM] ⚠️ Detected banned artist from prompt: "${artistName}"`);
+            }
+          }
+        }
+        
+        // Extraer artistas recomendados (artists_to_include) del plan
+        const recommendedArtists = new Set<string>();
+        for (const step of plan.execution_plan) {
+          if (step.tool === 'generate_creative_tracks' && step.params?.artists_to_include) {
+            const included = Array.isArray(step.params.artists_to_include) 
+              ? step.params.artists_to_include 
+              : [step.params.artists_to_include];
+            included.forEach((artist: string) => recommendedArtists.add(artist));
+          }
+          if (step.tool === 'get_similar_style' && step.params?.seed_artists) {
+            const seeds = Array.isArray(step.params.seed_artists) 
+              ? step.params.seed_artists 
+              : [step.params.seed_artists];
+            seeds.forEach((artist: string) => recommendedArtists.add(artist));
+          }
+          if (step.tool === 'get_artist_tracks' && step.params?.artist) {
+            // Los artistas pedidos explícitamente también son recomendados
+            recommendedArtists.add(step.params.artist);
+          }
+        }
+        
+        // También extraer artistas recomendados del prompt (patrones como "podrían ser X, Y, Z")
+        // Buscar: "artistas tipo X podrían ser Y, Z" o "incluye X, Y, Z"
+        const commonWords = ['canciones', 'música', 'playlist', 'lista', 'tracks', 'songs', 'artistas', 'rock', 'pop', 'rap', 'hip', 'hop'];
+        const recommendedPatterns = [
+          /(?:artistas?|artista)\s+tipo\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ\s]+\s+(?:podrían\s+ser|serían|podría\s+ser|sería)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ\s,]+?)(?:\.|$|y|o|con)/gi,
+          /(?:podrían\s+ser|podría\s+ser|serían|sería|incluye?|añade?|pon|poner)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ\s,]+?)(?:\.|$|y|o|con)/gi,
+        ];
+        
+        for (const pattern of recommendedPatterns) {
+          let match;
+          while ((match = pattern.exec(prompt)) !== null) {
+            const artistsText = match[1].trim();
+            // Separar por comas y "y"/"o", limpiar espacios
+            const artists = artistsText
+              .split(/[,yYoO]/)
+              .map(a => a.trim())
+              .filter(a => a.length > 1 && !commonWords.includes(a.toLowerCase()));
+            
+            artists.forEach(artist => {
+              if (artist.length > 2) {
+                recommendedArtists.add(artist);
+                console.log(`[AGENT-STREAM] ✅ Detected recommended artist from prompt: "${artist}"`);
+              }
+            });
+          }
+        }
+        
+        console.log(`[AGENT-STREAM] Banned artists: [${Array.from(bannedArtists).join(', ')}]`);
+        console.log(`[AGENT-STREAM] Recommended artists: [${Array.from(recommendedArtists).join(', ')}]`);
+
+        // ═══════════════════════════════════════════════════════════════
+        // FASE 3: Ejecutar herramientas
         // ═══════════════════════════════════════════════════════════════
 
         const allTracks: Track[] = [];
         const usedTrackIds = new Set<string>();
+        
+        // Helper para filtrar tracks excluidos
+        const filterBannedArtists = (tracks: Track[]): Track[] => {
+          return tracks.filter(track => {
+            const trackArtists = track.artists?.map((a: any) => a.name.toLowerCase()) || [];
+            const hasBannedArtist = trackArtists.some(artist => bannedArtists.has(artist));
+            if (hasBannedArtist) {
+              console.log(`[AGENT-STREAM] ⚠️ Filtered out track "${track.name}" - contains banned artist`);
+              return false;
+            }
+            return true;
+          });
+        };
 
         for (let i = 0; i < plan.execution_plan.length; i++) {
           const step = plan.execution_plan[i];
@@ -121,16 +227,19 @@ export async function GET(request: NextRequest) {
             usedTrackIds
           });
 
+          // Filtrar tracks excluidos ANTES de añadirlos
+          const filteredTracks = filterBannedArtists(result.tracks);
+
           // Añadir tracks (excepto adjust_distribution que reordena)
           if (step.tool === 'adjust_distribution') {
-            // Reemplazar con los tracks ajustados
+            // Reemplazar con los tracks ajustados (ya filtrados)
             allTracks.length = 0;
-            allTracks.push(...result.tracks);
+            allTracks.push(...filteredTracks);
           } else {
-            allTracks.push(...result.tracks);
+            allTracks.push(...filteredTracks);
           }
 
-          // Emitir progreso
+          // Solo emitir progreso interno (sin mensaje visible al usuario)
           sendEvent('TOOL_COMPLETE', {
             tool: step.tool,
             tracksFound: result.tracks.length,
@@ -138,28 +247,348 @@ export async function GET(request: NextRequest) {
             target: targetTracks
           });
 
-          // Emitir chunk de tracks
-          if (result.tracks.length > 0 && step.tool !== 'adjust_distribution') {
-            sendEvent('TRACKS_CHUNK', {
-              tracks: result.tracks.slice(0, 10), // Primeros 10 para preview
-              totalSoFar: allTracks.length,
-              target: targetTracks
-            });
-          }
-
-          await delay(100);
+          // Pausa mínima entre herramientas
+          await delay(50);
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // FASE 3: Crear playlist en Spotify
+        // FASE 3: Rellenar si faltan tracks
         // ═══════════════════════════════════════════════════════════════
 
+        console.log('[AGENT-STREAM] All tools executed. Total tracks collected:', allTracks.length);
+        
+        // Si faltan tracks, intentar rellenar con recomendaciones
+        if (allTracks.length < targetTracks && allTracks.length > 0) {
+          const missing = targetTracks - allTracks.length;
+          console.log(`[AGENT-STREAM] Missing ${missing} tracks, attempting to fill with recommendations...`);
+          sendThinking(`Encontré ${allTracks.length} canciones, buscando ${missing} más para completar...`);
+          
+          try {
+            // Helper para shuffle aleatorio (Fisher-Yates)
+            const shuffle = <T>(array: T[]): T[] => {
+              const arr = [...array];
+              for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+              }
+              return arr;
+            };
+            
+            // USAR LA ESTRATEGIA DE RELLENO DEL PLAN
+            const fillStrategy = plan.fill_strategy || 'recommendations';
+            const requestedArtists = plan.requested_artists || [];
+            
+            // Extraer restricciones de colaboración del plan
+            const collaborationRestrictions = new Map<string, string[]>(); // artista -> [artistas con los que puede colaborar]
+            for (const step of plan.execution_plan) {
+              if (step.tool === 'get_collaborations') {
+                const mainArtist = step.params?.main_artist;
+                const mustCollabWith = step.params?.must_collaborate_with || [];
+                if (mainArtist) {
+                  collaborationRestrictions.set(mainArtist.toLowerCase(), mustCollabWith.map((a: string) => a.toLowerCase()));
+                }
+              }
+            }
+            
+            console.log(`[AGENT-STREAM] Fill strategy: ${fillStrategy}`);
+            console.log(`[AGENT-STREAM] Requested artists from plan: [${requestedArtists.join(', ')}]`);
+            console.log(`[AGENT-STREAM] Recommended artists: [${Array.from(recommendedArtists).join(', ')}]`);
+            console.log(`[AGENT-STREAM] Collaboration restrictions:`, Object.fromEntries(collaborationRestrictions));
+            
+            let artistNames: string[] = [];
+            
+            switch (fillStrategy) {
+              case 'only_requested_artists':
+                // SOLO usar los artistas del prompt - no añadir ninguno más
+                artistNames = shuffle([...new Set(requestedArtists)]);
+                console.log(`[AGENT-STREAM] Only using ${artistNames.length} requested artists`);
+                break;
+                
+              case 'similar_artists':
+                // PRIORIDAD: Artistas recomendados explícitamente, luego los pedidos, luego de tracks
+                const fromTracks = allTracks.flatMap(t => t.artists?.map((a: any) => a.name) || [])
+                  .filter(name => !bannedArtists.has(name.toLowerCase())); // Excluir artistas banneados
+                
+                // Combinar: recomendados primero, luego pedidos, luego de tracks (sin duplicados)
+                const allCandidates = [...recommendedArtists, ...requestedArtists, ...fromTracks];
+                artistNames = shuffle([...new Set(allCandidates)]);
+                console.log(`[AGENT-STREAM] Using ${artistNames.length} artists (recommended + requested + from tracks)`);
+                break;
+                
+              case 'any_from_genre':
+              case 'recommendations':
+              default:
+                // PRIORIDAD: Artistas recomendados primero, luego de tracks (sin artistas banneados)
+                const fromTracksFiltered = allTracks.flatMap(t => t.artists?.map((a: any) => a.name) || [])
+                  .filter(name => !bannedArtists.has(name.toLowerCase()));
+                
+                // Combinar recomendados con tracks encontrados
+                const combined = [...recommendedArtists, ...fromTracksFiltered];
+                artistNames = shuffle([...new Set(combined)]);
+                console.log(`[AGENT-STREAM] Using ${artistNames.length} artists (recommended + from tracks, no banned)`);
+                break;
+            }
+            
+            // Filtrar artistas banneados de la lista final
+            artistNames = artistNames.filter(name => !bannedArtists.has(name.toLowerCase()));
+            
+            if (artistNames.length === 0) {
+              console.log('[AGENT-STREAM] No artists to fill with, skipping fill phase');
+            } else {
+              console.log(`[AGENT-STREAM] Will fill with: [${artistNames.slice(0, 5).join(', ')}${artistNames.length > 5 ? '...' : ''}]`);
+            }
+            
+            // Buscar tracks de cada artista y guardarlos organizados
+            const tracksByArtist: Map<string, any[]> = new Map();
+            
+            for (const artistName of artistNames) {
+              // Buscar MUCHOS tracks de este artista (con múltiples búsquedas si es necesario)
+              let artistTracks: any[] = [];
+              const neededPerArtist = Math.ceil(missing / artistNames.length) + 5; // Extra por si hay duplicados
+              
+              const artistNameLower = artistName.toLowerCase();
+              const restrictions = collaborationRestrictions.get(artistNameLower);
+              
+              // Si tiene restricciones, buscar SOLO colaboraciones
+              if (restrictions && restrictions.length > 0) {
+                console.log(`[AGENT-STREAM] ${artistName} has restrictions - searching only collaborations with [${restrictions.join(', ')}]`);
+                
+                // Buscar colaboraciones específicas
+                for (const collaborator of restrictions) {
+                  if (artistTracks.length >= neededPerArtist) break;
+                  
+                  const queries = [
+                    `${artistName} ${collaborator}`,
+                    `${artistName} feat ${collaborator}`,
+                    `${collaborator} ${artistName}`,
+                    `${collaborator} feat ${artistName}`,
+                  ];
+                  
+                  for (const query of queries) {
+                    if (artistTracks.length >= neededPerArtist) break;
+                    
+                    const searchUrl = `https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=20`;
+                    const searchResponse = await fetch(searchUrl, {
+                      headers: { Authorization: `Bearer ${accessToken}` }
+                    });
+                    
+                    if (searchResponse.ok) {
+                      const searchData = await searchResponse.json();
+                      const rawTracks = (searchData.tracks?.items || [])
+                        .filter((t: any) => {
+                          const trackArtists = t.artists?.map((a: any) => a.name.toLowerCase()) || [];
+                          
+                          // CRÍTICO: Verificar que no contiene artistas banneados
+                          const hasBannedArtist = trackArtists.some(artist => bannedArtists.has(artist));
+                          if (hasBannedArtist) return false;
+                          
+                          const hasArtist = trackArtists.includes(artistNameLower);
+                          const hasCollaborator = trackArtists.some((ta: string) => 
+                            restrictions.some((r: string) => ta.includes(r) || r.includes(ta))
+                          );
+                          return hasArtist && hasCollaborator && t.id && !usedTrackIds.has(t.id);
+                        })
+                        .map((track: any) => ({
+                          id: track.id,
+                          name: track.name,
+                          uri: track.uri,
+                          artists: track.artists?.map((a: any) => ({ id: a.id, name: a.name })) || [],
+                          album: track.album ? {
+                            id: track.album.id,
+                            name: track.album.name,
+                            images: track.album.images || []
+                          } : undefined
+                        }));
+                      
+                      artistTracks.push(...rawTracks);
+                    }
+                  }
+                }
+              } else {
+                // Sin restricciones: búsqueda normal
+                // Primera búsqueda: por nombre de artista
+                const randomOffset = Math.floor(Math.random() * 10);
+                const searchUrl = `https://api.spotify.com/v1/search?q=artist:${encodeURIComponent(artistName)}&type=track&limit=50&offset=${randomOffset}`;
+                const searchResponse = await fetch(searchUrl, {
+                  headers: { Authorization: `Bearer ${accessToken}` }
+                });
+                
+                if (searchResponse.ok) {
+                  const searchData = await searchResponse.json();
+                  const rawTracks = (searchData.tracks?.items || [])
+                    .filter((t: any) => {
+                      // Verificar que el artista está en la canción
+                      const trackArtists = t.artists?.map((a: any) => a.name.toLowerCase()) || [];
+                      
+                      // CRÍTICO: Verificar que no contiene artistas banneados
+                      const hasBannedArtist = trackArtists.some(artist => bannedArtists.has(artist));
+                      if (hasBannedArtist) return false;
+                      
+                      return trackArtists.includes(artistNameLower) && 
+                             t.id && !usedTrackIds.has(t.id);
+                    })
+                    .map((track: any) => ({
+                      id: track.id,
+                      name: track.name,
+                      uri: track.uri,
+                      artists: track.artists?.map((a: any) => ({ id: a.id, name: a.name })) || [],
+                      album: track.album ? {
+                        id: track.album.id,
+                        name: track.album.name,
+                        images: track.album.images || []
+                      } : undefined
+                    }));
+                  
+                  artistTracks.push(...rawTracks);
+                }
+                
+                // Segunda búsqueda: solo el nombre (sin "artist:")
+                if (artistTracks.length < neededPerArtist) {
+                  const searchUrl2 = `https://api.spotify.com/v1/search?q=${encodeURIComponent(artistName)}&type=track&limit=50`;
+                  const searchResponse2 = await fetch(searchUrl2, {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                  });
+                  
+                  if (searchResponse2.ok) {
+                    const searchData2 = await searchResponse2.json();
+                    const rawTracks2 = (searchData2.tracks?.items || [])
+                      .filter((t: any) => {
+                        const trackArtists = t.artists?.map((a: any) => a.name.toLowerCase()) || [];
+                        
+                        // CRÍTICO: Verificar que no contiene artistas banneados
+                        const hasBannedArtist = trackArtists.some(artist => bannedArtists.has(artist));
+                        if (hasBannedArtist) return false;
+                        
+                        const isDuplicate = artistTracks.some(at => at.id === t.id);
+                        return trackArtists.includes(artistNameLower) && 
+                               t.id && !usedTrackIds.has(t.id) && !isDuplicate;
+                      })
+                      .map((track: any) => ({
+                        id: track.id,
+                        name: track.name,
+                        uri: track.uri,
+                        artists: track.artists?.map((a: any) => ({ id: a.id, name: a.name })) || [],
+                        album: track.album ? {
+                          id: track.album.id,
+                          name: track.album.name,
+                          images: track.album.images || []
+                        } : undefined
+                      }));
+                    
+                    artistTracks.push(...rawTracks2);
+                  }
+                }
+              }
+              
+              // Mezclar los tracks de este artista
+              artistTracks = shuffle(artistTracks);
+              
+              if (artistTracks.length > 0) {
+                tracksByArtist.set(artistName, artistTracks);
+                console.log(`[AGENT-STREAM] Found ${artistTracks.length} tracks for "${artistName}"`);
+              } else {
+                console.log(`[AGENT-STREAM] No tracks found for "${artistName}"`);
+              }
+            }
+            
+            console.log(`[AGENT-STREAM] Collected tracks from ${tracksByArtist.size} artists`);
+            
+            // Convertir el Map a array y mezclarlo para variar el orden de artistas
+            const artistEntries = shuffle([...tracksByArtist.entries()]);
+            
+            // Ahora añadir tracks de forma equilibrada: 1 de cada artista, luego 2º de cada, etc.
+            let round = 0;
+            const maxRounds = 10; // Máximo 10 canciones por artista
+            
+            while (allTracks.length < targetTracks && round < maxRounds) {
+              let addedThisRound = false;
+              
+              // Mezclar el orden de artistas en cada ronda para más variedad
+              const shuffledEntries = shuffle(artistEntries);
+              
+              for (const [artistName, artistTracks] of shuffledEntries) {
+                if (allTracks.length >= targetTracks) break;
+                
+                // Obtener el track de esta ronda para este artista
+                if (round < artistTracks.length) {
+                  const track = artistTracks[round];
+                  if (usedTrackIds.has(track.id)) continue;
+                  
+                  // CRÍTICO: Verificar restricciones de colaboración
+                  const artistNameLower = artistName.toLowerCase();
+                  const restrictions = collaborationRestrictions.get(artistNameLower);
+                  
+                  if (restrictions && restrictions.length > 0) {
+                    // Este artista solo puede aparecer en colaboraciones con artistas específicos
+                    const trackArtists = track.artists?.map((a: any) => a.name.toLowerCase()) || [];
+                    const hasRestrictedArtist = trackArtists.includes(artistNameLower);
+                    
+                    if (hasRestrictedArtist) {
+                      // Verificar que al menos uno de los colaboradores permitidos está en el track
+                      const hasAllowedCollaborator = trackArtists.some((trackArtist: string) => 
+                        restrictions.some((allowed: string) => 
+                          trackArtist.includes(allowed) || allowed.includes(trackArtist)
+                        )
+                      );
+                      
+                      if (!hasAllowedCollaborator) {
+                        console.log(`[AGENT-STREAM] ⚠️ Skipping track "${track.name}" - ${artistName} must collaborate with [${restrictions.join(', ')}]`);
+                        continue; // Saltar este track, no cumple la restricción
+                      }
+                    }
+                  }
+                  
+                  // CRÍTICO: Verificar que no contiene artistas banneados
+                  const trackArtists = track.artists?.map((a: any) => a.name.toLowerCase()) || [];
+                  const hasBannedArtist = trackArtists.some(artist => bannedArtists.has(artist));
+                  
+                  if (hasBannedArtist) {
+                    console.log(`[AGENT-STREAM] ⚠️ Skipping track "${track.name}" - contains banned artist`);
+                    continue;
+                  }
+                  
+                  // Añadir el track si pasa todas las verificaciones
+                  usedTrackIds.add(track.id);
+                  allTracks.push(track);
+                  addedThisRound = true;
+                }
+              }
+              
+              // Si no añadimos nada en esta ronda, no hay más tracks disponibles
+              if (!addedThisRound) {
+                console.log(`[AGENT-STREAM] No more tracks available at round ${round}`);
+                break;
+              }
+              
+              round++;
+            }
+            
+            console.log(`[AGENT-STREAM] After balanced fill: ${allTracks.length} tracks (${round} rounds)`);
+          } catch (fillError) {
+            console.error('[AGENT-STREAM] Error filling tracks:', fillError);
+            // Continuar sin rellenar
+          }
+        }
+        
+        // ═══════════════════════════════════════════════════════════════
+        // FASE 4: Crear playlist en Spotify
+        // ═══════════════════════════════════════════════════════════════
+        
         sendThinking('Creando tu playlist en Spotify...');
         
+        // Asegurar que no excedemos el target
         const finalTracks = allTracks.slice(0, targetTracks);
         
+        console.log('[AGENT-STREAM] Final tracks after slice:', finalTracks.length, '/', targetTracks);
+        
+        // Si tenemos más tracks de los pedidos, ya están cortados arriba
+        if (allTracks.length > targetTracks) {
+          console.log('[AGENT-STREAM] Trimmed from', allTracks.length, 'to', finalTracks.length);
+        }
+        
         if (finalTracks.length === 0) {
-          sendEvent('ERROR', { error: 'No se encontraron canciones' });
+          console.error('[AGENT-STREAM] ERROR: No tracks found after all tools executed');
+          sendEvent('ERROR', { error: 'No se encontraron canciones después de ejecutar todas las herramientas' });
           controller.close();
           return;
         }
@@ -189,8 +618,28 @@ export async function GET(request: NextRequest) {
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // FASE 4: Finalizar
+        // FASE 5: Finalizar
         // ═══════════════════════════════════════════════════════════════
+
+        console.log('[AGENT-STREAM] ✅ Sending DONE event with', finalTracks.length, 'tracks');
+        console.log('[AGENT-STREAM] Playlist created:', playlist ? playlist.id : 'none');
+
+        // Lanzar análisis del agente en background (no bloquear el stream)
+        (async () => {
+          try {
+            await logAgentAnalysis({
+              userId: pleiaUser.id,
+              playlistId: playlist?.id || null,
+              prompt,
+              tracks: finalTracks,
+              plan,
+              model: MODEL,
+              origin: 'agent_stream_v1',
+            });
+          } catch (analysisError) {
+            console.error('[AGENT-STREAM] Error logging agent analysis:', analysisError);
+          }
+        })();
 
         sendEvent('DONE', {
           tracks: finalTracks,
@@ -204,11 +653,19 @@ export async function GET(request: NextRequest) {
           message: `¡Listo! He encontrado ${finalTracks.length} canciones para ti.`
         });
 
+        console.log('[AGENT-STREAM] ✅ Stream completed successfully');
         controller.close();
 
       } catch (error: any) {
-        console.error('[AGENT-STREAM] Error:', error);
-        sendEvent('ERROR', { error: error.message || 'Error desconocido' });
+        console.error('[AGENT-STREAM] ❌ CRITICAL ERROR:', {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        });
+        sendEvent('ERROR', { 
+          error: error.message || 'Error desconocido en el agente',
+          details: error.stack?.split('\n').slice(0, 3).join(' | ') || 'No stack trace'
+        });
         controller.close();
       }
     }
