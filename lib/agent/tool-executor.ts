@@ -65,7 +65,7 @@ export async function executeToolCall(
   try {
     switch (toolCall.tool) {
       case 'get_artist_tracks':
-        tracks = await executeGetArtistTracks(accessToken, toolCall.params);
+        tracks = await executeGetArtistTracks(accessToken, toolCall.params as any);
         break;
       
       case 'get_collaborations':
