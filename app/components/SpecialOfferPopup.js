@@ -83,7 +83,7 @@ export default function SpecialOfferPopup() {
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center px-3 sm:px-4 py-4 sm:py-6">
       {/* Backdrop */}
       <div
         className="absolute inset-0 backdrop-blur-sm"
@@ -93,7 +93,7 @@ export default function SpecialOfferPopup() {
 
       {/* Modal */}
       <div
-        className="relative w-full max-w-md mx-auto rounded-3xl shadow-[0_40px_120px_rgba(54,226,180,0.4)]"
+        className="relative w-full max-w-md mx-auto rounded-2xl sm:rounded-3xl shadow-[0_40px_120px_rgba(54,226,180,0.4)] max-h-[90vh] sm:max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
         style={{
           background:
@@ -106,29 +106,29 @@ export default function SpecialOfferPopup() {
         <button
           type="button"
           onClick={handleClose}
-          className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:bg-white/20 cursor-pointer"
+          className="absolute top-2 right-2 sm:top-4 sm:right-4 z-10 w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center transition-colors hover:bg-white/20 cursor-pointer"
           style={{
             backgroundColor: 'rgba(255, 255, 255, 0.14)',
             color: '#EAF2FF',
           }}
           aria-label="Cerrar"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
 
-        <div className="p-8">
+        <div className="p-4 sm:p-6 md:p-8 overflow-y-auto flex-1">
           {/* Header */}
-          <div className="text-center mb-6">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-4 animate-pulse" style={{
+          <div className="text-center mb-4 sm:mb-6">
+            <div className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full mb-3 sm:mb-4 animate-pulse" style={{
               backgroundColor: 'rgba(54, 226, 180, 0.2)',
               border: '2px solid #36E2B4',
               boxShadow: '0 0 20px rgba(54, 226, 180, 0.5)'
             }}>
-              <span className="text-xl">🎉</span>
+              <span className="text-lg sm:text-xl">🎉</span>
               <span
-                className="text-sm font-bold"
+                className="text-xs sm:text-sm font-bold"
                 style={{
                   color: '#36E2B4',
                   fontFamily: 'Space Grotesk, sans-serif'
@@ -138,7 +138,7 @@ export default function SpecialOfferPopup() {
               </span>
             </div>
             <h2
-              className="text-2xl font-bold mb-3"
+              className="text-lg sm:text-xl md:text-2xl font-bold mb-2 sm:mb-3"
               style={{
                 color: '#EAF2FF',
                 fontFamily: 'Space Grotesk, sans-serif',
@@ -150,9 +150,9 @@ export default function SpecialOfferPopup() {
           </div>
 
           {/* Content */}
-          <div className="space-y-4 mb-6">
+          <div className="space-y-3 sm:space-y-4 mb-4 sm:mb-6">
             <p
-              className="text-base leading-relaxed text-center"
+              className="text-sm sm:text-base leading-relaxed text-center"
               style={{
                 color: 'rgba(234, 242, 255, 0.9)',
                 fontFamily: 'Inter, sans-serif',
@@ -162,14 +162,14 @@ export default function SpecialOfferPopup() {
             </p>
 
             <div
-              className="rounded-xl p-5 text-center"
+              className="rounded-xl p-3 sm:p-4 md:p-5 text-center"
               style={{
                 backgroundColor: 'rgba(54, 226, 180, 0.1)',
                 border: '1px solid rgba(54, 226, 180, 0.3)',
               }}
             >
               <p
-                className="text-lg font-semibold mb-2"
+                className="text-sm sm:text-base md:text-lg font-semibold mb-2"
                 style={{
                   color: '#36E2B4',
                   fontFamily: 'Space Grotesk, sans-serif',
@@ -178,7 +178,7 @@ export default function SpecialOfferPopup() {
                 Para celebrarlo, te regalamos <strong>playlists ilimitadas para siempre</strong>
               </p>
               <p
-                className="text-2xl font-bold"
+                className="text-xl sm:text-2xl font-bold"
                 style={{
                   color: '#EAF2FF',
                   fontFamily: 'Space Grotesk, sans-serif',
@@ -188,7 +188,7 @@ export default function SpecialOfferPopup() {
                 <strong style={{ color: '#36E2B4', fontSize: '1.3em' }}>1</strong> amigo
               </p>
               <p
-                className="text-sm mt-2"
+                className="text-xs sm:text-sm mt-2"
                 style={{
                   color: 'rgba(234, 242, 255, 0.8)',
                   fontFamily: 'Inter, sans-serif',
@@ -199,7 +199,7 @@ export default function SpecialOfferPopup() {
             </div>
 
             <p
-              className="text-sm text-center"
+              className="text-xs sm:text-sm text-center"
               style={{
                 color: 'rgba(234, 242, 255, 0.7)',
                 fontFamily: 'Inter, sans-serif',
@@ -210,10 +210,10 @@ export default function SpecialOfferPopup() {
           </div>
 
           {/* Actions */}
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2 sm:gap-3 pt-2 border-t border-white/10">
             <button
               onClick={handleGoToPricing}
-              className="w-full py-3 px-6 rounded-xl font-semibold transition-all hover:scale-[1.02] hover:shadow-xl"
+              className="w-full py-2.5 sm:py-3 px-4 sm:px-6 rounded-xl font-semibold transition-all hover:scale-[1.02] hover:shadow-xl text-sm sm:text-base"
               style={{
                 background: 'linear-gradient(135deg, #36E2B4, #2FCFA4)',
                 color: '#0B0F14',
@@ -226,7 +226,7 @@ export default function SpecialOfferPopup() {
             </button>
             <button
               onClick={handleClose}
-              className="w-full py-2 px-6 rounded-xl font-medium transition-colors"
+              className="w-full py-2 px-4 sm:px-6 rounded-xl font-medium transition-colors text-sm sm:text-base"
               style={{
                 backgroundColor: 'rgba(255, 255, 255, 0.1)',
                 color: 'rgba(234, 242, 255, 0.8)',

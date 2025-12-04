@@ -430,12 +430,17 @@ export default function Home() {
   );
 
   const shouldShowPaywallReminder = useCallback(() => {
-    if (status !== 'authenticated') return false;
-    if (!profileReady) return false;
-    if (isFounderAccount) return false;
-    if (isUnlimitedUsage(effectiveUsage)) return false;
-    if (effectiveUsage?.termsAccepted === false) return false;
-    return true;
+    // 🚨 DESACTIVADO TEMPORALMENTE: Popup automático de "plan a punto de agotarse"
+    // Se puede reactivar en el futuro cuando sea necesario
+    return false;
+    
+    // Código original comentado para referencia futura:
+    // if (status !== 'authenticated') return false;
+    // if (!profileReady) return false;
+    // if (isFounderAccount) return false;
+    // if (isUnlimitedUsage(effectiveUsage)) return false;
+    // if (effectiveUsage?.termsAccepted === false) return false;
+    // return true;
   }, [status, profileReady, isFounderAccount, effectiveUsage]);
 
   const schedulePaywallReminder = useCallback(
