@@ -38,7 +38,7 @@ export const FOUNDER_WHITELIST = [
 ];
 
 // Referral requirements
-export const REF_REQUIRED_COUNT = 3;
+export const REF_REQUIRED_COUNT = 1; // 🎉 OFERTA ESPECIAL: Reducido de 3 a 1 referido para Founder Pass ilimitado
 export const REF_QUALIFY_RULE = 'hasCreatedPlaylist >= 1';
 
 // Helper functions
@@ -49,11 +49,16 @@ export function isFounderWhitelisted(email: string): boolean {
 export function canInvite(email: string, options?: { isEarlyCandidate?: boolean | null }): boolean {
   if (!REFERRALS_ENABLED) return false;
 
-  // Nueva regla: si el usuario es early-candidate (primeros 1000), siempre puede usar la ventaja
-  if (options?.isEarlyCandidate) return true;
+  // 🎉 OFERTA ESPECIAL TEMPORAL: 
+  // Mientras la promo esté activa, TODOS los usuarios pueden invitar y conseguir Founder con 1 referido.
+  // Cuando se termine la oferta, se puede volver a limitar con early-candidate / whitelist.
+  return true;
 
-  // Fallback: lista blanca histórica por si queremos mantener algunos casos especiales
-  return isFounderWhitelisted(email);
+  // Código original (comentado para cuando termine la oferta):
+  // // Nueva regla: si el usuario es early-candidate (primeros 1000), siempre puede usar la ventaja
+  // if (options?.isEarlyCandidate) return true;
+  // // Fallback: lista blanca histórica por si queremos mantener algunos casos especiales
+  // return isFounderWhitelisted(email);
 }
 
 export function generateReferralLink(email: string): string {

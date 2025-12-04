@@ -217,8 +217,20 @@ export default function ReferralModule({ userEmail }) {
       <p className="text-xs uppercase tracking-[0.18em] mb-2" style={{ color: 'rgba(255, 241, 207, 0.75)' }}>
         Por ser de los primeros 1000 en crear cuenta PLEIA
       </p>
+      <div className="mb-2">
+        <span 
+          className="text-xs font-bold px-2 py-1 rounded inline-block"
+          style={{ 
+            backgroundColor: 'rgba(54, 226, 180, 0.2)',
+            color: '#36E2B4',
+            border: '1px solid #36E2B4'
+          }}
+        >
+          🎉 OFERTA ESPECIAL
+        </span>
+      </div>
       <p className="text-sm mb-4" style={{ color: 'rgba(255, 241, 207, 0.9)' }}>
-        Invita a 3 amigos y desbloquea <strong>Founder de por vida</strong> gratis (o compra el pass por 5€).
+        Envía tu enlace a un amigo y que se cree una cuenta PLEIA. Desbloqueas <strong>playlists ilimitadas para siempre</strong> (o compra el pass por 5€).
       </p>
 
       {/* Progress Bar */}
@@ -245,7 +257,7 @@ export default function ReferralModule({ userEmail }) {
       {/* Referral Link */}
       <div className="mb-4">
         <label className="block text-sm font-medium mb-2" style={{ color: 'rgba(255, 241, 207, 0.85)' }}>
-          Tu enlace de invitación:
+          Envía este enlace a tus amigos:
         </label>
         <div className="flex gap-2">
           <input
@@ -316,8 +328,8 @@ export default function ReferralModule({ userEmail }) {
       <div className="mt-4 p-3 rounded-lg" style={{ backgroundColor: GOLD_SOFT, border: '1px solid rgba(246,197,68,0.25)' }}>
         <p className="text-sm font-medium" style={{ color: GOLD }}>
           {referralStats?.qualifiedReferrals >= REF_REQUIRED_COUNT 
-            ? '🎉 ¡Felicidades! Ya tienes acceso de Founder de por vida.'
-            : `Faltan ${REF_REQUIRED_COUNT - (referralStats?.qualifiedReferrals || 0)} invitados para desbloquear Founder de por vida.`
+            ? '🎉 ¡Felicidades! Ya tienes playlists ilimitadas para siempre.'
+            : `Falta ${REF_REQUIRED_COUNT - (referralStats?.qualifiedReferrals || 0)} amigo para desbloquear playlists ilimitadas gratis. Envía tu enlace de arriba a un amigo y que se cree una cuenta PLEIA desde tu enlace.`
           }
         </p>
       </div>

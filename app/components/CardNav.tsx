@@ -210,42 +210,81 @@ export default function CardNav({
             className={`${styles.hamburger} ${isHamburgerOpen ? styles.open : ""}`}
             onClick={toggleMenu}
             aria-label={isExpanded ? "Cerrar menú" : "Abrir menú"}
-            style={{ color: menuColor }}
+            style={{ color: menuColor, position: 'relative' }}
           >
             <span className={styles.line} />
             <span className={styles.line} />
+            <span
+              style={{
+                position: 'absolute',
+                top: '-4px',
+                right: '-4px',
+                backgroundColor: '#36E2B4',
+                color: '#0B0F14',
+                borderRadius: '50%',
+                width: '18px',
+                height: '18px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '11px',
+                fontWeight: '700',
+                boxShadow: '0 2px 8px rgba(54, 226, 180, 0.6)',
+                animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              }}
+            >
+              1
+            </span>
           </button>
 
-                      <div className={styles.logo}>
-                        <svg width="120" height="40" viewBox="0 0 120 40" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ height: '46px', width: 'auto' }}>
-                          <title>PLEIA — Logo completo</title>
-                          <defs>
-                            <linearGradient id="gradStar" x1="176" y1="176" x2="336" y2="336" gradientUnits="userSpaceOnUse">
-                              <stop offset="0" stopColor="#36E2B4"/>
-                              <stop offset="1" stopColor="#5B8CFF"/>
-                            </linearGradient>
-                          </defs>
+          <div className={styles.logo} style={{ display: 'flex', alignItems: 'flex-end', gap: '0px' }}>
+            <svg width="120" height="40" viewBox="0 0 120 40" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ height: '42px', width: 'auto' }}>
+              <title>PLEIA — Logo completo</title>
+              <defs>
+                <linearGradient id="gradStar" x1="176" y1="176" x2="336" y2="336" gradientUnits="userSpaceOnUse">
+                  <stop offset="0" stopColor="#36E2B4"/>
+                  <stop offset="1" stopColor="#5B8CFF"/>
+                </linearGradient>
+              </defs>
 
-                          {/* Texto PLEIA centrado */}
-                          <text x="60" y="28" textAnchor="middle" fontFamily="Space Grotesk, Inter, system-ui" fontSize="18" fontWeight="600" letterSpacing="0.02em" fill="#F5F7FA">
-                            PLEIA
-                          </text>
-                          
-                          {/* Estrella nueva centrada arriba del texto */}
-                          <g transform="translate(60, 10) scale(0.08)">
-                            <path d="
-                              M256 136
-                              L276 210
-                              L352 230
-                              L276 250
-                              L256 324
-                              L236 250
-                              L160 230
-                              L236 210
-                              Z" fill="url(#gradStar)"/>
-                          </g>
-                        </svg>
-                      </div>
+              {/* Texto PLEIA centrado */}
+              <text x="60" y="28" textAnchor="middle" fontFamily="Space Grotesk, Inter, system-ui" fontSize="18" fontWeight="600" letterSpacing="0.02em" fill="#F5F7FA">
+                PLEIA
+              </text>
+              
+              {/* Estrella nueva centrada arriba del texto */}
+              <g transform="translate(60, 10) scale(0.08)">
+                <path d="
+                  M256 136
+                  L276 210
+                  L352 230
+                  L276 250
+                  L256 324
+                  L236 250
+                  L160 230
+                  L236 210
+                  Z" fill="url(#gradStar)"/>
+              </g>
+            </svg>
+            <span
+              style={{
+                fontFamily: 'Space Grotesk, sans-serif',
+                fontSize: '14px',
+                fontWeight: '600',
+                background: 'linear-gradient(135deg, #36E2B4, #5B8CFF)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+                textShadow: '0 0 12px rgba(54, 226, 180, 0.5), 0 0 24px rgba(91, 140, 255, 0.3)',
+                letterSpacing: '0.08em',
+                animation: 'pulse-glow 2s ease-in-out infinite alternate',
+                marginBottom: '2px',
+                marginLeft: '-35px'
+              }}
+            >
+              Pulse
+            </span>
+          </div>
 
           <button
             type="button"
@@ -320,8 +359,22 @@ export default function CardNav({
                       }}
                     >
                       <GoArrowUpRight className={styles.icon} aria-hidden="true" />
-                      <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                         {lnk.label}
+                        {lnk.label === 'Planes' && (
+                          <span
+                            style={{
+                              color: '#36E2B4',
+                              fontSize: '10px',
+                              fontWeight: '600',
+                              fontFamily: 'Space Grotesk, sans-serif',
+                              letterSpacing: '0.02em',
+                              textShadow: '0 0 8px rgba(54, 226, 180, 0.5)',
+                            }}
+                          >
+                            ¡Oferta Gratuita Limitada!
+                          </span>
+                        )}
                         {hasNotifications && (
                           <span
                             style={{

@@ -388,3 +388,40 @@ div.thinking-wave[data-is-last="true"] {
   background-clip: text;
   text-shadow: 0 0 40px rgba(71, 200, 209, 0.3);
 }
+
+/* Neon pulse animation for PLEIA Pulse text */
+@keyframes pulse-glow {
+  0% {
+    text-shadow: 
+      0 0 10px rgba(54, 226, 180, 0.5),
+      0 0 20px rgba(54, 226, 180, 0.3),
+      0 0 30px rgba(91, 140, 255, 0.2);
+    opacity: 0.9;
+  }
+  100% {
+    text-shadow: 
+      0 0 20px rgba(54, 226, 180, 0.8),
+      0 0 40px rgba(54, 226, 180, 0.6),
+      0 0 60px rgba(91, 140, 255, 0.4),
+      0 0 80px rgba(91, 140, 255, 0.2);
+    opacity: 1;
+  }
+}
+
+/* Diagonal strike for crossed out numbers */
+.diagonal-strike {
+  position: relative;
+  display: inline-block;
+  opacity: 0.6;
+}
+
+.diagonal-strike::after {
+  content: "";
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  top: 50%;
+  border-top: 2px solid currentColor;
+  transform: rotate(-18deg);
+  transform-origin: center;
+}

@@ -17,6 +17,11 @@ import { usePleiaSession } from "../lib/auth/usePleiaSession";
 import { useAuthActions } from "../lib/auth/clientActions";
 // HUB_MODE eliminado - todas las funcionalidades siempre activas
 import { useUsageStatus } from "../lib/hooks/useUsageStatus";
+import dynamic from 'next/dynamic';
+
+const SpecialOfferPopup = dynamic(() => import('./components/SpecialOfferPopup'), {
+  ssr: false,
+});
 
 const DEFAULT_USAGE_DATA = {
   usage: {
@@ -147,7 +152,7 @@ export default function Home() {
                                             result.referredBy.toLowerCase() === sessionUser.email.toLowerCase();
               
               if (result.upgradedToFounder && result.reachedLimit && isCurrentUserReferrer) {
-                console.log('[HOME] 🎉 Current user reached 3/3 referidos and was upgraded to founder!');
+                console.log('[HOME] 🎉 Current user reached 1/1 referido (OFERTA ESPECIAL) and was upgraded to founder!');
                 // Mostrar mensaje de felicidades después de un pequeño delay
                 setTimeout(() => {
                   alert('🎉 ¡Felicidades! Ya tienes acceso de Founder de por vida.');
@@ -2639,6 +2644,8 @@ export default function Home() {
       {/* Feedback Gate */}
       <FeedbackGate currentPrompt={prompt} />
       
+      {/* Special Offer Popup */}
+      <SpecialOfferPopup />
 
     </div>
   );

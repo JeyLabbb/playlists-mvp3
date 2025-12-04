@@ -458,7 +458,7 @@ export default function ProfilePage() {
               {(isEarlyFounderCandidate || profileData?.isEarlyFounderCandidate === true || usageStatusData?.isEarlyFounderCandidate === true) && !isFounder && (
                 <div className="mt-4 p-4 rounded-xl border-2" style={{ backgroundColor: 'rgba(255, 140, 0, 0.05)', borderColor: '#FF8C00' }}>
                   <p className="text-xs md:text-sm text-yellow-200 max-w-2xl">
-                    🎉 <strong>Primeros 1000 usuarios.</strong> Founder Pass gratis invitando 3 amigos. <a href="/pricing#ventaja" className="underline hover:text-yellow-100">Ver ventaja</a>.
+                    🎉 <strong>Primeros 1000 usuarios.</strong> Founder Pass gratis invitando <span className="diagonal-strike">3</span> <strong style={{ color: '#36E2B4' }}>1</strong> amigo. <a href="/pricing#ventaja" className="underline hover:text-yellow-100">Ver ventaja</a>.
                   </p>
                 </div>
               )}

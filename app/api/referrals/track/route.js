@@ -157,7 +157,7 @@ export async function POST(request) {
         console.warn('[REF] Could not check plan in Supabase, will try to update anyway:', planCheckError);
       }
       
-      // Si tiene 3/3 y NO es founder en KV o en Supabase, necesita upgrade
+      // Si tiene 1/1 (oferta especial) y NO es founder en KV o en Supabase, necesita upgrade
       if (referredQualifiedCount >= REF_REQUIRED_COUNT) {
         needsUpgrade = referrerProfile.plan !== 'founder' || currentPlanInSupabase !== 'founder';
       }
@@ -167,7 +167,7 @@ export async function POST(request) {
         updatedReferrerProfile.plan = 'founder';
         updatedReferrerProfile.founderSince = now;
         upgradedToFounder = true;
-        console.log('[REF] 🎉 Referrer reached 3/3 referidos! Upgrading to founder:', referralEmail);
+        console.log('[REF] 🎉 Referrer reached 1/1 referido (OFERTA ESPECIAL)! Upgrading to founder:', referralEmail);
 
           // 🚨 CRITICAL: Actualizar plan en Supabase automáticamente
           // HACER ACTUALIZACIÓN DIRECTA PRIMERO (más confiable que setUserPlan)

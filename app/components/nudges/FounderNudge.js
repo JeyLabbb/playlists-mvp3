@@ -203,7 +203,7 @@ export default function FounderNudge() {
                       opacity: 0.8
                     }}
                   >
-                    Invita 3 amigos y consigue Founder <strong>GRATIS</strong>
+                    Invita <span className="diagonal-strike">3</span> <strong style={{ color: '#36E2B4' }}>1</strong> amigo y consigue Founder <strong>GRATIS</strong>
                   </p>
                 </div>
               ) : (

@@ -279,9 +279,29 @@ export default function PricingPage() {
                     opacity: 0.9
                   }}
                 >
-                  <span className="hidden md:inline">Por ser de los <strong>primeros 1000 usuarios</strong> puedes conseguir Founder de por vida <strong> gratis</strong> invitando a 3 amigos (o comprar el pass directo por 5€).</span>
-                  <span className="md:hidden">Primeros 1000: consigue Founder <strong>gratis</strong> invitando 3 amigos o compra por 5€.</span>
+                  <span className="hidden md:inline">Por ser de los <strong>primeros 1000 usuarios</strong> puedes conseguir <strong>playlists ilimitadas y muchas ventajas más</strong> <strong> gratis</strong> invitando a <span className="diagonal-strike">3</span> <strong style={{ color: '#36E2B4', fontSize: '1.2em' }}>1</strong> amigo (o comprar el pass directo por 5€).</span>
+                  <span className="md:hidden">Primeros 1000: consigue <strong>playlists ilimitadas</strong> <strong>gratis</strong> invitando <span className="diagonal-strike">3</span> <strong style={{ color: '#36E2B4' }}>1</strong> amigo o compra por 5€.</span>
                 </p>
+                {/* Oferta Especial Badge */}
+                <div 
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full mb-4 animate-pulse"
+                  style={{
+                    backgroundColor: 'rgba(54, 226, 180, 0.2)',
+                    border: '2px solid #36E2B4',
+                    boxShadow: '0 0 20px rgba(54, 226, 180, 0.5)'
+                  }}
+                >
+                  <span className="text-lg">🎉</span>
+                  <span 
+                    className="text-sm font-bold"
+                    style={{ 
+                      color: '#36E2B4',
+                      fontFamily: 'Space Grotesk, sans-serif'
+                    }}
+                  >
+                    OFERTA ESPECIAL: Playlists ilimitadas con solo 1 referido
+                  </span>
+                </div>
               </div>
 
               <div className="grid md:grid-cols-2 gap-6">
@@ -300,7 +320,7 @@ export default function PricingPage() {
                       fontFamily: 'Space Grotesk, sans-serif'
                     }}
                   >
-                    🎯 Invita 3 amigos
+                    🎯 Invita <span className="diagonal-strike" style={{ fontSize: '0.9em' }}>3</span> <strong style={{ color: '#36E2B4', fontSize: '1.2em' }}>1</strong> amigo y desbloquea playlists ilimitadas
                   </h3>
                   <p 
                     className="text-xs md:text-sm mb-3 md:mb-4 hidden md:block"
@@ -310,7 +330,7 @@ export default function PricingPage() {
                       opacity: 0.8
                     }}
                   >
-                    Cada amigo que cree su primera playlist te acerca más a Founder de por vida.
+                    Envía tu enlace a un amigo y que se cree una cuenta PLEIA. Desbloqueas <strong>playlists ilimitadas para siempre</strong>.
                   </p>
 
                   {/* Progress Bar */}
@@ -323,7 +343,7 @@ export default function PricingPage() {
                           fontFamily: 'Inter, sans-serif'
                         }}
                       >
-                        Progreso: {referralStats?.qualifiedReferrals || 0} / 3 cualificados
+                        Progreso: {referralStats?.qualifiedReferrals || 0} / <span className="diagonal-strike">3</span> <strong style={{ color: '#36E2B4' }}>1</strong> cualificado
                       </span>
                       <span 
                         className="text-sm font-semibold"
@@ -332,7 +352,7 @@ export default function PricingPage() {
                           fontFamily: 'Inter, sans-serif'
                         }}
                       >
-                        {Math.round(((referralStats?.qualifiedReferrals || 0) / 3) * 100)}%
+                        {Math.round(((referralStats?.qualifiedReferrals || 0) / 1) * 100)}%
                       </span>
                     </div>
                     <div className="w-full bg-gray-700 rounded-full h-2.5">
@@ -340,7 +360,7 @@ export default function PricingPage() {
                         className="h-2.5 rounded-full transition-all duration-500 ease-out"
                         style={{ 
                           backgroundColor: '#FF8C00',
-                          width: `${Math.min(((referralStats?.qualifiedReferrals || 0) / 3) * 100, 100)}%`
+                          width: `${Math.min(((referralStats?.qualifiedReferrals || 0) / 1) * 100, 100)}%`
                         }}
                       ></div>
                     </div>
@@ -352,9 +372,9 @@ export default function PricingPage() {
                         opacity: 0.7
                       }}
                     >
-                      {referralStats?.qualifiedReferrals >= 3 
-                        ? '🎉 ¡Ya tienes Founder de por vida!' 
-                        : `Faltan ${3 - (referralStats?.qualifiedReferrals || 0)} amigos para desbloquear Founder gratis`
+                      {referralStats?.qualifiedReferrals >= 1 
+                        ? '🎉 ¡Ya tienes playlists ilimitadas para siempre!' 
+                        : `Falta ${1 - (referralStats?.qualifiedReferrals || 0)} amigo para desbloquear playlists ilimitadas gratis`
                       }
                     </p>
                   </div>
@@ -367,7 +387,7 @@ export default function PricingPage() {
                         fontFamily: 'Inter, sans-serif'
                       }}
                     >
-                      Tu enlace de invitación:
+                      Envía este enlace a tus amigos:
                     </label>
                     {/* En móvil, apilar elementos para evitar overflow horizontal */}
                     <div className="flex flex-col sm:flex-row gap-2 sm:items-stretch">
@@ -408,7 +428,7 @@ export default function PricingPage() {
                         fontFamily: 'Inter, sans-serif'
                       }}
                     >
-                      ✅ GRATIS - Solo necesitas 3 referidos cualificados
+                      ✅ GRATIS - Solo necesitas <span className="diagonal-strike">3</span> <strong style={{ color: '#36E2B4', fontSize: '1.1em' }}>1</strong> referido cualificado
                     </span>
                   </div>
                 </div>

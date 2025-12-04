@@ -314,11 +314,22 @@ export default function PaywallModal({ isOpen, onClose, usage, onBuyFounder }) {
                     className="text-xl font-semibold leading-snug"
                     style={{ fontFamily: 'Space Grotesk, sans-serif', color: '#201205' }}
                   >
-                    Consigue Founder Pass invitando a 3 amigos
+                    Consigue Founder Pass invitando a <span className="diagonal-strike">3</span> <strong style={{ color: '#36E2B4', fontSize: '1.2em' }}>1</strong> amigo
                   </h3>
+                  <div className="mb-2">
+                    <span 
+                      className="text-xs font-bold px-2 py-1 rounded"
+                      style={{ 
+                        backgroundColor: 'rgba(54, 226, 180, 0.2)',
+                        color: '#36E2B4'
+                      }}
+                    >
+                      🎉 OFERTA ESPECIAL
+                    </span>
+                  </div>
                   <p className="text-sm leading-relaxed text-[#3F2A0B]">
                     Por ser de los primeros 1000 en crear tu cuenta PLEIA puedes desbloquear generación ilimitada
-                    invitando a 3 amigos que se creen su cuenta PLEIA usando tu enlace. O, si prefieres, comprar el Founder Pass por 5€.
+                    invitando a <span className="diagonal-strike">3</span> <strong style={{ color: '#36E2B4' }}>1</strong> amigo que se cree su cuenta PLEIA usando tu enlace. O, si prefieres, comprar el Founder Pass por 5€.
                   </p>
                   <button
                     onClick={handleAdvantageClick}
