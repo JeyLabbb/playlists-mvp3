@@ -134,7 +134,7 @@ export default function SpecialOfferPopup() {
                   fontFamily: 'Space Grotesk, sans-serif'
                 }}
               >
-                OFERTA ESPECIAL LIMITADA
+                NUEVA ACTUALIZACIÓN · PLEIA PULSE
               </span>
             </div>
             <h2
@@ -145,7 +145,7 @@ export default function SpecialOfferPopup() {
                 fontWeight: 700
               }}
             >
-              ¡Oferta Gratuita Especial!
+              Un agente más inteligente, diseñado con tu feedback
             </h2>
           </div>
 
@@ -158,7 +158,7 @@ export default function SpecialOfferPopup() {
                 fontFamily: 'Inter, sans-serif',
               }}
             >
-              Por ser de los <strong>primeros 1000 usuarios</strong> de PLEIA, tienes acceso a una oferta increíble:
+              Acabamos de lanzar <strong>PLEIA Pulse</strong>: un agente más inteligente, pensado para que pruebes prompts nuevos y nos ayudes a mejorarlo con tu feedback.
             </p>
 
             <div
@@ -175,7 +175,7 @@ export default function SpecialOfferPopup() {
                   fontFamily: 'Space Grotesk, sans-serif',
                 }}
               >
-                Consigue <strong>Founder Pass de por vida</strong> con usos ilimitados
+                Para celebrarlo, te regalamos <strong>playlists ilimitadas para siempre</strong>
               </p>
               <p
                 className="text-2xl font-bold"
