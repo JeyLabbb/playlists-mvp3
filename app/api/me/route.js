@@ -72,14 +72,6 @@ export async function GET() {
               .catch(err => console.error('[ME] ❌ Error fixing max_uses:', err));
           }
           
-          console.log('[ME] Got data from Supabase (source of truth):', { 
-            email: pleiaUser.email,
-            plan,
-            isFounder,
-            isEarlyFounderCandidate,
-            max_uses: data.max_uses
-          });
-          
           // 🚨 CRITICAL: Actualizar KV con datos de Supabase (KV es solo caché)
           // SIEMPRE sobrescribir KV con datos de Supabase para evitar inconsistencias
           try {
@@ -89,11 +81,7 @@ export async function GET() {
             
             // 🚨 CRITICAL: Detectar si hay inconsistencia entre KV y Supabase
             if (existingProfile.plan && existingProfile.plan !== plan) {
-              console.log('[ME] ⚠️ Found inconsistency between KV and Supabase:', {
-                kvPlan: existingProfile.plan,
-                supabasePlan: plan,
-                correcting: true
-              });
+              console.warn('[ME] ⚠️ Found inconsistency between KV and Supabase, correcting...');
             }
             
             const updatedProfile = {
@@ -105,7 +93,6 @@ export async function GET() {
               updatedAt: new Date().toISOString()
             };
             await kv.kv.set(profileKey, updatedProfile);
-            console.log('[ME] ✅ KV updated with Supabase data (source of truth)');
           } catch (kvError) {
             console.warn('[ME] Failed to update KV:', kvError);
           }
@@ -127,7 +114,6 @@ export async function GET() {
         plan = profile.plan || 'free';
         isFounder = plan === 'founder';
         isEarlyFounderCandidate = !!profile.isEarlyFounderCandidate;
-        console.log('[ME] Using KV fallback data');
       }
     }
     
@@ -139,7 +125,6 @@ export async function GET() {
       isEarlyFounderCandidate: isEarlyFounderCandidate === true
     };
     
-    console.log('[ME] Response data:', responseData);
     
     const response = NextResponse.json(responseData);
 

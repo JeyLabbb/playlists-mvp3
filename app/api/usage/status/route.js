@@ -110,38 +110,9 @@ export async function GET(request) {
       usageUserResult?.terms_accepted_at ?? userRecord?.terms_accepted_at ?? null;
     const username = usageUserResult?.username ?? userRecord?.username ?? null;
     
-    // 🚨 CRITICAL: Log detallado para debugging
-    console.log('[USAGE-STATUS] ===== CHECKING ACCOUNT COMPLETENESS =====');
-    console.log('[USAGE-STATUS] User ID:', pleiaUser?.id);
-    console.log('[USAGE-STATUS] Email:', email);
-    console.log('[USAGE-STATUS] Account data:', {
-      fromUsageUser: {
-        hasTerms: !!usageUserResult?.terms_accepted_at,
-        hasUsername: !!usageUserResult?.username,
-        username: usageUserResult?.username,
-        terms_accepted_at: usageUserResult?.terms_accepted_at,
-      },
-      fromUserRecord: {
-        hasTerms: !!userRecord?.terms_accepted_at,
-        hasUsername: !!userRecord?.username,
-        username: userRecord?.username,
-        terms_accepted_at: userRecord?.terms_accepted_at,
-      },
-      resolved: {
-        termsAcceptedAt,
-        username,
-        hasCompleteAccount: !!(termsAcceptedAt && username),
-      },
-    });
-    
     // 🚨 CRITICAL: needsAccount = true si no tiene cuenta PLEIA completa
     // Cuenta completa = terms_accepted_at Y username (no null)
     const hasCompleteAccount = termsAcceptedAt && username;
-    
-    console.log('[USAGE-STATUS] Final decision:', {
-      hasCompleteAccount,
-      needsAccount: !hasCompleteAccount,
-    });
     const marketingOptIn =
       typeof userRecord?.marketing_opt_in === 'boolean'
         ? userRecord.marketing_opt_in

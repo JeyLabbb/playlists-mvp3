@@ -731,11 +731,112 @@ export default function AdminDebugDB() {
         });
       };
       
+      // Actualizar filteredData con los nuevos datos (ordenados descendente)
+      const sortedPrompts = sortByDateDesc(result.recentPrompts || [], 'created_at');
+      const sortedUsage = sortByDateDesc(result.recentUsageEvents || [], 'occurred_at');
+      const sortedPlaylists = sortByDateDesc(result.recentPlaylists || [], 'created_at');
+      const sortedPayments = sortByDateDesc(result.recentPayments || [], 'created_at');
+      
+      // Verificar si hay filtros activos para cada tab
+      const hasPromptFilters = dateFilters.prompts.exactDate !== '' || 
+                               (dateFilters.prompts.type === 'range' && dateFilters.prompts.startDate !== '' && dateFilters.prompts.endDate !== '');
+      const hasUsageFilters = dateFilters.usage.exactDate !== '' || 
+                             (dateFilters.usage.type === 'range' && dateFilters.usage.startDate !== '' && dateFilters.usage.endDate !== '');
+      const hasPlaylistFilters = dateFilters.playlists.exactDate !== '' || 
+                                (dateFilters.playlists.type === 'range' && dateFilters.playlists.startDate !== '' && dateFilters.playlists.endDate !== '');
+      const hasPaymentFilters = dateFilters.payments.exactDate !== '' || 
+                               (dateFilters.payments.type === 'range' && dateFilters.payments.startDate !== '' && dateFilters.payments.endDate !== '');
+      
+      // Aplicar filtros si están activos, sino usar datos nuevos directamente
       setFilteredData({
-        prompts: sortByDateDesc(result.recentPrompts || [], 'created_at'),
-        usage: sortByDateDesc(result.recentUsageEvents || [], 'occurred_at'),
-        playlists: sortByDateDesc(result.recentPlaylists || [], 'created_at'),
-        payments: sortByDateDesc(result.recentPayments || [], 'created_at')
+        prompts: hasPromptFilters ? 
+          (() => {
+            let items = sortedPrompts;
+            const filter = dateFilters.prompts;
+            if (filter.type === 'exact' && filter.exactDate) {
+              items = items.filter(item => {
+                const itemDate = new Date(item.created_at);
+                const filterDate = new Date(filter.exactDate);
+                return itemDate.toISOString().split('T')[0] === filterDate.toISOString().split('T')[0];
+              });
+            } else if (filter.type === 'range' && filter.startDate && filter.endDate) {
+              items = items.filter(item => {
+                const itemDate = new Date(item.created_at);
+                const startDate = new Date(filter.startDate);
+                const endDate = new Date(filter.endDate);
+                startDate.setHours(0, 0, 0, 0);
+                endDate.setHours(23, 59, 59, 999);
+                return itemDate >= startDate && itemDate <= endDate;
+              });
+            }
+            return items;
+          })() : sortedPrompts,
+        usage: hasUsageFilters ? 
+          (() => {
+            let items = sortedUsage;
+            const filter = dateFilters.usage;
+            if (filter.type === 'exact' && filter.exactDate) {
+              items = items.filter(item => {
+                const itemDate = new Date(item.occurred_at);
+                const filterDate = new Date(filter.exactDate);
+                return itemDate.toISOString().split('T')[0] === filterDate.toISOString().split('T')[0];
+              });
+            } else if (filter.type === 'range' && filter.startDate && filter.endDate) {
+              items = items.filter(item => {
+                const itemDate = new Date(item.occurred_at);
+                const startDate = new Date(filter.startDate);
+                const endDate = new Date(filter.endDate);
+                startDate.setHours(0, 0, 0, 0);
+                endDate.setHours(23, 59, 59, 999);
+                return itemDate >= startDate && itemDate <= endDate;
+              });
+            }
+            return items;
+          })() : sortedUsage,
+        playlists: hasPlaylistFilters ? 
+          (() => {
+            let items = sortedPlaylists;
+            const filter = dateFilters.playlists;
+            if (filter.type === 'exact' && filter.exactDate) {
+              items = items.filter(item => {
+                const itemDate = new Date(item.created_at);
+                const filterDate = new Date(filter.exactDate);
+                return itemDate.toISOString().split('T')[0] === filterDate.toISOString().split('T')[0];
+              });
+            } else if (filter.type === 'range' && filter.startDate && filter.endDate) {
+              items = items.filter(item => {
+                const itemDate = new Date(item.created_at);
+                const startDate = new Date(filter.startDate);
+                const endDate = new Date(filter.endDate);
+                startDate.setHours(0, 0, 0, 0);
+                endDate.setHours(23, 59, 59, 999);
+                return itemDate >= startDate && itemDate <= endDate;
+              });
+            }
+            return items;
+          })() : sortedPlaylists,
+        payments: hasPaymentFilters ? 
+          (() => {
+            let items = sortedPayments;
+            const filter = dateFilters.payments;
+            if (filter.type === 'exact' && filter.exactDate) {
+              items = items.filter(item => {
+                const itemDate = new Date(item.created_at);
+                const filterDate = new Date(filter.exactDate);
+                return itemDate.toISOString().split('T')[0] === filterDate.toISOString().split('T')[0];
+              });
+            } else if (filter.type === 'range' && filter.startDate && filter.endDate) {
+              items = items.filter(item => {
+                const itemDate = new Date(item.created_at);
+                const startDate = new Date(filter.startDate);
+                const endDate = new Date(filter.endDate);
+                startDate.setHours(0, 0, 0, 0);
+                endDate.setHours(23, 59, 59, 999);
+                return itemDate >= startDate && itemDate <= endDate;
+              });
+            }
+            return items;
+          })() : sortedPayments
       });
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -849,10 +950,11 @@ export default function AdminDebugDB() {
 
     fetchData();
 
-    // Actualizar datos cada 30 segundos
+    // Actualizar datos cada 10 segundos para ver los nuevos prompts más rápido
     const interval = setInterval(() => {
+      console.log('[ADMIN] Auto-refreshing data...');
       fetchData();
-    }, 30000);
+    }, 10000);
 
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

@@ -6,6 +6,7 @@
  */
 
 import { ToolCall } from './tools';
+import { MUSICAL_CONTEXTS } from '@/lib/music/contexts';
 
 // Tipos
 export interface Track {
@@ -87,6 +88,24 @@ export async function executeToolCall(
       
       case 'search_playlists':
         tracks = await executeSearchPlaylists(accessToken, toolCall.params as any);
+        // Filtrar artistas banneados después de search_playlists también
+        if (context.bannedArtists && context.bannedArtists.size > 0) {
+          const beforeFilter = tracks.length;
+          tracks = tracks.filter(track => {
+            const trackArtists = track.artists?.map((a: any) => a.name.toLowerCase()) || [];
+            const hasBannedArtist = trackArtists.some(artist => context.bannedArtists!.has(artist));
+            if (hasBannedArtist) {
+              const bannedFound = trackArtists.filter(artist => context.bannedArtists!.has(artist));
+              console.log(`[AGENT-EXECUTOR] ⚠️ FILTERED OUT from search_playlists: "${track.name}" by [${track.artists?.map((a: any) => a.name).join(', ')}]`);
+              console.log(`[AGENT-EXECUTOR] ⚠️ REASON: Contains banned artist(s): [${bannedFound.join(', ')}]`);
+              return false;
+            }
+            return true;
+          });
+          if (beforeFilter !== tracks.length) {
+            console.log(`[AGENT-EXECUTOR] Filtered ${beforeFilter - tracks.length} banned tracks from search_playlists`);
+          }
+        }
         break;
       
       case 'adjust_distribution':
@@ -847,11 +866,11 @@ async function executeGetSimilarStyle(
       if (include_seed_artists || (!isSeedArtist && !isSeedArtistByName)) {
         // Solo añadir si no está ya en tracks (evitar duplicados de colaboraciones)
         if (!tracks.some(t => t.id === track.id) && !usedTrackIdsForCollabs.has(track.id)) {
-          tracks.push(normalizeTrack(track));
+        tracks.push(normalizeTrack(track));
           // Guardar artistas similares encontrados para buscar sus colaboraciones (si aún necesitamos más)
           if (tracks.length < limit) {
-            trackArtistNames.forEach(name => {
-              if (!seed_artists.some(s => name.includes(s.toLowerCase()) || s.toLowerCase().includes(name))) {
+        trackArtistNames.forEach(name => {
+          if (!seed_artists.some(s => name.includes(s.toLowerCase()) || s.toLowerCase().includes(name))) {
                 // No añadir si ya está en L1 o L2
                 const isL1 = Array.from(collaboratorsLevel1).some(l1 => 
                   name.includes(l1.toLowerCase()) || l1.toLowerCase().includes(name)
@@ -860,10 +879,10 @@ async function executeGetSimilarStyle(
                   name.includes(l2.toLowerCase()) || l2.toLowerCase().includes(name)
                 );
                 if (!isL1 && !isL2) {
-                  foundSimilarArtists.add(name);
+            foundSimilarArtists.add(name);
                 }
-              }
-            });
+          }
+        });
           }
         }
       }
@@ -1007,6 +1026,36 @@ async function executeGenerateCreativeTracks(
                    mood?.toLowerCase().includes('español') ||
                    mood?.toLowerCase().includes('espanol');
   
+  // Detectar si es un festival - NO usar generate_creative_tracks para festivales
+  const isFestival = theme?.toLowerCase().includes('festival') || 
+                    theme?.toLowerCase().match(/\b(festival|coachella|glastonbury|primavera|mad cool|bbk|fiberfib|sonar)\b/i);
+  
+  if (isFestival) {
+    console.warn(`[GENERATE_CREATIVE] ⚠️ Festival detected in theme: "${theme}". This should use search_playlists instead! Returning empty to avoid incorrect songs.`);
+    return []; // NO generar canciones inventadas para festivales
+  }
+  
+  // Detectar si se pide underground - usar SOLO la lista oficial de artistas underground españoles
+  const isUnderground = theme?.toLowerCase().includes('underground') || 
+                        mood?.toLowerCase().includes('underground') ||
+                        genre?.toLowerCase().includes('underground');
+  
+  // Obtener lista oficial de artistas underground españoles
+  const undergroundArtists = isUnderground ? (MUSICAL_CONTEXTS.underground_es?.compass || []) : [];
+  const undergroundArtistsLower = new Set(undergroundArtists.map(a => a.toLowerCase()));
+  
+  // Lista de artistas mainstream a excluir cuando se pide underground
+  const mainstreamArtists = new Set([
+    'bad bunny', 'j balvin', 'maluma', 'ozuna', 'karol g', 'daddy yankee',
+    'wisin', 'yandel', 'don omar', 'nicky jam', 'anuel aa', 'myke towers',
+    'rauw alejandro', 'jhayco', 'feid', 'sech', 'manuel turizo', 'camilo',
+    'sebastian yatra', 'morat', 'rosalía', 'c. tangana', 'aitana', 'lola indigo',
+    'natalia lacunza', 'nicki nicole', 'tiago pzk', 'maria becerra', 'duki',
+    'paulo londra', 'trueno', 'lit killah', 'bizarrap', 'quevedo',
+    'kendrick lamar', 'eminem', 'drake', 'imagine dragons', 'nirvana', 'billie eilish',
+    'calvin harris', 'sza', 'rihanna', 'foo fighters'
+  ]);
+  
   // Si el tema incluye "clásicos" o hay una era específica, usar LLM para generar lista real
   const isClassics = theme?.toLowerCase().includes('clásico') || 
                      theme?.toLowerCase().includes('clasico') ||
@@ -1127,35 +1176,252 @@ Return ONLY the JSON object, no other text.`;
       }
     }
 
-    // Buscar tracks de artistas específicos mencionados
-    for (const artist of artists_to_include.slice(0, 5)) {
-      const searchResponse = await fetch(
-        `https://api.spotify.com/v1/search?q=artist:"${encodeURIComponent(artist)}"&type=track&limit=10`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-
-      if (searchResponse.ok) {
-        const data = await searchResponse.json();
-        const artistTracks = (data.tracks?.items || [])
-          .filter((t: any) => {
-            const artistNames = t.artists.map((a: any) => a.name.toLowerCase());
-            // Filtrar artistas excluidos
-            if (artists_to_exclude.some(ex => artistNames.includes(ex.toLowerCase()))) return false;
-            // Filtrar artistas banneados (incluyendo colaboraciones)
-            if (bannedArtists && bannedArtists.size > 0) {
-              const hasBannedArtist = artistNames.some(artist => bannedArtists.has(artist));
-              if (hasBannedArtist) return false;
+    // Buscar tracks de artistas específicos mencionados (PRIORIDAD ALTA)
+    // Detectar si se pide "old", "og", "viejo" para buscar tracks más antiguos
+    const promptLower = (theme || mood || '').toLowerCase();
+    const wantsOld = promptLower.includes('old') || promptLower.includes('og') || 
+                     promptLower.includes('viejo') || promptLower.includes('antiguo') ||
+                     promptLower.includes('antigua');
+    
+    // Calcular cuántos tracks buscar por artista prioritario (más si son pocos artistas)
+    const tracksPerPriorityArtist = Math.min(20, Math.ceil(count / Math.max(1, artists_to_include.length)));
+    
+    for (const artist of artists_to_include) {
+      if (tracks.length >= count) break;
+      
+      try {
+        // Buscar el artista primero
+        const artistSearchResponse = await fetch(
+          `https://api.spotify.com/v1/search?q=artist:"${encodeURIComponent(artist)}"&type=artist&limit=1`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        
+        if (artistSearchResponse.ok) {
+          const artistData = await artistSearchResponse.json();
+          const foundArtist = artistData.artists?.items?.[0];
+          
+          if (foundArtist) {
+            let artistTracks: any[] = [];
+            
+            if (wantsOld) {
+              // Buscar tracks más antiguos: usar albums y ordenar por fecha
+              const albumsResponse = await fetch(
+                `https://api.spotify.com/v1/artists/${foundArtist.id}/albums?include_groups=album,single&market=ES&limit=50`,
+                { headers: { Authorization: `Bearer ${accessToken}` } }
+              );
+              
+              if (albumsResponse.ok) {
+                const albumsData = await albumsResponse.json();
+                const albums = (albumsData.items || [])
+                  .sort((a: any, b: any) => {
+                    // Ordenar por fecha de lanzamiento (más antiguos primero)
+                    const dateA = new Date(a.release_date || '1900-01-01').getTime();
+                    const dateB = new Date(b.release_date || '1900-01-01').getTime();
+                    return dateA - dateB;
+                  })
+                  .slice(0, 10); // Primeros 10 álbumes más antiguos
+                
+                // Obtener tracks de estos álbumes antiguos
+                for (const album of albums) {
+                  if (artistTracks.length >= tracksPerPriorityArtist) break;
+                  
+                  const albumTracksResponse = await fetch(
+                    `https://api.spotify.com/v1/albums/${album.id}/tracks?limit=50`,
+                    { headers: { Authorization: `Bearer ${accessToken}` } }
+                  );
+                  
+                  if (albumTracksResponse.ok) {
+                    const albumTracksData = await albumTracksResponse.json();
+                    const albumTracks = (albumTracksData.items || [])
+                      .filter((t: any) => {
+                        const trackArtists = t.artists?.map((a: any) => a.name.toLowerCase()) || [];
+                        return trackArtists.includes(artist.toLowerCase());
+                      });
+                    artistTracks.push(...albumTracks);
+                  }
+                }
+              }
+            } else {
+              // Búsqueda normal: top tracks + búsqueda adicional
+              const topTracksResponse = await fetch(
+                `https://api.spotify.com/v1/artists/${foundArtist.id}/top-tracks?market=ES`,
+                { headers: { Authorization: `Bearer ${accessToken}` } }
+              );
+              
+              if (topTracksResponse.ok) {
+                const topTracksData = await topTracksResponse.json();
+                artistTracks = topTracksData.tracks || [];
+              }
+              
+              // Si necesitamos más tracks, buscar adicionales
+              if (artistTracks.length < tracksPerPriorityArtist) {
+                const searchResponse = await fetch(
+                  `https://api.spotify.com/v1/search?q=artist:"${encodeURIComponent(artist)}"&type=track&limit=${tracksPerPriorityArtist}&offset=${artistTracks.length}`,
+                  { headers: { Authorization: `Bearer ${accessToken}` } }
+                );
+                
+                if (searchResponse.ok) {
+                  const searchData = await searchResponse.json();
+                  const additionalTracks = (searchData.tracks?.items || [])
+                    .filter((t: any) => {
+                      const trackArtists = t.artists?.map((a: any) => a.name.toLowerCase()) || [];
+                      return trackArtists.includes(artist.toLowerCase());
+                    });
+                  artistTracks.push(...additionalTracks);
+                }
+              }
             }
-            return true;
-          })
-          .slice(0, 5)
-          .map(normalizeTrack);
-        tracks.push(...artistTracks);
+            
+            // Filtrar y normalizar tracks
+            const filteredTracks = artistTracks
+              .filter((t: any) => {
+                const trackArtists = (t.artists || []).map((a: any) => a.name.toLowerCase());
+                // Filtrar artistas excluidos
+                if (artists_to_exclude.some(ex => trackArtists.includes(ex.toLowerCase()))) return false;
+                // Filtrar artistas banneados
+                if (bannedArtists && bannedArtists.size > 0) {
+                  const hasBannedArtist = trackArtists.some(a => bannedArtists.has(a));
+                  if (hasBannedArtist) return false;
+                }
+                // Si se pide underground, el artista principal DEBE estar en la lista
+                if (isUnderground) {
+                  const mainArtist = trackArtists[0];
+                  if (!undergroundArtistsLower.has(mainArtist)) {
+                    console.log(`[GENERATE_CREATIVE] ⚠️ FILTERED OUT: "${t.name}" - main artist "${mainArtist}" not in underground list`);
+                    return false;
+                  }
+                  // Permitir colaboraciones si el artista principal es underground
+                }
+                return t.id && !tracks.some(tr => tr.id === t.id);
+              })
+              .slice(0, tracksPerPriorityArtist)
+              .map(normalizeTrack);
+            
+            tracks.push(...filteredTracks);
+            console.log(`[GENERATE_CREATIVE] ✅ Found ${filteredTracks.length} tracks for priority artist "${artist}"${wantsOld ? ' (old tracks)' : ''}`);
+          }
+        }
+      } catch (artistError) {
+        console.warn(`[GENERATE_CREATIVE] Error getting tracks for ${artist}:`, artistError);
       }
     }
 
+    // Si se pide underground, usar SOLO la lista oficial de artistas underground españoles
+    if (isUnderground && undergroundArtists.length > 0) {
+      console.log(`[GENERATE_CREATIVE] ⚠️ UNDERGROUND detected! Using ONLY official underground_es artists list (${undergroundArtists.length} artists)`);
+      
+      // Usar SOLO artistas de la lista oficial
+      const artistsToUse = undergroundArtists.filter(artist => {
+        const artistLower = artist.toLowerCase();
+        // Excluir artistas banneados
+        if (bannedArtists && bannedArtists.has(artistLower)) return false;
+        // Excluir artistas en artists_to_exclude
+        if (artists_to_exclude.some(ex => ex.toLowerCase() === artistLower)) return false;
+        return true;
+      });
+      
+      console.log(`[GENERATE_CREATIVE] Using ${artistsToUse.length} underground artists from official list`);
+      
+      // Buscar tracks de estos artistas underground (hasta completar el count)
+      for (const artistName of artistsToUse) {
+        if (tracks.length >= count) break;
+        
+        try {
+          const artistSearchResponse = await fetch(
+            `https://api.spotify.com/v1/search?q=artist:"${encodeURIComponent(artistName)}"&type=artist&limit=1`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          
+          if (artistSearchResponse.ok) {
+            const artistData = await artistSearchResponse.json();
+            const foundArtist = artistData.artists?.items?.[0];
+            if (foundArtist) {
+              // Obtener top tracks del artista
+              const artistTracksResponse = await fetch(
+                `https://api.spotify.com/v1/artists/${foundArtist.id}/top-tracks?market=ES`,
+                { headers: { Authorization: `Bearer ${accessToken}` } }
+              );
+              
+              if (artistTracksResponse.ok) {
+                const topTracksData = await artistTracksResponse.json();
+                const artistTracks = (topTracksData.tracks || [])
+                  .filter((t: any) => {
+                    const trackArtistNames = t.artists.map((a: any) => a.name.toLowerCase());
+                    // El artista principal (primer artista) DEBE estar en la lista underground
+                    const mainArtist = trackArtistNames[0];
+                    if (!undergroundArtistsLower.has(mainArtist)) {
+                      return false; // El artista principal no está en la lista
+                    }
+                    // Filtrar colaboraciones con artistas banneados
+                    if (bannedArtists && bannedArtists.size > 0) {
+                      const hasBannedArtist = trackArtistNames.some(artist => bannedArtists.has(artist));
+                      if (hasBannedArtist) return false;
+                    }
+                    if (artists_to_exclude.some(ex => trackArtistNames.includes(ex.toLowerCase()))) return false;
+                    return true; // Aceptar si el artista principal es underground (colaboraciones permitidas)
+                  })
+                  .slice(0, 5) // Hasta 5 tracks por artista
+                  .map(normalizeTrack);
+                
+                for (const track of artistTracks) {
+                  if (tracks.length >= count) break;
+                  if (!tracks.some(t => t.id === track.id)) {
+                    tracks.push(track);
+                  }
+                }
+              }
+              
+              // Si aún necesitamos más tracks, buscar más del mismo artista
+              if (tracks.length < count) {
+                const searchResponse = await fetch(
+                  `https://api.spotify.com/v1/search?q=artist:"${encodeURIComponent(artistName)}"&type=track&limit=20&offset=0`,
+                  { headers: { Authorization: `Bearer ${accessToken}` } }
+                );
+                
+                if (searchResponse.ok) {
+                  const searchData = await searchResponse.json();
+                  const additionalTracks = (searchData.tracks?.items || [])
+                    .filter((t: any) => {
+                      const trackArtistNames = t.artists.map((a: any) => a.name.toLowerCase());
+                      // El artista principal DEBE estar en la lista underground
+                      const mainArtist = trackArtistNames[0];
+                      if (!undergroundArtistsLower.has(mainArtist)) {
+                        return false;
+                      }
+                      // Filtrar colaboraciones con artistas banneados
+                      if (bannedArtists && bannedArtists.size > 0) {
+                        const hasBannedArtist = trackArtistNames.some(artist => bannedArtists.has(artist));
+                        if (hasBannedArtist) return false;
+                      }
+                      if (artists_to_exclude.some(ex => trackArtistNames.includes(ex.toLowerCase()))) return false;
+                      // No duplicar tracks ya añadidos
+                      if (tracks.some(tr => tr.id === t.id)) return false;
+                      return true;
+                    })
+                    .slice(0, 5)
+                    .map(normalizeTrack);
+                  
+                  for (const track of additionalTracks) {
+                    if (tracks.length >= count) break;
+                    tracks.push(track);
+                  }
+                }
+              }
+            }
+          }
+        } catch (artistError) {
+          console.warn(`[GENERATE_CREATIVE] Error getting tracks for ${artistName}:`, artistError);
+        }
+      }
+      
+      // Si es underground, NO continuar con LLM ni otras búsquedas - solo usar la lista oficial
+      console.log(`[GENERATE_CREATIVE] Underground mode: Found ${tracks.length}/${count} tracks from official list only`);
+      return tracks.slice(0, count); // Retornar solo los tracks encontrados de la lista oficial
+    }
+    
     // Si hay género y faltan tracks, usar LLM para generar lista de artistas del género y luego buscar sus tracks
-    if (genre && tracks.length < count) {
+    // PERO: Si es underground, ya usamos la lista oficial arriba, así que saltamos esto
+    if (genre && !isUnderground && tracks.length < count) {
       const genreTerms = genre.split(',').map(g => g.trim());
       console.log(`[GENERATE_CREATIVE] Genre detected: ${genreTerms.join(', ')}, asking LLM for artists of this genre`);
       
@@ -1227,6 +1493,14 @@ Return ONLY the JSON object, no other text.`;
               }
             }
                       if (artists_to_exclude.some(ex => trackArtistNames.includes(ex.toLowerCase()))) return false;
+                      // Si se pide underground, filtrar artistas mainstream
+                      if (isUnderground) {
+                        const hasMainstream = trackArtistNames.some(a => mainstreamArtists.has(a));
+                        if (hasMainstream) {
+                          console.log(`[GENERATE_CREATIVE] ⚠️ FILTERED OUT mainstream artist in underground request: "${t.name}" by [${trackArtistNames.join(', ')}]`);
+                          return false;
+                        }
+                      }
                       return true;
                     })
                     .slice(0, 3)
@@ -1307,17 +1581,26 @@ async function executeSearchPlaylists(
     min_consensus?: number;
   }
 ): Promise<Track[]> {
+  // Detectar festivales por nombres conocidos (no solo la palabra "festival")
+  const queryLower = params.query.toLowerCase();
+  const festivalNames = ['riverland', 'coachella', 'glastonbury', 'primavera', 'mad cool', 'madcool', 'bbk', 'fiberfib', 'sonar', 'groove', 'lollapalooza', 'tomorrowland', 'download'];
+  const isFestival = queryLower.includes('festival') || 
+                    festivalNames.some(name => queryLower.includes(name));
+  
+  const defaultMinConsensus = isFestival ? 2 : 1;
+  
   const { 
     query, 
-    limit_playlists = 5, 
-    tracks_per_playlist = 15,
-    min_consensus = 1 
+    limit_playlists = 10,
+    tracks_per_playlist = 50,
+    min_consensus = params.min_consensus ?? defaultMinConsensus
   } = params;
 
-  console.log(`[SEARCH_PLAYLISTS] Query: "${query}", playlists: ${limit_playlists}`);
+  console.log(`[SEARCH_PLAYLISTS] Query: "${query}" | Playlists: ${limit_playlists} | Tracks/playlist: ${tracks_per_playlist} | Min consensus: ${min_consensus}${isFestival ? ' (FESTIVAL)' : ''}`);
 
   const allTracks: Track[] = [];
-  const trackCounts = new Map<string, { track: Track; count: number }>();
+  const trackCounts = new Map<string, { track: Track; count: number; playlists: Set<string> }>();
+  const playlistNames: string[] = [];
 
   // 1. Buscar playlists
   const searchResponse = await fetch(
@@ -1333,14 +1616,19 @@ async function executeSearchPlaylists(
   const searchData = await searchResponse.json();
   const playlists = searchData.playlists?.items || [];
 
-  console.log(`[SEARCH_PLAYLISTS] Found ${playlists.length} playlists`);
-
   // 2. Extraer tracks de cada playlist (con offset aleatorio para variedad)
-  for (const playlist of playlists) {
+  for (let i = 0; i < playlists.length; i++) {
+    const playlist = playlists[i];
     if (!playlist?.id) continue;
 
-    // Offset aleatorio para no siempre empezar desde el principio
-    const randomOffset = Math.floor(Math.random() * 30);
+    const playlistName = playlist.name || `Playlist ${i + 1}`;
+    if (playlistName) {
+      playlistNames.push(playlistName);
+    }
+
+    // Offset aleatorio para no siempre empezar desde el principio (pero no más allá de lo razonable)
+    // Si la playlist tiene muchas canciones, usar offset aleatorio; si no, empezar desde 0
+    const randomOffset = Math.floor(Math.random() * Math.min(50, 100)); // Offset máximo de 50 para no perder tracks
     const tracksResponse = await fetch(
       `https://api.spotify.com/v1/playlists/${playlist.id}/tracks?limit=${tracks_per_playlist}&offset=${randomOffset}`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -1355,21 +1643,59 @@ async function executeSearchPlaylists(
         if (!track?.id) continue;
 
         const normalized = normalizeTrack(track);
+        const trackArtists = normalized.artists?.map(a => a.name.toLowerCase()).join(', ') || 'unknown';
         
         if (trackCounts.has(track.id)) {
-          trackCounts.get(track.id)!.count++;
+          const existing = trackCounts.get(track.id)!;
+          existing.count++;
+          existing.playlists.add(playlistName);
         } else {
-          trackCounts.set(track.id, { track: normalized, count: 1 });
+          trackCounts.set(track.id, { 
+            track: normalized, 
+            count: 1,
+            playlists: new Set([playlistName])
+          });
         }
       }
+    } else {
+      console.warn(`[SEARCH_PLAYLISTS] Failed to get tracks from "${playlistName}": ${tracksResponse.status}`);
     }
   }
 
   // 3. Filtrar por consenso, ordenar parcialmente y mezclar
-  const filteredTracks = Array.from(trackCounts.values())
-    .filter(({ count }) => count >= min_consensus)
+  const allTrackData = Array.from(trackCounts.values());
+  
+  // Detectar y reportar artistas sospechosos
+  const suspiciousArtists = ['frank ocean'];
+  const suspiciousTracks: Array<{ track: Track; count: number; playlists: string[] }> = [];
+  
+  const filteredTracks = allTrackData
+    .filter(({ count, track }) => {
+      const trackArtists = track.artists?.map(a => a.name.toLowerCase()).join(', ') || '';
+      const isSuspicious = suspiciousArtists.some(sus => trackArtists.includes(sus));
+      
+      if (isSuspicious) {
+        suspiciousTracks.push({
+          track,
+          count,
+          playlists: Array.from(playlists)
+        });
+      }
+      
+      return count >= min_consensus;
+    })
     .sort((a, b) => b.count - a.count)
     .map(({ track }) => track);
+  
+  // Reportar tracks sospechosos si los hay
+  if (suspiciousTracks.length > 0) {
+    console.warn(`[SEARCH_PLAYLISTS] ⚠️ Found ${suspiciousTracks.length} suspicious tracks:`);
+    for (const { track, count, playlists } of suspiciousTracks) {
+      const trackArtists = track.artists?.map(a => a.name).join(', ') || 'unknown';
+      const status = count >= min_consensus ? 'ACCEPTED' : 'REJECTED';
+      console.warn(`[SEARCH_PLAYLISTS] 🔍 SUSPICIOUS ${status}: "${track.name}" by ${trackArtists} (consensus: ${count}/${min_consensus}, playlists: ${playlists.join(', ')})`);
+    }
+  }
 
   // 4. Mezclar para variedad (manteniendo cierta preferencia por consenso)
   // Dividir en grupos y mezclar dentro de cada grupo
@@ -1383,7 +1709,7 @@ async function executeSearchPlaylists(
     ...shuffleArray(lowConsensus)
   ];
 
-  console.log(`[SEARCH_PLAYLISTS] Found ${shuffledTracks.length} tracks with consensus >= ${min_consensus}`);
+  console.log(`[SEARCH_PLAYLISTS] ✅ Found ${allTrackData.length} unique tracks, ${filteredTracks.length} passed consensus (>=${min_consensus}), returning ${shuffledTracks.length}`);
   return shuffledTracks;
 }
 

@@ -51,28 +51,18 @@ export async function GET() {
 
     const userDetailsMap = new Map<
       string,
-      { email: string | null; username: string | null; plan: string | null; last_prompt_at: string | null }
+      { email: string | null; username: string | null; plan: string | null }
     >();
     if (uniqueUserIds.length > 0) {
       // 🚨 CRITICAL: Asegurarse de obtener email y username correctamente
       const { data: userRows, error: usersError } = await supabase
         .from('users')
-        .select('id, email, username, plan, last_prompt_at')
+        .select('id, email, username, plan')
         .in('id', uniqueUserIds);
       
-      console.log('[SOCIAL] Users lookup:', {
-        requestedIds: uniqueUserIds.length,
-        foundRows: userRows?.length || 0,
-        hasError: !!usersError,
-        errorCode: usersError?.code,
-        sampleRow: userRows?.[0] ? {
-          id: userRows[0].id,
-          hasEmail: !!userRows[0].email,
-          email: userRows[0].email?.substring(0, 20) + '...',
-          hasUsername: !!(userRows[0] as any).username,
-          username: (userRows[0] as any).username
-        } : null
-      });
+      if (usersError) {
+        console.error('[SOCIAL] Users lookup error:', usersError.code, usersError.message);
+      }
 
       let effectiveRows = userRows;
       let effectiveError = usersError;
@@ -86,7 +76,6 @@ export async function GET() {
         effectiveRows = (fallback.data || []).map((row: any) => ({
           ...row,
           username: null,
-          last_prompt_at: null,
         }));
         effectiveError = fallback.error;
         
@@ -120,32 +109,11 @@ export async function GET() {
         const email = row.email ? row.email.trim().toLowerCase() : null;
         let username = (row as any).username ? (row as any).username.trim() : null;
         
-        // 🚨 CRITICAL: Log para debugging
-        console.log('[SOCIAL] Adding user to map:', {
-          id: row.id,
-          email: email?.substring(0, 20) + '...',
-          username: username,
-          hasEmail: !!email,
-          hasUsername: !!username
-        });
-        
         userDetailsMap.set(row.id, {
           email: email,
           username: username,
           plan: row.plan ?? null,
-          last_prompt_at: (row as any).last_prompt_at ?? null,
         });
-      });
-      
-      // 🚨 CRITICAL: Log final del map
-      console.log('[SOCIAL] Final userDetailsMap:', {
-        size: userDetailsMap.size,
-        keys: Array.from(userDetailsMap.keys()),
-        sampleEntries: Array.from(userDetailsMap.entries()).slice(0, 3).map(([id, detail]) => ({
-          id,
-          email: detail.email?.substring(0, 20) + '...',
-          username: detail.username
-        }))
       });
       
       // 🚨 CRITICAL: Si algunos usuarios no tienen username, intentar obtenerlo de profiles
@@ -155,7 +123,6 @@ export async function GET() {
       }) || [];
       
       if (usersWithoutUsername.length > 0) {
-        console.log('[SOCIAL] Attempting to fetch usernames from profiles for', usersWithoutUsername.length, 'users');
         
         // Intentar obtener usernames de la tabla profiles
         const emailsToFetch = usersWithoutUsername.map(row => row.email).filter(Boolean) as string[];
@@ -186,7 +153,6 @@ export async function GET() {
                         ...detail,
                         username: profileUsername.trim()
                       });
-                      console.log('[SOCIAL] Found username in profiles for', row.email, ':', profileUsername);
                     }
                   }
                 }
@@ -201,12 +167,10 @@ export async function GET() {
       // 🚨 CRITICAL: Log para debugging si no encontramos usuarios
       if (uniqueUserIds.length > 0 && userDetailsMap.size < uniqueUserIds.length) {
         const missingIds = uniqueUserIds.filter(id => !userDetailsMap.has(id));
-        console.warn('[SOCIAL] Some users not found in users table:', {
-          totalRequested: uniqueUserIds.length,
-          found: userDetailsMap.size,
-          missing: missingIds.length,
-          missingIds: missingIds.slice(0, 5) // Log solo los primeros 5
-        });
+        // Log reducido - solo en caso de error crítico
+        if (missingIds.length === uniqueUserIds.length) {
+          console.warn('[SOCIAL] All users missing from users table');
+        }
         
         // 🚨 CRITICAL: Intentar obtener email de auth.users para usuarios faltantes
         if (missingIds.length > 0 && adminSupabase) {
@@ -221,11 +185,6 @@ export async function GET() {
                     email: authUser.email.toLowerCase(),
                     username: null,
                     plan: null,
-                    last_prompt_at: null
-                  });
-                  console.log('[SOCIAL] Found email from auth.users for missing user:', {
-                    id: missingId,
-                    email: authUser.email
                   });
                 }
               });
@@ -238,14 +197,14 @@ export async function GET() {
     }
 
     const friends = (friendsRes.data ?? []).map((row) => {
-      const detail = userDetailsMap.get(row.friend_id) ?? { email: null, username: null, plan: null, last_prompt_at: null };
+      const detail = userDetailsMap.get(row.friend_id) ?? { email: null, username: null, plan: null };
       return {
         friendId: row.friend_id,
         createdAt: row.created_at,
         email: detail.email,
         username: normalizeUsername(detail.username) || detail.username, // Normalizar username
         plan: detail.plan,
-        lastActivity: detail.last_prompt_at,
+        lastActivity: null, // Usar prompts.created_at en el futuro si es necesario
       };
     });
 
@@ -254,12 +213,7 @@ export async function GET() {
       
       // 🚨 CRITICAL: Si no encontramos el usuario, log para debugging
       if (!detail.email && !detail.username) {
-        console.warn('[SOCIAL] User not found in users table for sender_id:', {
-          senderId: row.sender_id,
-          requestId: row.id,
-          totalUsersInMap: userDetailsMap.size,
-          requestedUserIds: uniqueUserIds.length
-        });
+        // Log reducido - solo errores críticos
       }
       
       return {
@@ -277,10 +231,7 @@ export async function GET() {
       
       // 🚨 CRITICAL: Si no encontramos el usuario, intentar buscarlo directamente
       if (!detail.email && !detail.username) {
-        console.warn('[SOCIAL] User not found in users table for receiver_id, attempting direct lookup:', {
-          receiverId: row.receiver_id,
-          requestId: row.id
-        });
+        // Log reducido - solo errores críticos
         
         // Intentar buscar directamente en users
         try {
@@ -291,12 +242,6 @@ export async function GET() {
             .maybeSingle();
           
           if (directUser && !directError) {
-            console.log('[SOCIAL] Found user via direct lookup:', {
-              id: directUser.id,
-              email: directUser.email?.substring(0, 20) + '...',
-              username: directUser.username
-            });
-            
             // Actualizar el map y usar estos datos
             const email = directUser.email ? directUser.email.trim().toLowerCase() : null;
             const username = (directUser as any).username ? (directUser as any).username.trim() : null;
@@ -305,7 +250,6 @@ export async function GET() {
               email: email,
               username: username,
               plan: null,
-              last_prompt_at: null
             };
             
             userDetailsMap.set(row.receiver_id, detail);
@@ -317,16 +261,11 @@ export async function GET() {
                 if (!authError && authUsers?.users) {
                   const authUser = (authUsers.users as any[]).find((u: any) => u.id === row.receiver_id);
                   if (authUser?.email) {
-                    console.log('[SOCIAL] Found email from auth.users for receiver:', {
-                      id: row.receiver_id,
-                      email: authUser.email
-                    });
                     
                     detail = {
                       email: authUser.email.toLowerCase(),
                       username: null,
                       plan: null,
-                      last_prompt_at: null
                     };
                     
                     userDetailsMap.set(row.receiver_id, detail);
@@ -351,7 +290,6 @@ export async function GET() {
                     email: authUser.email.toLowerCase(),
                     username: null,
                     plan: null,
-                    last_prompt_at: null
                   };
                   
                   userDetailsMap.set(row.receiver_id, detail);

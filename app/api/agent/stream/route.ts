@@ -13,6 +13,9 @@ import { logAgentAnalysis } from '@/lib/agent/analysis';
 import { getPleiaServerUser } from '@/lib/auth/serverUser';
 import { getHubAccessToken } from '@/lib/spotify/hubAuth';
 import { createPlaylist, addTracksToPlaylist } from '@/lib/spotify/playlist';
+import { createClient } from '@supabase/supabase-js';
+import { consumeUsage } from '@/lib/billing/usage';
+import { MUSICAL_CONTEXTS } from '@/lib/music/contexts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -61,7 +64,12 @@ export async function GET(request: NextRequest) {
         }
       };
 
-      const sendThinking = (thought: string) => {
+      const sendThinking = (thought: string | undefined) => {
+        // Validar que thought sea un string válido
+        if (!thought || typeof thought !== 'string') {
+          return; // No enviar nada si thought es undefined o no es string
+        }
+        
         // Limpiar cualquier emoji del mensaje antes de enviarlo (más agresivo)
         const cleanThought = thought
           .replace(/💭\s*/g, '')
@@ -78,6 +86,82 @@ export async function GET(request: NextRequest) {
 
       try {
         console.log('[AGENT-STREAM] Starting for:', prompt);
+
+        // Guardar el prompt en la base de datos (SIN consumir uso todavía)
+        let savedPromptId: string | null = null;
+        const savePrompt = async (): Promise<string | null> => {
+          try {
+            if (pleiaUser?.email && prompt) {
+              // Obtener URL correcta del request
+              const url = new URL(request.url);
+              const protocol = url.protocol;
+              const host = url.host;
+              const baseUrl = `${protocol}//${host}`;
+              
+              // Guardar prompt
+              const response = await fetch(`${baseUrl}/api/telemetry/ingest`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  type: 'prompt',
+                  payload: {
+                    email: pleiaUser.email,
+                    prompt: prompt,
+                    source: 'agent_stream'
+                  }
+                })
+              });
+              
+              if (response.ok) {
+                const result = await response.json();
+                const promptId = result.id || null;
+                console.log(`[AGENT-STREAM] ✅ Prompt saved: ${promptId || 'unknown'}`);
+                return promptId;
+              } else {
+                const errorText = await response.text();
+                console.error('[AGENT-STREAM] Error saving prompt:', errorText);
+                return null;
+              }
+            }
+            return null;
+          } catch (error) {
+            console.error('[AGENT-STREAM] Error in savePrompt:', error);
+            return null;
+          }
+        };
+        
+        // Consumir uso SOLO si se devolvió al menos 1 canción
+        const consumeUsageIfSuccess = async (promptId: string | null, trackCount: number) => {
+          if (trackCount === 0) {
+            console.log(`[AGENT-STREAM] ⚠️ No tracks returned, skipping usage consumption`);
+            return;
+          }
+          
+          if (!promptId || !pleiaUser?.email) {
+            console.warn(`[AGENT-STREAM] ⚠️ Cannot consume usage: missing promptId or email`);
+            return;
+          }
+          
+          try {
+            const consumeResult = await consumeUsage(pleiaUser.email, {
+              prompt_id: promptId,
+              prompt: prompt.substring(0, 100),
+              source: 'agent_stream'
+            });
+            
+            if (consumeResult.ok) {
+              console.log(`[AGENT-STREAM] ✅ Usage consumed: ${consumeResult.used}/${consumeResult.remaining === 'unlimited' ? '∞' : consumeResult.remaining}`);
+            } else {
+              const reason = 'reason' in consumeResult ? consumeResult.reason : 'unknown';
+              console.warn(`[AGENT-STREAM] ⚠️ Usage consumption failed: ${reason}`);
+            }
+          } catch (usageError) {
+            console.error('[AGENT-STREAM] Error consuming usage:', usageError);
+          }
+        };
+        
+        // Guardar prompt al inicio (sin consumir uso todavía)
+        savedPromptId = await savePrompt();
 
         // ═══════════════════════════════════════════════════════════════
         // FASE 1: Generar plan de ejecución
@@ -127,6 +211,11 @@ export async function GET(request: NextRequest) {
         // También extraer exclusiones del prompt original (por si el LLM no las puso en el plan)
         // Buscar patrones como "sin X", "no X", "excluir X", "sin canciones de X"
         const promptLower = prompt.toLowerCase();
+        
+        // Detectar festivales por nombres conocidos (no solo la palabra "festival")
+        const festivalNames = ['riverland', 'coachella', 'glastonbury', 'primavera', 'mad cool', 'madcool', 'bbk', 'fiberfib', 'sonar', 'groove', 'lollapalooza', 'tomorrowland', 'download'];
+        const isFestival = promptLower.includes('festival') || 
+                          festivalNames.some(name => promptLower.includes(name));
 
         // Patrón mejorado: detectar exclusiones como 'sin X', 'no X', 'excluir X' de forma case-insensitive
         const exclusionPatterns = [
@@ -241,11 +330,36 @@ export async function GET(request: NextRequest) {
           
           console.log(`[AGENT-STREAM] ===== TOOL ${i + 1}/${plan.execution_plan.length}: ${step.tool} =====`);
           console.log(`[AGENT-STREAM] Tool params:`, JSON.stringify(step.params, null, 2));
+          
+          // Verificar y corregir min_consensus para search_playlists de festivales
+          if (step.tool === 'search_playlists' && step.params?.query) {
+            const queryLower = (step.params.query as string).toLowerCase();
+            const festivalNames = ['riverland', 'coachella', 'glastonbury', 'primavera', 'mad cool', 'madcool', 'bbk', 'fiberfib', 'sonar', 'groove', 'lollapalooza', 'tomorrowland', 'download'];
+            const isFestivalQuery = queryLower.includes('festival') || 
+                                   festivalNames.some(name => queryLower.includes(name)) ||
+                                   isFestival; // También verificar el prompt original
+            
+            if (isFestivalQuery) {
+              if (!step.params.min_consensus || step.params.min_consensus < 2) {
+                console.warn(`[AGENT-STREAM] ⚠️ Festival detected, forcing min_consensus=2 (was ${step.params.min_consensus || 'not set'})`);
+                step.params.min_consensus = 2;
+              }
+              if (!step.params.limit_playlists || step.params.limit_playlists < 10) {
+                step.params.limit_playlists = 10;
+              }
+              if (!step.params.tracks_per_playlist || step.params.tracks_per_playlist < 50) {
+                step.params.tracks_per_playlist = 50;
+              }
+            }
+          }
+          
           console.log(`[AGENT-STREAM] Banned artists at start: [${Array.from(bannedArtists).join(', ')}]`);
           console.log(`[AGENT-STREAM] Total tracks before: ${allTracks.length}`);
           
           // Emitir pensamiento sobre la herramienta actual
-          sendThinking(step.reason);
+          if (step.reason) {
+            sendThinking(step.reason);
+          }
           
           sendEvent('TOOL_START', {
             tool: step.tool,
@@ -263,10 +377,27 @@ export async function GET(request: NextRequest) {
 
           console.log(`[AGENT-STREAM] Tool returned ${result.tracks.length} raw tracks`);
           if (result.tracks.length > 0) {
-            console.log(`[AGENT-STREAM] First 3 tracks from tool:`, result.tracks.slice(0, 3).map(t => ({
+            console.log(`[AGENT-STREAM] First 5 tracks from tool:`, result.tracks.slice(0, 5).map(t => {
+              const artists = t.artists?.map(a => a.name).join(', ') || 'unknown';
+              const hasFrankOcean = artists.toLowerCase().includes('frank ocean');
+              return {
               name: t.name,
-              artists: t.artists?.map(a => a.name).join(', ') || 'unknown'
-            })));
+                artists: artists,
+                suspicious: hasFrankOcean ? '🔍 FRANK OCEAN DETECTED' : ''
+              };
+            }));
+            
+            // Buscar específicamente Frank Ocean en los tracks
+            const frankOceanTracks = result.tracks.filter(t => {
+              const artists = t.artists?.map(a => a.name.toLowerCase()).join(', ') || '';
+              return artists.includes('frank ocean');
+            });
+            if (frankOceanTracks.length > 0) {
+              console.error(`[AGENT-STREAM] 🚨🚨🚨 FRANK OCEAN FOUND IN ${step.tool} RESULTS! 🚨🚨🚨`);
+              frankOceanTracks.forEach(t => {
+                console.error(`[AGENT-STREAM] 🚨 Track: "${t.name}" by [${t.artists?.map(a => a.name).join(', ')}]`);
+              });
+            }
           }
 
           // Filtrar tracks excluidos ANTES de añadirlos
@@ -339,19 +470,69 @@ export async function GET(request: NextRequest) {
         }
 
         // Si faltan tracks, intentar rellenar con recomendaciones
+        // PERO: Para festivales, NO hacer fill automático - solo usar search_playlists con más playlists
+        // (isFestival ya está declarado arriba, no redeclarar)
+        
         if (allTracks.length < targetTracks && allTracks.length > 0) {
           const missing = targetTracks - allTracks.length;
-          console.log(`[AGENT-STREAM] Missing ${missing} tracks, attempting to fill with recommendations...`);
-          sendThinking(`Encontré ${allTracks.length} canciones, buscando ${missing} más para completar...`);
           
-          // Timeout de 5 segundos: si faltan muy pocas canciones (1-3), usar generación creativa después de 5s
-          const fillStartTime = Date.now();
-          const FILL_TIMEOUT_MS = 5000; // 5 segundos
-          const shouldUseQuickFallback = missing <= 3; // Solo para 1-3 canciones faltantes
-          
-          try {
-            // Helper para shuffle aleatorio (Fisher-Yates)
-            const shuffle = <T>(array: T[]): T[] => {
+          // Para festivales, intentar buscar más playlists en lugar de hacer fill genérico
+          if (isFestival) {
+            console.log(`[AGENT-STREAM] Festival detected - missing ${missing} tracks. Trying additional search_playlists instead of generic fill...`);
+            sendThinking(`Buscando más playlists del festival para completar...`);
+            
+            try {
+              const festivalMatch = prompt.match(/\b(festival\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/i);
+              const festivalName = festivalMatch ? (festivalMatch[2] || festivalMatch[0]) : prompt;
+              
+              // Buscar más playlists con diferentes queries
+              const additionalQueries = [
+                `${festivalName} 2024`,
+                `${festivalName} 2023`,
+                `${festivalName} lineup`,
+                `${festivalName} official`
+              ];
+              
+              for (const query of additionalQueries) {
+                if (allTracks.length >= targetTracks) break;
+                
+                const additionalStep: ToolCall = {
+                  tool: 'search_playlists',
+                  params: {
+                    query: `${query} playlist`,
+                    limit_playlists: 5,
+                    tracks_per_playlist: 50,
+                    min_consensus: 2, // CRÍTICO: Requerir consenso de 2
+                  },
+                  reason: `Buscar más playlists del festival con query alternativa: ${query}`,
+                };
+
+                const additionalResult = await executeToolCall(additionalStep, accessToken, {
+                  allTracksSoFar: allTracks,
+                  usedTrackIds,
+                  bannedArtists
+                });
+
+                const additionalFiltered = filterBannedArtists(additionalResult.tracks);
+                allTracks.push(...additionalFiltered);
+                console.log(`[AGENT-STREAM] Additional search "${query}" added ${additionalFiltered.length} tracks. Total now: ${allTracks.length}`);
+              }
+            } catch (festivalFillError) {
+              console.error('[AGENT-STREAM] Festival fill failed:', festivalFillError);
+            }
+          } else {
+            // Solo hacer fill genérico si NO es un festival
+            console.log(`[AGENT-STREAM] Missing ${missing} tracks, attempting to fill with recommendations...`);
+            sendThinking(`Encontré ${allTracks.length} canciones, buscando ${missing} más para completar...`);
+            
+            // Timeout de 5 segundos: si faltan muy pocas canciones (1-3), usar generación creativa después de 5s
+            const fillStartTime = Date.now();
+            const FILL_TIMEOUT_MS = 5000; // 5 segundos
+            const shouldUseQuickFallback = missing <= 3; // Solo para 1-3 canciones faltantes
+            
+            try {
+              // Helper para shuffle aleatorio (Fisher-Yates)
+              const shuffle = <T>(array: T[]): T[] => {
               const arr = [...array];
               for (let i = arr.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
@@ -360,74 +541,74 @@ export async function GET(request: NextRequest) {
               return arr;
             };
             
-            // USAR LA ESTRATEGIA DE RELLENO DEL PLAN
-            const fillStrategy = plan.fill_strategy || 'recommendations';
-            const requestedArtists = plan.requested_artists || [];
-            
-            // Extraer restricciones de colaboración del plan
-            const collaborationRestrictions = new Map<string, string[]>(); // artista -> [artistas con los que puede colaborar]
-            for (const step of plan.execution_plan) {
-              if (step.tool === 'get_collaborations') {
-                const mainArtist = step.params?.main_artist;
-                const mustCollabWith = step.params?.must_collaborate_with || [];
-                if (mainArtist) {
-                  collaborationRestrictions.set(mainArtist.toLowerCase(), mustCollabWith.map((a: string) => a.toLowerCase()));
+              // USAR LA ESTRATEGIA DE RELLENO DEL PLAN
+              const fillStrategy = plan.fill_strategy || 'recommendations';
+              const requestedArtists = plan.requested_artists || [];
+              
+              // Extraer restricciones de colaboración del plan
+              const collaborationRestrictions = new Map<string, string[]>(); // artista -> [artistas con los que puede colaborar]
+              for (const step of plan.execution_plan) {
+                if (step.tool === 'get_collaborations') {
+                  const mainArtist = step.params?.main_artist;
+                  const mustCollabWith = step.params?.must_collaborate_with || [];
+                  if (mainArtist) {
+                    collaborationRestrictions.set(mainArtist.toLowerCase(), mustCollabWith.map((a: string) => a.toLowerCase()));
+                  }
                 }
               }
-            }
-            
-            console.log(`[AGENT-STREAM] Fill strategy: ${fillStrategy}`);
-            console.log(`[AGENT-STREAM] Requested artists from plan: [${requestedArtists.join(', ')}]`);
-            console.log(`[AGENT-STREAM] Recommended artists: [${Array.from(recommendedArtists).join(', ')}]`);
-            console.log(`[AGENT-STREAM] Collaboration restrictions:`, Object.fromEntries(collaborationRestrictions));
-            
-            let artistNames: string[] = [];
-            
-            switch (fillStrategy) {
-              case 'only_requested_artists':
-                // SOLO usar los artistas del prompt - no añadir ninguno más
-                artistNames = shuffle([...new Set(requestedArtists)]);
-                console.log(`[AGENT-STREAM] Only using ${artistNames.length} requested artists`);
-                break;
-                
-              case 'similar_artists':
-                // PRIORIDAD: Artistas recomendados explícitamente, luego los pedidos, luego de tracks
-                const fromTracks = allTracks.flatMap(t => t.artists?.map((a: any) => a.name) || [])
-                  .filter(name => !bannedArtists.has(name.toLowerCase())); // Excluir artistas banneados
-                
-                // Combinar: recomendados primero, luego pedidos, luego de tracks (sin duplicados)
-                const allCandidates = [...recommendedArtists, ...requestedArtists, ...fromTracks];
-                artistNames = shuffle([...new Set(allCandidates)]);
-                console.log(`[AGENT-STREAM] Using ${artistNames.length} artists (recommended + requested + from tracks)`);
-                break;
-                
-              case 'any_from_genre':
-              case 'recommendations':
-              default:
-                // PRIORIDAD: Artistas recomendados primero, luego de tracks (sin artistas banneados)
-                const fromTracksFiltered = allTracks.flatMap(t => t.artists?.map((a: any) => a.name) || [])
-                  .filter(name => !bannedArtists.has(name.toLowerCase()));
-                
-                // Combinar recomendados con tracks encontrados
-                const combined = [...recommendedArtists, ...fromTracksFiltered];
-                artistNames = shuffle([...new Set(combined)]);
-                console.log(`[AGENT-STREAM] Using ${artistNames.length} artists (recommended + from tracks, no banned)`);
-                break;
-            }
-            
-            // Filtrar artistas banneados de la lista final
-            artistNames = artistNames.filter(name => !bannedArtists.has(name.toLowerCase()));
-            
-            if (artistNames.length === 0) {
-              console.log('[AGENT-STREAM] No artists to fill with, skipping fill phase');
-            } else {
-              console.log(`[AGENT-STREAM] Will fill with: [${artistNames.slice(0, 5).join(', ')}${artistNames.length > 5 ? '...' : ''}]`);
-            }
-            
-            // Buscar tracks de cada artista y guardarlos organizados
-            const tracksByArtist: Map<string, any[]> = new Map();
-            
-            for (const artistName of artistNames) {
+              
+              console.log(`[AGENT-STREAM] Fill strategy: ${fillStrategy}`);
+              console.log(`[AGENT-STREAM] Requested artists from plan: [${requestedArtists.join(', ')}]`);
+              console.log(`[AGENT-STREAM] Recommended artists: [${Array.from(recommendedArtists).join(', ')}]`);
+              console.log(`[AGENT-STREAM] Collaboration restrictions:`, Object.fromEntries(collaborationRestrictions));
+              
+              let artistNames: string[] = [];
+              
+              switch (fillStrategy) {
+                case 'only_requested_artists':
+                  // SOLO usar los artistas del prompt - no añadir ninguno más
+                  artistNames = shuffle([...new Set(requestedArtists)]);
+                  console.log(`[AGENT-STREAM] Only using ${artistNames.length} requested artists`);
+                  break;
+                  
+                case 'similar_artists':
+                  // PRIORIDAD: Artistas recomendados explícitamente, luego los pedidos, luego de tracks
+                  const fromTracks = allTracks.flatMap(t => t.artists?.map((a: any) => a.name) || [])
+                    .filter(name => !bannedArtists.has(name.toLowerCase())); // Excluir artistas banneados
+                  
+                  // Combinar: recomendados primero, luego pedidos, luego de tracks (sin duplicados)
+                  const allCandidates = [...recommendedArtists, ...requestedArtists, ...fromTracks];
+                  artistNames = shuffle([...new Set(allCandidates)]);
+                  console.log(`[AGENT-STREAM] Using ${artistNames.length} artists (recommended + requested + from tracks)`);
+                  break;
+                  
+                case 'any_from_genre':
+                case 'recommendations':
+                default:
+                  // PRIORIDAD: Artistas recomendados primero, luego de tracks (sin artistas banneados)
+                  const fromTracksFiltered = allTracks.flatMap(t => t.artists?.map((a: any) => a.name) || [])
+                    .filter(name => !bannedArtists.has(name.toLowerCase()));
+                  
+                  // Combinar recomendados con tracks encontrados
+                  const combined = [...recommendedArtists, ...fromTracksFiltered];
+                  artistNames = shuffle([...new Set(combined)]);
+                  console.log(`[AGENT-STREAM] Using ${artistNames.length} artists (recommended + from tracks, no banned)`);
+                  break;
+              }
+              
+              // Filtrar artistas banneados de la lista final
+              artistNames = artistNames.filter(name => !bannedArtists.has(name.toLowerCase()));
+              
+              if (artistNames.length === 0) {
+                console.log('[AGENT-STREAM] No artists to fill with, skipping fill phase');
+              } else {
+                console.log(`[AGENT-STREAM] Will fill with: [${artistNames.slice(0, 5).join(', ')}${artistNames.length > 5 ? '...' : ''}]`);
+              }
+              
+              // Buscar tracks de cada artista y guardarlos organizados
+              const tracksByArtist: Map<string, any[]> = new Map();
+              
+              for (const artistName of artistNames) {
               // Buscar MUCHOS tracks de este artista (con múltiples búsquedas si es necesario)
               let artistTracks: any[] = [];
               const neededPerArtist = Math.ceil(missing / artistNames.length) + 5; // Extra por si hay duplicados
@@ -571,13 +752,10 @@ export async function GET(request: NextRequest) {
               
               if (artistTracks.length > 0) {
                 tracksByArtist.set(artistName, artistTracks);
-                console.log(`[AGENT-STREAM] Found ${artistTracks.length} tracks for "${artistName}"`);
-              } else {
-                console.log(`[AGENT-STREAM] No tracks found for "${artistName}"`);
               }
             }
             
-            console.log(`[AGENT-STREAM] Collected tracks from ${tracksByArtist.size} artists`);
+            console.log(`[AGENT-STREAM] Collected tracks from ${tracksByArtist.size} artists (total: ${Array.from(tracksByArtist.values()).reduce((sum, tracks) => sum + tracks.length, 0)} tracks)`);
             
             // Convertir el Map a array y mezclarlo para variar el orden de artistas
             const artistEntries = shuffle([...tracksByArtist.entries()]);
@@ -586,14 +764,14 @@ export async function GET(request: NextRequest) {
             if (artistEntries.length === 0) {
               console.log('[AGENT-STREAM] ⚠️ No artists available for fill, skipping balanced fill');
             } else {
-              // CRÍTICO: Añadir tracks de forma equilibrada: 1 de cada artista, luego 2º de cada, etc.
-              // Continuar hasta llegar al target o quedarnos sin tracks
-              let round = 0;
-              const maxRounds = Math.max(20, Math.ceil(targetTracks / Math.max(1, artistEntries.length))); // Aumentar rounds según necesidad, evitar división por 0
-              
-              console.log(`[AGENT-STREAM] Starting balanced fill: ${allTracks.length}/${targetTracks} tracks, ${artistEntries.length} artists, max ${maxRounds} rounds`);
-              
-              while (allTracks.length < targetTracks && round < maxRounds) {
+                // CRÍTICO: Añadir tracks de forma equilibrada: 1 de cada artista, luego 2º de cada, etc.
+                // Continuar hasta llegar al target o quedarnos sin tracks
+                let round = 0;
+                const maxRounds = Math.max(20, Math.ceil(targetTracks / Math.max(1, artistEntries.length))); // Aumentar rounds según necesidad, evitar división por 0
+                
+                console.log(`[AGENT-STREAM] Starting balanced fill: ${allTracks.length}/${targetTracks} tracks, ${artistEntries.length} artists, max ${maxRounds} rounds`);
+                
+                while (allTracks.length < targetTracks && round < maxRounds) {
               // Verificar timeout: si faltan pocas canciones y pasaron más de 5s, salir del bucle
               const fillElapsed = Date.now() - fillStartTime;
               if (shouldUseQuickFallback && fillElapsed > FILL_TIMEOUT_MS) {
@@ -735,52 +913,53 @@ export async function GET(request: NextRequest) {
                 // Si no encontramos más tracks después de buscar, salir
                 if (!foundMore) {
                   console.log(`[AGENT-STREAM] No more tracks available at round ${round}, stopping fill`);
-                  break;
+                break;
                 }
               }
               
-              round++;
-            }
-            
-            console.log(`[AGENT-STREAM] ✅ After balanced fill: ${allTracks.length}/${targetTracks} tracks (${round} rounds, ${allTracks.length < targetTracks ? 'INCOMPLETE' : 'COMPLETE'})`);
-            
-            // Si aún faltan tracks y pasaron más de 5 segundos, usar generación creativa rápida
-            const fillElapsed = Date.now() - fillStartTime;
-            if (allTracks.length < targetTracks && shouldUseQuickFallback && fillElapsed > FILL_TIMEOUT_MS) {
-              const stillMissing = targetTracks - allTracks.length;
-              console.log(`[AGENT-STREAM] ⏱️ Fill timeout reached (${fillElapsed}ms). Still missing ${stillMissing} tracks. Using quick creative fallback...`);
-              sendThinking(`Generando ${stillMissing} canción${stillMissing > 1 ? 'es' : ''} final${stillMissing > 1 ? 'es' : ''}...`);
-              
-              try {
-                const quickFallbackStep: ToolCall = {
-                  tool: 'generate_creative_tracks',
-                  params: {
-                    theme: prompt,
-                    count: stillMissing * 5, // Pedir más para compensar filtrados
-                    artists_to_exclude: Array.from(bannedArtists),
-                  },
-                  reason: 'Fallback rápido después de timeout de 5s para completar las últimas canciones.',
-                };
+                  round++;
+                }
+                
+                console.log(`[AGENT-STREAM] ✅ After balanced fill: ${allTracks.length}/${targetTracks} tracks (${round} rounds, ${allTracks.length < targetTracks ? 'INCOMPLETE' : 'COMPLETE'})`);
+                
+                // Si aún faltan tracks y pasaron más de 5 segundos, usar generación creativa rápida (solo si NO es festival)
+                const fillElapsed = Date.now() - fillStartTime;
+                if (allTracks.length < targetTracks && shouldUseQuickFallback && fillElapsed > FILL_TIMEOUT_MS && !isFestival) {
+                  const stillMissing = targetTracks - allTracks.length;
+                  console.log(`[AGENT-STREAM] ⏱️ Fill timeout reached (${fillElapsed}ms). Still missing ${stillMissing} tracks. Using quick creative fallback...`);
+                  sendThinking(`Generando ${stillMissing} canción${stillMissing > 1 ? 'es' : ''} final${stillMissing > 1 ? 'es' : ''}...`);
+                  
+                  try {
+                    const quickFallbackStep: ToolCall = {
+                      tool: 'generate_creative_tracks',
+                      params: {
+                        theme: prompt,
+                        count: stillMissing * 5, // Pedir más para compensar filtrados
+                        artists_to_exclude: Array.from(bannedArtists),
+                      },
+                      reason: 'Fallback rápido después de timeout de 5s para completar las últimas canciones.',
+                    };
 
-                const quickFallbackResult = await executeToolCall(quickFallbackStep, accessToken, {
-                  allTracksSoFar: allTracks,
-                  usedTrackIds,
-                  bannedArtists
-                });
+                    const quickFallbackResult = await executeToolCall(quickFallbackStep, accessToken, {
+                      allTracksSoFar: allTracks,
+                      usedTrackIds,
+                      bannedArtists
+                    });
 
-                const quickFiltered = filterBannedArtists(quickFallbackResult.tracks);
-                allTracks.push(...quickFiltered.slice(0, stillMissing));
-                console.log(`[AGENT-STREAM] Quick fallback added ${Math.min(quickFiltered.length, stillMissing)} tracks. Total now: ${allTracks.length}`);
-              } catch (quickError) {
-                console.error('[AGENT-STREAM] Quick fallback failed:', quickError);
-              }
+                    const quickFiltered = filterBannedArtists(quickFallbackResult.tracks);
+                    allTracks.push(...quickFiltered.slice(0, stillMissing));
+                    console.log(`[AGENT-STREAM] Quick fallback added ${Math.min(quickFiltered.length, stillMissing)} tracks. Total now: ${allTracks.length}`);
+                  } catch (quickError) {
+                    console.error('[AGENT-STREAM] Quick fallback failed:', quickError);
+                  }
+                }
+              } // Cierre del else dentro del try (si hay artistas)
+            } catch (fillError) {
+              console.error('[AGENT-STREAM] Error filling tracks:', fillError);
+              console.error('[AGENT-STREAM] Fill error details:', fillError instanceof Error ? fillError.stack : fillError);
+              // Continuar sin rellenar
             }
-          }
-          } catch (fillError) {
-            console.error('[AGENT-STREAM] Error filling tracks:', fillError);
-            console.error('[AGENT-STREAM] Fill error details:', fillError instanceof Error ? fillError.stack : fillError);
-            // Continuar sin rellenar
-          }
+          } // Cierre del else para fill genérico (no festival)
         }
         
         // ═══════════════════════════════════════════════════════════════
@@ -790,44 +969,83 @@ export async function GET(request: NextRequest) {
         const minTracksForCreativeFallback = Math.floor(targetTracks / 3);
         if (allTracks.length < minTracksForCreativeFallback) {
           console.warn(`[AGENT-STREAM] Only ${allTracks.length} tracks after plan + fill (threshold: ${minTracksForCreativeFallback}). Trying ultimate creative fallback...`);
-          sendThinking('Usando generación creativa como último recurso...');
-          try {
-            // Detectar género del prompt si es posible
-            const promptLower = prompt.toLowerCase();
-            let detectedGenre = '';
-            if (promptLower.includes('reggaeton') || promptLower.includes('latin') || promptLower.includes('urbano')) {
-              detectedGenre = 'reggaeton, latin, urbano';
-            } else if (promptLower.includes('rock')) {
-              detectedGenre = 'rock, alternative';
-            } else if (promptLower.includes('pop')) {
-              detectedGenre = 'pop';
-            } else if (promptLower.includes('hip hop') || promptLower.includes('rap')) {
-              detectedGenre = 'hip hop, rap';
+          
+          // Detectar si es un festival - NO usar generate_creative_tracks para festivales
+          // (isFestival ya está declarado arriba, usar esa variable)
+          
+          if (isFestival) {
+            console.warn(`[AGENT-STREAM] ⚠️ Festival detected! Trying search_playlists instead of generate_creative_tracks`);
+            sendThinking('Buscando playlists del festival...');
+            try {
+              // Extraer nombre del festival del prompt
+              const festivalMatch = prompt.match(/\b(festival\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/i);
+              const festivalName = festivalMatch ? (festivalMatch[2] || festivalMatch[0]) : prompt;
+              
+              const festivalStep: ToolCall = {
+                tool: 'search_playlists',
+                params: {
+                  query: `${festivalName} festival playlist`,
+                  limit_playlists: 10, // Buscar 10 playlists diferentes
+                  tracks_per_playlist: 50, // 50 tracks de cada playlist (mínimo para tener suficiente material)
+                  min_consensus: 2, // CRÍTICO: Requerir que aparezca en al menos 2 playlists
+                },
+                reason: 'Buscar playlists reales del festival en lugar de generar canciones inventadas. Solo tracks que aparezcan en al menos 2 playlists.',
+              };
+
+              const festivalResult = await executeToolCall(festivalStep, accessToken, {
+                allTracksSoFar: allTracks,
+                usedTrackIds,
+                bannedArtists
+              });
+
+              const festivalFiltered = filterBannedArtists(festivalResult.tracks);
+              allTracks.push(...festivalFiltered);
+              console.log('[AGENT-STREAM] Festival playlists added', festivalFiltered.length, 'tracks. Total now:', allTracks.length);
+            } catch (festivalError) {
+              console.error('[AGENT-STREAM] Festival playlist search failed:', festivalError);
+              // Si falla, no usar generate_creative_tracks para festivales
+              console.warn('[AGENT-STREAM] Skipping generate_creative_tracks for festival to avoid incorrect songs');
             }
+          } else {
+            // Solo usar generate_creative_tracks si NO es un festival
+            sendThinking('Usando generación creativa como último recurso...');
+            try {
+              // Detectar género del prompt si es posible
+              let detectedGenre = '';
+              if (promptLower.includes('reggaeton') || promptLower.includes('latin') || promptLower.includes('urbano')) {
+                detectedGenre = 'reggaeton, latin, urbano';
+              } else if (promptLower.includes('rock')) {
+                detectedGenre = 'rock, alternative';
+              } else if (promptLower.includes('pop')) {
+                detectedGenre = 'pop';
+              } else if (promptLower.includes('hip hop') || promptLower.includes('rap')) {
+                detectedGenre = 'hip hop, rap';
+              }
 
-            const fallbackStep: ToolCall = {
-              tool: 'generate_creative_tracks',
-              params: {
-                theme: prompt,
-                genre: detectedGenre || undefined,
-                count: targetTracks * 3, // Pedir MÁS para compensar filtrados
-                artists_to_exclude: Array.from(bannedArtists),
-              },
-              reason: 'Fallback creativo final cuando las demás herramientas no han devuelto suficientes canciones.',
-            };
+              const fallbackStep: ToolCall = {
+                tool: 'generate_creative_tracks',
+                params: {
+                  theme: prompt,
+                  genre: detectedGenre || undefined,
+                  count: targetTracks * 3, // Pedir MÁS para compensar filtrados
+                  artists_to_exclude: Array.from(bannedArtists),
+                },
+                reason: 'Fallback creativo final cuando las demás herramientas no han devuelto suficientes canciones.',
+              };
 
-            const fallbackResult = await executeToolCall(fallbackStep, accessToken, {
-              allTracksSoFar: allTracks,
-              usedTrackIds,
-              bannedArtists
-            });
+              const fallbackResult = await executeToolCall(fallbackStep, accessToken, {
+                allTracksSoFar: allTracks,
+                usedTrackIds,
+                bannedArtists
+              });
 
-            const fallbackFiltered = filterBannedArtists(fallbackResult.tracks);
-            allTracks.push(...fallbackFiltered);
+              const fallbackFiltered = filterBannedArtists(fallbackResult.tracks);
+              allTracks.push(...fallbackFiltered);
 
-            console.log('[AGENT-STREAM] Creative fallback added', fallbackFiltered.length, 'tracks. Total now:', allTracks.length);
-          } catch (fallbackError) {
-            console.error('[AGENT-STREAM] Ultimate creative fallback failed:', fallbackError);
+              console.log('[AGENT-STREAM] Creative fallback added', fallbackFiltered.length, 'tracks. Total now:', allTracks.length);
+            } catch (fallbackError) {
+              console.error('[AGENT-STREAM] Ultimate creative fallback failed:', fallbackError);
+            }
           }
         }
         
@@ -843,6 +1061,21 @@ export async function GET(request: NextRequest) {
           sendThinking('Ajustando la distribución final para variedad...');
           
           try {
+            // Extraer artistas prioritarios de artists_to_include en el plan
+            const priorityArtistsFromPlan: string[] = [];
+            for (const step of plan.execution_plan) {
+              if (step.tool === 'generate_creative_tracks' && step.params?.artists_to_include) {
+                const included = Array.isArray(step.params.artists_to_include)
+                  ? step.params.artists_to_include
+                  : [step.params.artists_to_include];
+                included.forEach((artist: string) => {
+                  if (!priorityArtistsFromPlan.includes(artist)) {
+                    priorityArtistsFromPlan.push(artist);
+                  }
+                });
+              }
+            }
+            
             const distResult = await executeToolCall(
               {
                 tool: 'adjust_distribution',
@@ -851,6 +1084,8 @@ export async function GET(request: NextRequest) {
                   shuffle: true,
                   avoid_consecutive_same_artist: true,
                   max_per_artist: Math.ceil(targetTracks / 10), // Máximo ~10% del total por artista
+                  priority_artists: priorityArtistsFromPlan.length > 0 ? priorityArtistsFromPlan : undefined,
+                  priority_cap: priorityArtistsFromPlan.length > 0 ? Math.ceil(targetTracks / Math.max(2, priorityArtistsFromPlan.length)) : undefined,
                 },
                 reason: 'Ajustar variedad y distribución final por artista',
               },
@@ -959,6 +1194,13 @@ export async function GET(request: NextRequest) {
 
         console.log('[AGENT-STREAM] ✅ Sending DONE event with', finalTracks.length, 'tracks');
         console.log('[AGENT-STREAM] Playlist created:', playlist ? playlist.id : 'none');
+        
+        // ⚠️ IMPORTANTE: Consumir uso SOLO si hay al menos 1 track
+        if (finalTracks.length > 0) {
+          await consumeUsageIfSuccess(savedPromptId, finalTracks.length);
+        } else {
+          console.log('[AGENT-STREAM] ⚠️ No tracks to return, usage will NOT be consumed');
+        }
 
         // Lanzar análisis del agente en background (no bloquear el stream)
         (async () => {
@@ -976,6 +1218,13 @@ export async function GET(request: NextRequest) {
             console.error('[AGENT-STREAM] Error logging agent analysis:', analysisError);
           }
         })();
+
+        // ⚠️ IMPORTANTE: Consumir uso SOLO si hay al menos 1 track (ANTES de cerrar el controller)
+        if (finalTracks.length > 0) {
+          await consumeUsageIfSuccess(savedPromptId, finalTracks.length);
+        } else {
+          console.log('[AGENT-STREAM] ⚠️ No tracks to return, usage will NOT be consumed');
+        }
 
         sendEvent('DONE', {
           tracks: finalTracks,

@@ -58,22 +58,29 @@ Analiza el prompt y genera un plan de ejecución usando las herramientas disponi
 
 ⚠️ ATENCIÓN ESPECIAL - CASOS CRÍTICOS:
 
-1. **"Como X pero sin X" o "tipo X pero sin X"**:
+1. **FESTIVALES ("festival X", "playlist de X festival", "música de X festival")**:
+   - DEBES usar search_playlists con query="X festival" o "X festival playlist"
+   - CRÍTICO: Usa min_consensus=2 para que solo se incluyan tracks que aparezcan en al menos 2 playlists diferentes
+   - Usa limit_playlists=10 y tracks_per_playlist=50 (mínimo 50 tracks por playlist para tener suficiente material)
+   - NO uses generate_creative_tracks para festivales - busca playlists reales del festival
+   - Los festivales tienen lineups específicos, NO inventes artistas
+
+2. **"Como X pero sin X" o "tipo X pero sin X"**:
    - DEBES usar get_similar_style con seed_artists=['X'] y include_seed_artists=false
    - NO uses generate_creative_tracks como primera opción
    - El sistema filtrará automáticamente a X de todos los tracks, pero usa get_similar_style PRIMERO
 
-2. **Exclusiones ("sin X", "no X", "excluir X")**:
+3. **Exclusiones ("sin X", "no X", "excluir X")**:
    - El sistema detectará automáticamente estas exclusiones
    - Si usas generate_creative_tracks, AÑADE X a artists_to_exclude
    - Las exclusiones se aplicarán a TODAS las herramientas automáticamente
 
-3. **Artistas recomendados ("artistas tipo X podrían ser Y, Z")**:
+4. **Artistas recomendados ("artistas tipo X podrían ser Y, Z")**:
    - AÑADE Y, Z a artists_to_include en generate_creative_tracks O
    - Usa get_similar_style con seed_artists que incluya Y, Z
    - Estos artistas tendrán PRIORIDAD en el relleno
 
-4. **Artistas específicos pedidos explícitamente**:
+5. **Artistas específicos pedidos explícitamente**:
    - INCLÚYELOS en el plan con get_artist_tracks o get_similar_style
    - Añádelos a requested_artists en el plan
 
@@ -83,6 +90,7 @@ REGLAS GENERALES:
 - Los caps deben sumar aproximadamente ${Math.ceil(target_tracks * 1.3)} (para compensar duplicados)
 - Genera pensamientos naturales que expliquen tu razonamiento
 - RESPETA TODAS las exclusiones y recomendaciones del usuario
+- Para festivales: USA search_playlists, NO generate_creative_tracks
 - Para "como X pero sin X": USA get_similar_style PRIMERO, NO generate_creative_tracks`;
 
     console.log('[AGENT-PLAN] Calling OpenAI...');

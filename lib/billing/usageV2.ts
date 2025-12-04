@@ -276,9 +276,7 @@ async function ensureUser(
     if (columns?.terms_accepted_at) {
       insertPayload.terms_accepted_at = null;
     }
-    if (columns?.last_prompt_at) {
-      insertPayload.last_prompt_at = null;
-    }
+    // last_prompt_at ya no se usa, se obtiene de prompts.created_at
     if (columns?.username && email) {
       insertPayload.username = generateUsername(email, userId);
     }
@@ -348,7 +346,7 @@ async function ensureUser(
   }
 }
 
-function buildSummary(row: UserRow): UsageSummary {
+async function buildSummary(row: UserRow, supabase: ReturnType<typeof getSupabaseAdmin>): Promise<UsageSummary> {
   const plan = row.plan || 'free';
   const maxUses = resolveDefaultMaxUses(plan, row.max_uses);
   const unlimited = isUnlimitedPlan(plan, maxUses);
@@ -356,6 +354,26 @@ function buildSummary(row: UserRow): UsageSummary {
   const limit = unlimited ? null : maxUses ?? DEFAULT_FREE_LIMIT;
   const used = row.usage_count ?? 0;
   const remaining = unlimited ? 'unlimited' : Math.max(0, (limit ?? DEFAULT_FREE_LIMIT) - used);
+
+  // Obtener lastPromptAt de la tabla prompts (más reciente)
+  let lastPromptAt: string | null = null;
+  if (supabase && row.email) {
+    try {
+      const { data: latestPrompt } = await supabase
+        .from('prompts')
+        .select('created_at')
+        .eq('user_email', row.email)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (latestPrompt?.created_at) {
+        lastPromptAt = latestPrompt.created_at;
+      }
+    } catch (promptError) {
+      // Si falla, usar null (no crítico)
+    }
+  }
 
   return {
     used,
@@ -365,7 +383,7 @@ function buildSummary(row: UserRow): UsageSummary {
     unlimited,
     plan,
     source: 'users',
-    lastPromptAt: row.last_prompt_at,
+    lastPromptAt,
   };
 }
 
@@ -384,6 +402,7 @@ export async function getUsageSummary(identityOrEmail: UsageIdentity | string) {
       ? { email: identityOrEmail }
       : identityOrEmail;
 
+  const supabase = getSupabaseAdmin();
   const row = await ensureUser(identity);
   if (!row) {
     return {
@@ -398,7 +417,7 @@ export async function getUsageSummary(identityOrEmail: UsageIdentity | string) {
     } as UsageSummary;
   }
 
-  return buildSummary(row);
+  return buildSummary(row, supabase);
 }
 
 export async function getOrCreateUsageUser(identityOrEmail: UsageIdentity | string) {
@@ -437,7 +456,7 @@ export async function getUserPlan(identityOrEmail: UsageIdentity | string) {
     isFounder: plan === 'founder' || row.is_founder === true,
     isMonthly: plan === 'monthly',
     unlimited: isUnlimitedPlan(plan, resolveDefaultMaxUses(plan, row.max_uses)),
-    since: row.last_prompt_at,
+    since: null, // Usar prompts.created_at en el futuro si es necesario
     source: 'users',
     // Exponemos el flag para early-founder (primeros 1000)
     isEarlyFounderCandidate: (row as any).is_early_founder_candidate === true,
@@ -484,6 +503,27 @@ export async function consumeUsage(
 
   if (unlimited) {
     const usageEventId = await insertUsageEvent(supabase, row, meta, now);
+    
+    // Obtener lastPromptAt de prompts.created_at (fuente única de verdad)
+    let lastPromptAt: string | null = null;
+    if (identity.email) {
+      try {
+        const { data: latestPrompt } = await supabase
+          .from('prompts')
+          .select('created_at')
+          .eq('user_email', identity.email)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (latestPrompt?.created_at) {
+          lastPromptAt = latestPrompt.created_at;
+        }
+      } catch (promptError) {
+        // Si falla, usar null
+      }
+    }
+    
     return {
       ok: true,
       usageId: usageEventId,
@@ -491,7 +531,7 @@ export async function consumeUsage(
       remaining: 'unlimited',
       used: row.usage_count ?? 0,
       plan,
-      lastPromptAt: row.last_prompt_at,
+      lastPromptAt,
     };
   }
 
@@ -511,17 +551,32 @@ export async function consumeUsage(
   }
 
   const newUsed = used + 1;
-  const newLastPromptAt = now;
 
   const columns = await detectColumns(supabase);
-  const updatePayload: Partial<UserRow> & { updated_at?: string; last_prompt_at?: string | null } = {
+  const updatePayload: Partial<UserRow> & { updated_at?: string } = {
     usage_count: newUsed,
   };
-  if (columns?.last_prompt_at) {
-    updatePayload.last_prompt_at = newLastPromptAt;
-  }
   if (columns?.updated_at) {
     updatePayload.updated_at = now;
+  }
+  
+  // Obtener lastPromptAt de la tabla prompts (más reciente)
+  let newLastPromptAt: string | null = null;
+  try {
+    const { data: latestPrompt } = await supabase
+      .from('prompts')
+      .select('created_at')
+      .eq('user_email', identity.email || '')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    if (latestPrompt?.created_at) {
+      newLastPromptAt = latestPrompt.created_at;
+    }
+  } catch (promptError) {
+    // Si falla, usar now como fallback
+    newLastPromptAt = now;
   }
 
   const { data: updatedRow, error } = await supabase
@@ -550,7 +605,28 @@ export async function consumeUsage(
 
   const usageEventId = await insertUsageEvent(supabase, row, meta, now);
   const remaining = Math.max(0, limit - newUsed);
-
+  
+  // Obtener lastPromptAt de prompts.created_at (fuente única de verdad)
+  // Si acabamos de guardar un prompt, debería estar disponible
+  let finalLastPromptAt: string | null = newLastPromptAt;
+  if (identity.email) {
+    try {
+      const { data: latestPrompt } = await supabase
+        .from('prompts')
+        .select('created_at')
+        .eq('user_email', identity.email)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (latestPrompt?.created_at) {
+        finalLastPromptAt = latestPrompt.created_at;
+      }
+    } catch (promptError) {
+      // Si falla, usar newLastPromptAt como fallback
+    }
+  }
+  
   return {
     ok: true,
     usageId: usageEventId,
@@ -558,7 +634,7 @@ export async function consumeUsage(
     remaining,
     used: newUsed,
     plan,
-    lastPromptAt: newLastPromptAt,
+    lastPromptAt: finalLastPromptAt,
   };
 }
 
@@ -664,7 +740,7 @@ export async function setUserPlan(
             ? options.newsletterOptIn
             : row.newsletter_opt_in,
         updated_at: now,
-        last_prompt_at: options.since ? new Date(options.since).toISOString() : row.last_prompt_at,
+        // last_prompt_at ya no se usa, se obtiene de prompts.created_at
       } as Partial<UserRow> & {
         updated_at: string;
         last_prompt_at: string | null;

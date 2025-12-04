@@ -601,8 +601,14 @@ export default function Home() {
       const cooldownData = localStorage.getItem('jl_feedback_cooldown');
       if (!cooldownData) return false;
       
-      const { expiresAt } = JSON.parse(cooldownData);
-      return new Date() < new Date(expiresAt);
+      try {
+        const parsed = JSON.parse(cooldownData);
+        if (!parsed || !parsed.expiresAt) return false;
+        return new Date() < new Date(parsed.expiresAt);
+      } catch (parseError) {
+        console.error('[FEEDBACK] Error parsing cooldown data:', parseError);
+        return false;
+      }
     } catch (error) {
       console.error('[FEEDBACK] Error checking cooldown:', error);
       return false;
@@ -757,17 +763,19 @@ export default function Home() {
         // Evento: Agente inicia
         eventSource.addEventListener('AGENT_START', (event) => {
           try {
+            if (!event.data || event.data.trim() === '') return;
             const data = JSON.parse(event.data);
             bumpPhase(data.message || 'Iniciando agente...', 10);
             setStatusText(`🤖 ${data.message || 'Iniciando agente...'}`);
           } catch (e) {
-            console.error('[AGENT] Error parsing AGENT_START:', e);
+            console.error('[AGENT] Error parsing AGENT_START:', e, 'Raw data:', event.data);
           }
         });
 
         // Evento: Pensamiento del agente (se acumulan, máximo 10 para permitir scroll)
         eventSource.addEventListener('AGENT_THINKING', (event) => {
           try {
+            if (!event.data || event.data.trim() === '') return;
             const data = JSON.parse(event.data);
             if (data.thought) {
               setAgentThoughts(prev => {
@@ -788,30 +796,31 @@ export default function Home() {
         // Evento: Plan generado
         eventSource.addEventListener('AGENT_PLAN', (event) => {
           try {
+            if (!event.data || event.data.trim() === '') return;
             const data = JSON.parse(event.data);
             bumpPhase(`Ejecutando ${data.steps} pasos...`, 20);
           } catch (e) {
-            console.error('[AGENT] Error parsing AGENT_PLAN:', e);
+            console.error('[AGENT] Error parsing AGENT_PLAN:', e, 'Raw data:', event.data);
           }
         });
 
         // Evento: Herramienta inicia (solo log, progreso silencioso)
         eventSource.addEventListener('TOOL_START', (event) => {
           try {
+            if (!event.data || event.data.trim() === '') return;
             const data = JSON.parse(event.data);
-            console.log(`[AGENT] Tool ${data.tool} starting (step ${data.stepIndex}/${data.totalSteps})`);
             const progress = 20 + (data.stepIndex / data.totalSteps) * 60;
             bumpPhase('', progress); // Progreso silencioso, sin mensaje
           } catch (e) {
-            console.error('[AGENT] Error parsing TOOL_START:', e);
+            console.error('[AGENT] Error parsing TOOL_START:', e, 'Raw data:', event.data);
           }
         });
 
         // Evento: Herramienta completada (solo progreso, sin mensaje visible)
         eventSource.addEventListener('TOOL_COMPLETE', (event) => {
           try {
+            if (!event.data || event.data.trim() === '') return;
             const data = JSON.parse(event.data);
-            console.log(`[AGENT] Tool ${data.tool} complete: ${data.tracksFound} tracks`);
             // Actualizar progreso silenciosamente
             const progress = Math.min(data.totalSoFar / data.target, 1);
             bumpPhase('', 20 + progress * 60);
@@ -823,6 +832,7 @@ export default function Home() {
         // Evento: Chunk de tracks (consumir uso, pero sin mostrar mensaje)
         eventSource.addEventListener('TRACKS_CHUNK', async (event) => {
           try {
+            if (!event.data || event.data.trim() === '') return;
             const data = JSON.parse(event.data);
             
             // Consumir uso en el primer chunk
@@ -856,8 +866,8 @@ export default function Home() {
         // Evento: Completado
         eventSource.addEventListener('DONE', (event) => {
           try {
+            if (!event.data || event.data.trim() === '') return;
             const data = JSON.parse(event.data);
-            console.log('[AGENT] DONE received:', data);
             
             // Limpiar TODOS los pensamientos y status inmediatamente al completar
             setAgentThoughts([]);
@@ -873,11 +883,16 @@ export default function Home() {
         // Evento: Error
         eventSource.addEventListener('ERROR', (event) => {
           try {
+            if (!event.data || event.data.trim() === '') {
+              setError('Error desconocido');
+              return;
+            }
             const data = JSON.parse(event.data);
             console.error('[AGENT] ERROR event:', data);
             setError(data.error || 'Error generando playlist');
             setAgentThoughts([]); // Limpiar pensamientos en error
           } catch (e) {
+            console.error('[AGENT] Error parsing ERROR event:', e, 'Raw data:', event.data);
             setError('Error desconocido');
             setAgentThoughts([]);
           }
@@ -987,6 +1002,7 @@ export default function Home() {
         // Handle different event types
         eventSource.addEventListener('LLM_START', (event) => {
           try {
+            if (!event.data || event.data.trim() === '') return;
             const data = JSON.parse(event.data);
             bumpPhase(data.message || 'Processing LLM tracks...', 30);
             setStatusText(`🎵 ${data.message || 'Processing LLM tracks...'}`);
@@ -998,6 +1014,7 @@ export default function Home() {
         eventSource.addEventListener('LLM_CHUNK', async (event) => {
           let data;
           try {
+            if (!event.data || event.data.trim() === '') return;
             data = JSON.parse(event.data);
           } catch (parseError) {
             console.error('[SSE] Failed to parse LLM_CHUNK data:', parseError, 'Raw data:', event.data);
@@ -1069,6 +1086,7 @@ export default function Home() {
         
         eventSource.addEventListener('LLM_DONE', (event) => {
           try {
+            if (!event.data || event.data.trim() === '') return;
             const data = JSON.parse(event.data);
             bumpPhase('🎵 LLM phase complete', 60);
             setStatusText(`🎵 LLM phase complete: ${data.totalSoFar}/${data.target} tracks`);
@@ -1079,6 +1097,7 @@ export default function Home() {
         
         eventSource.addEventListener('SPOTIFY_START', (event) => {
           try {
+            if (!event.data || event.data.trim() === '') return;
             const data = JSON.parse(event.data);
             const attempt = data.attempt ? ` (Attempt ${data.attempt})` : '';
             bumpPhase(`🎧 ${data.message || 'Getting Spotify recommendations...'}${attempt}`, 70);
@@ -1091,6 +1110,7 @@ export default function Home() {
         eventSource.addEventListener('SPOTIFY_CHUNK', (event) => {
           let data;
           try {
+            if (!event.data || event.data.trim() === '') return;
             data = JSON.parse(event.data);
           } catch (parseError) {
             console.error('[SSE] Failed to parse SPOTIFY_CHUNK data:', parseError, 'Raw data:', event.data);
@@ -1141,6 +1161,7 @@ export default function Home() {
         
         eventSource.addEventListener('SPOTIFY_DONE', (event) => {
           try {
+            if (!event.data || event.data.trim() === '') return;
             const data = JSON.parse(event.data);
             const attempt = data.attempt ? ` (Attempt ${data.attempt})` : '';
             bumpPhase('🎧 Spotify phase complete', 90);
@@ -1153,6 +1174,7 @@ export default function Home() {
         eventSource.addEventListener('DONE', (event) => {
           let data;
           try {
+            if (!event.data || event.data.trim() === '') return;
             data = JSON.parse(event.data);
           } catch (parseError) {
             console.error('[SSE] Failed to parse DONE data:', parseError, 'Raw data:', event.data);
@@ -1169,6 +1191,12 @@ export default function Home() {
         eventSource.addEventListener('ERROR', async (event) => {
           let data;
           try {
+            if (!event.data || event.data.trim() === '') {
+              setError('Error processing playlist generation');
+              resetProgress();
+              reject(new Error('Empty error response'));
+              return;
+            }
             data = JSON.parse(event.data);
           } catch (parseError) {
             console.error('[SSE] Failed to parse ERROR data:', parseError, 'Raw data:', event.data);
