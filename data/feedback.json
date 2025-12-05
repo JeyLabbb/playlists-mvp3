@@ -1,0 +1,45 @@
+[
+  {
+    "id": "feedback_1759169100550_9rjgt0kqm",
+    "rating": 5,
+    "issue": "entendimiento del prompt; nº de canciones (aprox); variedad de artistas; simplicidad de interfaz",
+    "improve": "demasiado mainstream",
+    "consent": true,
+    "playlistId": "6pLCB0xmFBD3UGYQi1bh1E",
+    "userEmail": "jeylabbb@gmail.com",
+    "userId": "jeylabbb@gmail.com",
+    "intentPrompt": null,
+    "mode": "normal",
+    "createdAt": "2025-09-29T18:05:00.244Z",
+    "ip": "::ffff:127.0.0.1"
+  },
+  {
+    "id": "feedback_1759169125147_eg3nn3yrh",
+    "rating": 4,
+    "issue": "",
+    "improve": "",
+    "consent": true,
+    "playlistId": "6pLCB0xmFBD3UGYQi1bh1E",
+    "userEmail": "jorgejr200419@gmail.com",
+    "userId": "jorgejr200419@gmail.com",
+    "intentPrompt": "riverland 2025",
+    "mode": "normal",
+    "createdAt": "2025-09-29T18:05:25.082Z",
+    "ip": "::ffff:127.0.0.1"
+  },
+  {
+    "id": "feedback_1759174036127_o4y40von0",
+    "rating": 4,
+    "positives": [],
+    "negatives": [],
+    "comments": "",
+    "consent": true,
+    "playlistId": "7ubdUmMVl4TwAW8lwgnNVA",
+    "userEmail": null,
+    "userId": "anonymous",
+    "intentPrompt": null,
+    "mode": null,
+    "createdAt": "2025-09-29T19:27:15.708Z",
+    "ip": "::ffff:127.0.0.1"
+  }
+]

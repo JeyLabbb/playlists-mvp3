@@ -1,0 +1,741 @@
+"use client";
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { usePleiaSession } from '../../lib/auth/usePleiaSession';
+// HUB_MODE eliminado - todas las funcionalidades siempre activas
+import { useUsageStatus } from '../../lib/hooks/useUsageStatus';
+import { useAuthActions } from '../../lib/auth/clientActions';
+import Link from 'next/link';
+import AnimatedList from '../components/AnimatedList';
+
+export default function MyPlaylistsPage() {
+  const router = useRouter();
+  const { data: sessionData, status } = usePleiaSession();
+  const sessionUser = sessionData?.user || null;
+  const { login } = useAuthActions();
+  const userEmail = sessionUser?.email || "";
+  const usageDisabled = status !== 'authenticated';
+  const {
+    data: usageState,
+    current: usageCurrent,
+    remaining: usageRemaining,
+    maxUses: usageMax,
+    unlimited: usageUnlimited,
+    isLoading: usageLoading,
+    refresh: refreshUsage,
+  } = useUsageStatus({
+    disabled: usageDisabled,
+    refreshInterval: usageDisabled ? 0 : 45000,
+  });
+  const refreshUsageRef = useRef(refreshUsage);
+  useEffect(() => {
+    refreshUsageRef.current = refreshUsage;
+  }, [refreshUsage]);
+
+  const [playlists, setPlaylists] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [previewPlaylist, setPreviewPlaylist] = useState(null);
+  const [previewTracks, setPreviewTracks] = useState([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [updatingPrivacy, setUpdatingPrivacy] = useState(new Set());
+  const [menuOpen, setMenuOpen] = useState(null);
+
+  const fetchUserPlaylists = useCallback(async () => {
+    try {
+      setLoading(true);
+      console.log('[MY-PLAYLISTS] Fetching playlists for:', userEmail);
+      const response = await fetch('/api/userplaylists', { credentials: 'include' });
+      const data = await response.json();
+      console.log('[MY-PLAYLISTS] API response:', data);
+
+      if (response.status === 401) {
+        console.warn('[MY-PLAYLISTS] Unauthorized response, redirecting to login');
+        setLoading(false);
+        setPlaylists([]);
+        setError(null);
+        login('/my');
+        return;
+      }
+      
+      if (data.success) {
+        if (data.fallback) {
+          // Load from localStorage
+          console.log('[MY-PLAYLISTS] Using localStorage fallback');
+          const localKey = `jey_user_playlists:${userEmail}`;
+          const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+          console.log('[MY-PLAYLISTS] Loaded from localStorage:', localPlaylists.length, 'playlists');
+          setPlaylists(Array.isArray(localPlaylists) ? localPlaylists : []);
+        } else {
+          console.log('[MY-PLAYLISTS] Using KV data:', data.playlists?.length || 0, 'playlists');
+          setPlaylists(Array.isArray(data.playlists) ? data.playlists : []);
+        }
+      } else {
+        console.error('[MY-PLAYLISTS] API returned error:', data.error);
+        setError(data.error || 'Failed to load playlists');
+        setPlaylists([]);
+      }
+    } catch (error) {
+      console.error('Error fetching playlists:', error);
+      setError('Failed to load playlists');
+      setPlaylists([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [userEmail, login]);
+
+  useEffect(() => {
+    if (userEmail) {
+      fetchUserPlaylists();
+    } else if (status === 'unauthenticated') {
+      setLoading(false);
+    }
+  }, [userEmail, status, fetchUserPlaylists]);
+
+  useEffect(() => {
+    if (!usageDisabled) {
+      refreshUsageRef.current?.();
+    }
+  }, [usageDisabled]);
+
+  const resolvedCurrent =
+    typeof usageCurrent === 'number'
+      ? usageCurrent
+      : typeof usageState?.usage?.current === 'number'
+        ? usageState.usage.current
+        : typeof usageState?.used === 'number'
+          ? usageState.used
+          : 0;
+
+  const resolvedRemaining = usageUnlimited
+    ? '∞'
+    : typeof usageRemaining === 'number'
+      ? usageRemaining
+      : typeof usageState?.usage?.remaining === 'number'
+        ? usageState.usage.remaining
+        : typeof usageState?.remaining === 'number'
+          ? usageState.remaining
+          : undefined;
+
+  const resolvedMax =
+    usageUnlimited
+      ? null
+      : typeof usageMax === 'number'
+        ? usageMax
+        : typeof usageState?.usage?.limit === 'number'
+          ? usageState.usage.limit
+          : typeof usageState?.limitPerWindow === 'number'
+            ? usageState.limitPerWindow
+            : null;
+
+  // Cerrar menú al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuOpen && !event.target.closest('.menu-container')) {
+        setMenuOpen(null);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [menuOpen]);
+
+
+
+  const loadPlaylistDetails = async (playlist) => {
+    try {
+      setLoadingPreview(true);
+      setPreviewPlaylist(playlist);
+      
+      // Extract playlist ID from URL
+      const playlistIdMatch = playlist.url.match(/playlist\/([a-zA-Z0-9]+)/);
+      if (!playlistIdMatch) {
+        console.error('Could not extract playlist ID from URL:', playlist.url);
+        return;
+      }
+      
+      const playlistId = playlistIdMatch[1];
+      
+      // Pass user email as ownerEmail so user can see full playlist
+      const ownerEmail = userEmail || sessionUser?.email || null;
+      const tracksUrl = ownerEmail 
+        ? `/api/spotify/playlist-tracks?id=${playlistId}&ownerEmail=${encodeURIComponent(ownerEmail)}`
+        : `/api/spotify/playlist-tracks?id=${playlistId}`;
+      
+      // Fetch playlist tracks
+      const response = await fetch(tracksUrl, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setPreviewTracks(data.tracks || []);
+      } else {
+        console.error('Failed to load playlist tracks:', response.status);
+        setPreviewTracks([]);
+      }
+    } catch (error) {
+      console.error('Error loading playlist details:', error);
+      setPreviewTracks([]);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'Fecha no disponible';
+    
+    // Handle both ISO string format and other date formats
+    let date;
+    try {
+      date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        console.warn('Invalid date string:', dateString);
+        return 'Fecha no disponible';
+      }
+    } catch (error) {
+      console.warn('Error parsing date:', dateString, error);
+      return 'Fecha no disponible';
+    }
+    
+    const now = new Date();
+    const diffInMs = now.getTime() - date.getTime();
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+    
+    if (diffInDays === 0) return 'Hoy';
+    if (diffInDays === 1) return 'Ayer';
+    if (diffInDays < 7) return `Hace ${diffInDays} días`;
+    if (diffInDays < 30) return `Hace ${Math.floor(diffInDays / 7)} semanas`;
+    if (diffInDays < 365) return `Hace ${Math.floor(diffInDays / 30)} meses`;
+    return `Hace ${Math.floor(diffInDays / 365)} años`;
+  };
+
+  const togglePlaylistPrivacy = async (playlistId, currentPublic) => {
+    const newPublic = !currentPublic;
+    
+    try {
+      setUpdatingPrivacy(prev => new Set([...prev, playlistId]));
+      
+      const response = await fetch('/api/userplaylists', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playlistId: playlistId,
+          public: newPublic
+        }),
+        credentials: 'include',
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // Update local state
+        setPlaylists(prev => (Array.isArray(prev) ? prev : []).map(playlist => 
+          playlist.playlistId === playlistId 
+            ? { ...playlist, public: newPublic }
+            : playlist
+        ));
+        
+        // If fallback to localStorage, update there too
+        if (result.reason === 'fallback-localStorage') {
+          const localKey = `jey_user_playlists:${userEmail}`;
+          const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+          const updatedPlaylists = localPlaylists.map(playlist =>
+            playlist.playlistId === playlistId 
+              ? { ...playlist, public: newPublic }
+              : playlist
+          );
+          localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
+        }
+        
+        console.log(`Playlist ${newPublic ? 'publicada' : 'privada'} exitosamente`);
+      } else if (result.reason === 'fallback-localStorage') {
+        // Handle case where API returns success=false but indicates localStorage fallback
+        console.log('Handling localStorage fallback for privacy update');
+        
+        // Update local state
+        setPlaylists(prev => (Array.isArray(prev) ? prev : []).map(playlist => 
+          playlist.playlistId === playlistId 
+            ? { ...playlist, public: newPublic }
+            : playlist
+        ));
+        
+        // Update localStorage
+        const localKey = `jey_user_playlists:${userEmail}`;
+        const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+        const updatedPlaylists = localPlaylists.map(playlist =>
+          playlist.playlistId === playlistId 
+            ? { ...playlist, public: newPublic }
+            : playlist
+        );
+        localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
+        
+        console.log(`Playlist ${newPublic ? 'publicada' : 'privada'} exitosamente (localStorage)`);
+      } else {
+        console.error('Error updating privacy:', result.error);
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error toggling privacy:', error);
+      alert('Error al cambiar la privacidad de la playlist');
+    } finally {
+      setUpdatingPrivacy(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(playlistId);
+        return newSet;
+      });
+    }
+  };
+
+  // Delete playlist function
+  const [deletingPlaylist, setDeletingPlaylist] = useState(new Set());
+  
+  const deletePlaylist = async (playlistId, playlistName) => {
+    if (!confirm(`¿Estás seguro de que quieres eliminar la playlist "${playlistName}"? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    try {
+      setUpdatingPrivacy(prev => new Set([...prev, playlistId].concat(Array.from(deletingPlaylist))));
+      setDeletingPlaylist(prev => new Set([...prev, playlistId]));
+
+      const response = await fetch('/api/userplaylists', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlistId })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // Update local state
+        setPlaylists(prev => (Array.isArray(prev) ? prev : []).filter(playlist => playlist.playlistId !== playlistId));
+        
+        // Update localStorage
+        const localKey = `jey_user_playlists:${userEmail}`;
+        const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+        const updatedPlaylists = localPlaylists.filter(playlist => playlist.playlistId !== playlistId);
+        localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
+        
+        console.log('Playlist eliminada exitosamente');
+      } else if (result.reason === 'fallback-localStorage') {
+        // Handle case where API returns success=false but indicates localStorage fallback
+        console.log('Handling localStorage fallback for playlist deletion');
+        
+        // Update local state
+        setPlaylists(prev => (Array.isArray(prev) ? prev : []).filter(playlist => playlist.playlistId !== playlistId));
+        
+        // Update localStorage
+        const localKey = `jey_user_playlists:${userEmail}`;
+        const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+        const updatedPlaylists = localPlaylists.filter(playlist => playlist.playlistId !== playlistId);
+        localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
+        
+        console.log('Playlist eliminada exitosamente (localStorage)');
+      } else {
+        console.error('Error deleting playlist:', result.error);
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error deleting playlist:', error);
+      alert('Error al eliminar la playlist');
+    } finally {
+      setUpdatingPrivacy(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(playlistId);
+        return newSet;
+      });
+      setDeletingPlaylist(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(playlistId);
+        return newSet;
+      });
+    }
+  };
+
+  const handleLoginClick = () => {
+    login('/my');
+  };
+
+  // Not authenticated
+  if (status === 'unauthenticated') {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white">
+        
+        <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
+          <div className="max-w-4xl mx-auto text-center">
+            <div className="mb-8">
+              <div className="text-6xl mb-4">📚</div>
+              <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-green-400 to-cyan-400 bg-clip-text text-transparent">
+                Mis Playlists
+              </h1>
+              <p className="text-gray-300 text-lg">
+                Inicia sesión para ver todas tus playlists creadas
+              </p>
+            </div>
+            
+            <button
+              onClick={handleLoginClick}
+              className="inline-flex items-center gap-3 bg-green-500 hover:bg-green-600 text-white font-semibold px-8 py-4 rounded-xl transition-colors duration-200 shadow-lg hover:shadow-xl"
+            >
+              <span className="text-xl">🎵</span>
+              <span>Conectar con Spotify</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Loading
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white">
+        
+        <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
+          <div className="max-w-4xl mx-auto">
+            <div className="flex items-center justify-center py-20">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                <p className="text-gray-400">Cargando tus playlists...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white">
+        
+        <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
+          <div className="max-w-4xl mx-auto text-center">
+            <div className="mb-8">
+              <div className="text-6xl mb-4">⚠️</div>
+              <h1 className="text-2xl font-bold mb-4 text-red-400">Error</h1>
+              <p className="text-gray-300">{error}</p>
+            </div>
+            
+            <button
+              onClick={fetchUserPlaylists}
+              className="bg-blue-500 hover:bg-blue-600 text-white font-semibold px-6 py-3 rounded-lg transition-colors duration-200"
+            >
+              Reintentar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Empty state
+  if (!Array.isArray(playlists) || playlists.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white">
+        
+        <div className="pt-12 sm:pt-20 pb-6 sm:pb-12 px-4 sm:px-6">
+          <div className="max-w-4xl mx-auto text-center">
+            <div className="mb-8">
+              <div className="text-6xl mb-4">📚</div>
+              <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-green-400 to-cyan-400 bg-clip-text text-transparent">
+                Mis Playlists
+              </h1>
+              <p className="text-gray-300 text-lg mb-2">
+                Aún no has creado ninguna playlist con la app
+              </p>
+              <p className="text-gray-400">
+                Crea tu primera playlist 👉
+              </p>
+            </div>
+            
+            <Link
+              href="/"
+              className="inline-flex items-center gap-3 bg-green-500 hover:bg-green-600 text-white font-semibold px-8 py-4 rounded-xl transition-colors duration-200 shadow-lg hover:shadow-xl"
+            >
+              <span className="text-xl">🎵</span>
+              <span>Crear Playlist</span>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Playlists list
+  return (
+    <div className="min-h-screen bg-gray-950 text-white">
+      
+      {/* Header */}
+      <div className="pt-8 sm:pt-20 pb-3 sm:pb-8 px-3 sm:px-6">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-3 sm:mb-8">
+            <h1 className="text-2xl sm:text-4xl font-bold mb-2 sm:mb-4 bg-gradient-to-r from-green-400 to-cyan-400 bg-clip-text text-transparent">
+              Mis Playlists
+            </h1>
+            <p className="text-gray-300 text-sm sm:text-lg">
+              {playlists.length} playlist{playlists.length !== 1 ? 's' : ''} creada{playlists.length !== 1 ? 's' : ''}
+            </p>
+          </div>
+
+          {status === 'authenticated' && !usageDisabled && (
+            <div className="mt-6 bg-gray-900/60 border border-gray-700 rounded-2xl p-4 sm:p-6 text-left">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-gray-500">Uso gratuito</p>
+                  <h2 className="text-lg sm:text-xl font-semibold text-white flex items-center gap-2">
+                    {usageUnlimited ? (
+                      <>
+                        <span className="text-emerald-400 text-xl">∞</span>
+                        Usos ilimitados activos
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-emerald-400 text-xl">
+                          {typeof resolvedRemaining === 'number'
+                            ? Math.max(0, resolvedRemaining)
+                            : resolvedRemaining ?? 0}
+                        </span>
+                        playlists disponibles
+                      </>
+                    )}
+                  </h2>
+                  {!usageUnlimited && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      {resolvedCurrent} usadas
+                      {typeof resolvedMax === 'number' ? ` de ${resolvedMax} totales` : null}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {!usageUnlimited && typeof resolvedMax === 'number' && resolvedMax > 0 && (
+                <div className="mt-4 h-2 w-full bg-gray-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-emerald-400 to-cyan-500 rounded-full transition-all"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.round(((resolvedCurrent || 0) / resolvedMax) * 100),
+                      )}%`,
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="px-3 sm:px-6 pb-6 sm:pb-12">
+        <div className="max-w-4xl mx-auto">
+          <div className="grid gap-3 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+            {(Array.isArray(playlists) ? playlists : []).map((playlist) => (
+              <div
+                key={playlist.playlistId}
+                className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 sm:p-6 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70 group"
+              >
+                <div className="flex items-start gap-3 sm:gap-4 mb-3 sm:mb-4">
+                  {/* Album Art Placeholder */}
+                  <div className="flex-shrink-0 w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-br from-green-500 to-cyan-500 rounded-lg flex items-center justify-center">
+                    <span className="text-white text-lg sm:text-2xl">🎵</span>
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    <h3 className="text-sm sm:text-lg font-bold text-white mb-1 truncate group-hover:text-green-400 transition-colors" title={playlist.name}>
+                      {playlist.name}
+                    </h3>
+                    
+                    <p className="text-gray-400 text-xs sm:text-sm mb-2 line-clamp-2" title={playlist.prompt}>
+                      &ldquo;{playlist.prompt}&rdquo;
+                    </p>
+                    
+                    <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
+                      <span>{playlist.tracks} canciones</span>
+                      <span className="hidden sm:inline">•</span>
+                      <span className="hidden sm:inline">{formatDate(playlist.createdAt)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Privacy Toggle */}
+                <div className="flex items-center justify-between mb-3 sm:mb-4 p-2 sm:p-3 bg-gray-700/30 rounded-md sm:rounded-lg">
+                  <div className="flex items-center gap-1 sm:gap-2">
+                    <span className="text-xs sm:text-sm text-gray-300">Visible en Trending</span>
+                    <span className={`text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 rounded ${
+                      playlist.public !== false 
+                        ? 'bg-green-500/20 text-green-400' 
+                        : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {playlist.public !== false ? 'Pública' : 'Privada'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => togglePlaylistPrivacy(playlist.playlistId, playlist.public !== false)}
+                    disabled={updatingPrivacy.has(playlist.playlistId)}
+                    className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${
+                      playlist.public !== false ? 'bg-green-500' : 'bg-gray-600'
+                    } ${updatingPrivacy.has(playlist.playlistId) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <span
+                      className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform duration-200 ${
+                        playlist.public !== false ? 'translate-x-5 sm:translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-1 sm:gap-2">
+                  <button
+                    onClick={() => loadPlaylistDetails(playlist)}
+                    disabled={loadingPreview}
+                    className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-700 text-white px-2 sm:px-4 py-1 sm:py-2 rounded-md sm:rounded-lg transition-colors duration-200 text-xs sm:text-sm font-medium flex items-center justify-center gap-1 sm:gap-2"
+                  >
+                    <span className="text-xs sm:text-base">👁️</span>
+                    <span className="hidden sm:inline">{loadingPreview ? 'Cargando...' : 'Ver detalles'}</span>
+                    <span className="sm:hidden">Ver</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      try {
+                        if (playlist.url) {
+                          window.open(playlist.url, '_blank');
+                        } else {
+                          console.error('No URL available for playlist:', playlist);
+                        }
+                      } catch (error) {
+                        console.error('Error opening playlist:', error);
+                      }
+                    }}
+                    className="bg-green-500 hover:bg-green-600 text-white px-2 sm:px-3 py-1 sm:py-2 rounded-md sm:rounded-lg transition-colors duration-200 text-xs sm:text-sm flex items-center justify-center"
+                    title="Abrir en Spotify"
+                  >
+                    <span className="text-xs sm:text-base">🎧</span>
+                  </button>
+                  
+                  {/* Menu de 3 puntos */}
+                  <div className="relative menu-container">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuOpen(menuOpen === playlist.playlistId ? null : playlist.playlistId);
+                      }}
+                      className="bg-gray-600 hover:bg-gray-500 text-gray-300 hover:text-white px-2 sm:px-3 py-1 sm:py-2 rounded-md sm:rounded-lg transition-colors duration-200 text-xs sm:text-sm flex items-center justify-center"
+                      title="Más opciones"
+                    >
+                      <span className="text-xs sm:text-base">⋯</span>
+                    </button>
+                    
+                    {/* Dropdown Menu */}
+                    {menuOpen === playlist.playlistId && (
+                      <div className="absolute right-0 top-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-10 min-w-[120px] sm:min-w-[140px]">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deletePlaylist(playlist.playlistId, playlist.name);
+                            setMenuOpen(null);
+                          }}
+                          disabled={deletingPlaylist.has(playlist.playlistId)}
+                          className="w-full px-2 sm:px-3 py-1.5 sm:py-2 text-left text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors duration-200 text-xs sm:text-sm flex items-center gap-1 sm:gap-2"
+                        >
+                          {deletingPlaylist.has(playlist.playlistId) ? '⏳' : '🗑️'}
+                          {deletingPlaylist.has(playlist.playlistId) ? 'Eliminando...' : 'Eliminar'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Preview Modal */}
+      {previewPlaylist && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-green-500/20 to-cyan-500/20 p-6 border-b border-gray-700">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <h2 className="text-2xl font-bold text-white mb-2">
+                    {previewPlaylist.name}
+                  </h2>
+                  <p className="text-gray-300 text-base mb-2">
+                    &ldquo;{previewPlaylist.prompt}&rdquo;
+                  </p>
+                  <div className="flex items-center gap-4 text-sm text-gray-400">
+                    <span>{previewPlaylist.tracks} canciones</span>
+                    <span>•</span>
+                    <span>{formatDate(previewPlaylist.createdAt)}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPreviewPlaylist(null)}
+                  className="text-gray-400 hover:text-white transition-colors text-2xl p-2 hover:bg-gray-800 rounded-full ml-4"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              {loadingPreview ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                    <p className="text-gray-400">Cargando canciones...</p>
+                  </div>
+                </div>
+              ) : previewTracks.length > 0 ? (
+                <AnimatedList
+                  items={previewTracks.map((track) => ({
+                    title: track.name || 'Título desconocido',
+                    artist: Array.isArray(track.artists) ? track.artists.join(', ') : (track.artistNames || track.artists || 'Artista desconocido'),
+                    trackId: track.id,
+                    openUrl: track.open_url || `https://open.spotify.com/track/${track.id}`
+                  }))}
+                  onItemSelect={(item) => {
+                    if (item.openUrl) {
+                      window.open(item.openUrl, '_blank');
+                    }
+                  }}
+                  displayScrollbar={true}
+                  className=""
+                  itemClassName=""
+                />
+              ) : (
+                <div className="text-center py-12">
+                  <div className="text-gray-400 mb-4">⚠️</div>
+                  <p className="text-gray-400">No se pudieron cargar las canciones de esta playlist</p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 border-t border-gray-700 bg-gray-800/30 flex justify-end">
+              <button
+                onClick={() => window.open(previewPlaylist.url, '_blank')}
+                className="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors duration-200"
+              >
+                Abrir en Spotify
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,330 @@
+
+> web@0.1.0 dev
+> next dev --turbopack
+
+ ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /Users/jorgemig/Desktop/playlists-mvp/package-lock.json as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * /Users/jorgemig/Desktop/playlists-mvp/web/package-lock.json
+
+   ▲ Next.js 15.5.2 (Turbopack)
+   - Local:        http://localhost:3000
+   - Network:      http://172.20.10.3:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1708ms
+ ○ Compiling / ...
+ ✓ Compiled / in 1924ms
+ GET / 200 in 2179ms
+ ⚠ Cross origin request detected from 127.0.0.1 to /_next/* resource. In a future major version of Next.js, you will need to explicitly configure "allowedDevOrigins" in next.config to allow this.
+Read more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
+ GET /apple-touch-icon-precomposed.png 404 in 330ms
+ ✓ Compiled /_not-found/page in 336ms
+ GET /apple-touch-icon.png 404 in 63ms
+[next-auth][warn][NO_SECRET] 
+https://next-auth.js.org/warnings#no_secret
+[next-auth][error][JWT_SESSION_ERROR] 
+https://next-auth.js.org/errors#jwt_session_error decryption operation failed {
+  message: 'decryption operation failed',
+  stack: 'JWEDecryptionFailed: decryption operation failed\n' +
+    '    at gcmDecrypt (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_jose_dist_node_cjs_4ea007a1._.js:734:15)\n' +
+    '    at decrypt (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_jose_dist_node_cjs_4ea007a1._.js:757:20)\n' +
+    '    at flattenedDecrypt (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_jose_dist_node_cjs_4ea007a1._.js:2254:52)\n' +
+    '    at async compactDecrypt (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_jose_dist_node_cjs_4ea007a1._.js:2308:23)\n' +
+    '    at async jwtDecrypt (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_jose_dist_node_cjs_4ea007a1._.js:3770:23)\n' +
+    '    at async Object.decode (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:725:25)\n' +
+    '    at async Object.session (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:2009:34)\n' +
+    '    at async AuthHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3155:37)\n' +
+    '    at async NextAuthRouteHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3460:30)\n' +
+    '    at async NextAuth._args$ (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3495:24)\n' +
+    '    at async AppRouteRouteModule.do (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:38696)\n' +
+    '    at async AppRouteRouteModule.handle (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:45978)\n' +
+    '    at async responseGenerator (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10852:38)\n' +
+    '    at async AppRouteRouteModule.handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:1:187643)\n' +
+    '    at async handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10914:32)\n' +
+    '    at async handler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10966:13)\n' +
+    '    at async DevServer.renderToResponseWithComponentsImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1422:9)\n' +
+    '    at async DevServer.renderPageComponent (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1474:24)\n' +
+    '    at async DevServer.renderToResponseImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1514:32)\n' +
+    '    at async DevServer.pipeImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1025:25)\n' +
+    '    at async NextNodeServer.handleCatchallRenderRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/next-server.js:393:17)\n' +
+    '    at async DevServer.handleRequestImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:916:17)\n' +
+    '    at async /Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:399:20\n' +
+    '    at async Span.traceAsyncFn (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/trace/trace.js:157:20)\n' +
+    '    at async DevServer.handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:395:24)\n' +
+    '    at async invokeRender (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:240:21)\n' +
+    '    at async handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:437:24)\n' +
+    '    at async requestHandlerImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:485:13)\n' +
+    '    at async Server.requestListener (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/start-server.js:226:13)',
+  name: 'JWEDecryptionFailed'
+}
+ GET /api/auth/session 200 in 1149ms
+ GET /api/auth/providers 200 in 272ms
+ GET /api/auth/csrf 200 in 233ms
+[next-auth][error][SIGNIN_OAUTH_ERROR] 
+https://next-auth.js.org/errors#signin_oauth_error client_id is required {
+  error: {
+    message: 'client_id is required',
+    stack: 'TypeError: client_id is required\n' +
+      '    at new BaseClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:1318:19)\n' +
+      '    at new Client (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:2843:13)\n' +
+      '    at openidClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:410:20)\n' +
+      '    at getAuthorizationUrl (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1764:51)\n' +
+      '    at Object.signin (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1846:66)\n' +
+      '    at AuthHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3253:49)\n' +
+      '    at async NextAuthRouteHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3460:30)\n' +
+      '    at async NextAuth._args$ (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3495:24)\n' +
+      '    at async AppRouteRouteModule.do (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:38696)\n' +
+      '    at async AppRouteRouteModule.handle (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:45978)\n' +
+      '    at async responseGenerator (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10852:38)\n' +
+      '    at async AppRouteRouteModule.handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:1:187643)\n' +
+      '    at async handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10914:32)\n' +
+      '    at async handler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10966:13)\n' +
+      '    at async DevServer.renderToResponseWithComponentsImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1422:9)\n' +
+      '    at async DevServer.renderPageComponent (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1474:24)\n' +
+      '    at async DevServer.renderToResponseImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1514:32)\n' +
+      '    at async DevServer.pipeImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1025:25)\n' +
+      '    at async NextNodeServer.handleCatchallRenderRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/next-server.js:393:17)\n' +
+      '    at async DevServer.handleRequestImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:916:17)\n' +
+      '    at async /Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:399:20\n' +
+      '    at async Span.traceAsyncFn (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/trace/trace.js:157:20)\n' +
+      '    at async DevServer.handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:395:24)\n' +
+      '    at async invokeRender (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:240:21)\n' +
+      '    at async handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:437:24)\n' +
+      '    at async requestHandlerImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:485:13)\n' +
+      '    at async Server.requestListener (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/start-server.js:226:13)',
+    name: 'TypeError'
+  },
+  providerId: 'spotify',
+  message: 'client_id is required'
+}
+ POST /api/auth/signin/spotify 200 in 234ms
+ GET /api/auth/error?error=OAuthSignin 302 in 265ms
+ GET /api/auth/signin?error=OAuthSignin 302 in 243ms
+ GET /?callbackUrl=http%3A%2F%2F127.0.0.1%3A3000%2F&error=OAuthSignin 200 in 61ms
+ GET /api/auth/session 200 in 270ms
+ GET /api/auth/providers 200 in 282ms
+ GET /api/auth/csrf 200 in 243ms
+[next-auth][error][SIGNIN_OAUTH_ERROR] 
+https://next-auth.js.org/errors#signin_oauth_error client_id is required {
+  error: {
+    message: 'client_id is required',
+    stack: 'TypeError: client_id is required\n' +
+      '    at new BaseClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:1318:19)\n' +
+      '    at new Client (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:2843:13)\n' +
+      '    at openidClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:410:20)\n' +
+      '    at getAuthorizationUrl (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1764:51)\n' +
+      '    at Object.signin (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1846:66)\n' +
+      '    at AuthHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3253:49)\n' +
+      '    at async NextAuthRouteHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3460:30)\n' +
+      '    at async NextAuth._args$ (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3495:24)\n' +
+      '    at async AppRouteRouteModule.do (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:38696)\n' +
+      '    at async AppRouteRouteModule.handle (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:45978)\n' +
+      '    at async responseGenerator (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10852:38)\n' +
+      '    at async AppRouteRouteModule.handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:1:187643)\n' +
+      '    at async handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10914:32)\n' +
+      '    at async handler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10966:13)\n' +
+      '    at async DevServer.renderToResponseWithComponentsImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1422:9)\n' +
+      '    at async DevServer.renderPageComponent (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1474:24)\n' +
+      '    at async DevServer.renderToResponseImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1514:32)\n' +
+      '    at async DevServer.pipeImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1025:25)\n' +
+      '    at async NextNodeServer.handleCatchallRenderRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/next-server.js:393:17)\n' +
+      '    at async DevServer.handleRequestImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:916:17)\n' +
+      '    at async /Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:399:20\n' +
+      '    at async Span.traceAsyncFn (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/trace/trace.js:157:20)\n' +
+      '    at async DevServer.handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:395:24)\n' +
+      '    at async invokeRender (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:240:21)\n' +
+      '    at async handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:437:24)\n' +
+      '    at async requestHandlerImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:485:13)\n' +
+      '    at async Server.requestListener (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/start-server.js:226:13)',
+    name: 'TypeError'
+  },
+  providerId: 'spotify',
+  message: 'client_id is required'
+}
+ POST /api/auth/signin/spotify 200 in 238ms
+ GET /api/auth/error?error=OAuthSignin 302 in 229ms
+ GET /api/auth/signin?error=OAuthSignin 302 in 246ms
+ GET /?callbackUrl=http%3A%2F%2F127.0.0.1%3A3000%2F&error=OAuthSignin 200 in 54ms
+ GET /api/auth/session 200 in 244ms
+ GET /api/auth/providers 200 in 280ms
+ GET /api/auth/csrf 200 in 248ms
+[next-auth][error][SIGNIN_OAUTH_ERROR] 
+https://next-auth.js.org/errors#signin_oauth_error client_id is required {
+  error: {
+    message: 'client_id is required',
+    stack: 'TypeError: client_id is required\n' +
+      '    at new BaseClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:1318:19)\n' +
+      '    at new Client (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:2843:13)\n' +
+      '    at openidClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:410:20)\n' +
+      '    at getAuthorizationUrl (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1764:51)\n' +
+      '    at Object.signin (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1846:66)\n' +
+      '    at AuthHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3253:49)\n' +
+      '    at async NextAuthRouteHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3460:30)\n' +
+      '    at async NextAuth._args$ (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3495:24)\n' +
+      '    at async AppRouteRouteModule.do (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:38696)\n' +
+      '    at async AppRouteRouteModule.handle (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:45978)\n' +
+      '    at async responseGenerator (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10852:38)\n' +
+      '    at async AppRouteRouteModule.handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:1:187643)\n' +
+      '    at async handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10914:32)\n' +
+      '    at async handler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10966:13)\n' +
+      '    at async DevServer.renderToResponseWithComponentsImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1422:9)\n' +
+      '    at async DevServer.renderPageComponent (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1474:24)\n' +
+      '    at async DevServer.renderToResponseImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1514:32)\n' +
+      '    at async DevServer.pipeImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1025:25)\n' +
+      '    at async NextNodeServer.handleCatchallRenderRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/next-server.js:393:17)\n' +
+      '    at async DevServer.handleRequestImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:916:17)\n' +
+      '    at async /Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:399:20\n' +
+      '    at async Span.traceAsyncFn (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/trace/trace.js:157:20)\n' +
+      '    at async DevServer.handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:395:24)\n' +
+      '    at async invokeRender (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:240:21)\n' +
+      '    at async handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:437:24)\n' +
+      '    at async requestHandlerImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:485:13)\n' +
+      '    at async Server.requestListener (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/start-server.js:226:13)',
+    name: 'TypeError'
+  },
+  providerId: 'spotify',
+  message: 'client_id is required'
+}
+ POST /api/auth/signin/spotify 200 in 235ms
+ GET /api/auth/error?error=OAuthSignin 302 in 229ms
+ GET /api/auth/signin?error=OAuthSignin 302 in 232ms
+ GET /?callbackUrl=http%3A%2F%2F127.0.0.1%3A3000%2F&error=OAuthSignin 200 in 54ms
+ GET /api/auth/session 200 in 252ms
+ GET /?callbackUrl=http%3A%2F%2F127.0.0.1%3A3000%2F&error=OAuthSignin 200 in 84ms
+ GET /api/auth/session 200 in 269ms
+ GET /api/auth/providers 200 in 288ms
+ GET /api/auth/csrf 200 in 248ms
+[next-auth][error][SIGNIN_OAUTH_ERROR] 
+https://next-auth.js.org/errors#signin_oauth_error client_id is required {
+  error: {
+    message: 'client_id is required',
+    stack: 'TypeError: client_id is required\n' +
+      '    at new BaseClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:1318:19)\n' +
+      '    at new Client (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:2843:13)\n' +
+      '    at openidClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:410:20)\n' +
+      '    at getAuthorizationUrl (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1764:51)\n' +
+      '    at Object.signin (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1846:66)\n' +
+      '    at AuthHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3253:49)\n' +
+      '    at async NextAuthRouteHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3460:30)\n' +
+      '    at async NextAuth._args$ (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3495:24)\n' +
+      '    at async AppRouteRouteModule.do (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:38696)\n' +
+      '    at async AppRouteRouteModule.handle (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:45978)\n' +
+      '    at async responseGenerator (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10852:38)\n' +
+      '    at async AppRouteRouteModule.handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:1:187643)\n' +
+      '    at async handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10914:32)\n' +
+      '    at async handler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10966:13)\n' +
+      '    at async DevServer.renderToResponseWithComponentsImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1422:9)\n' +
+      '    at async DevServer.renderPageComponent (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1474:24)\n' +
+      '    at async DevServer.renderToResponseImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1514:32)\n' +
+      '    at async DevServer.pipeImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1025:25)\n' +
+      '    at async NextNodeServer.handleCatchallRenderRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/next-server.js:393:17)\n' +
+      '    at async DevServer.handleRequestImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:916:17)\n' +
+      '    at async /Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:399:20\n' +
+      '    at async Span.traceAsyncFn (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/trace/trace.js:157:20)\n' +
+      '    at async DevServer.handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:395:24)\n' +
+      '    at async invokeRender (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:240:21)\n' +
+      '    at async handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:437:24)\n' +
+      '    at async requestHandlerImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:485:13)\n' +
+      '    at async Server.requestListener (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/start-server.js:226:13)',
+    name: 'TypeError'
+  },
+  providerId: 'spotify',
+  message: 'client_id is required'
+}
+ POST /api/auth/signin/spotify 200 in 231ms
+ GET /api/auth/error?error=OAuthSignin 302 in 230ms
+ GET /api/auth/signin?error=OAuthSignin 302 in 236ms
+ GET /?callbackUrl=http%3A%2F%2F127.0.0.1%3A3000%2F&error=OAuthSignin 200 in 71ms
+ GET /api/auth/session 200 in 233ms
+ GET /api/auth/providers 200 in 296ms
+ GET /api/auth/csrf 200 in 245ms
+[next-auth][error][SIGNIN_OAUTH_ERROR] 
+https://next-auth.js.org/errors#signin_oauth_error client_id is required {
+  error: {
+    message: 'client_id is required',
+    stack: 'TypeError: client_id is required\n' +
+      '    at new BaseClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:1318:19)\n' +
+      '    at new Client (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:2843:13)\n' +
+      '    at openidClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:410:20)\n' +
+      '    at getAuthorizationUrl (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1764:51)\n' +
+      '    at Object.signin (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1846:66)\n' +
+      '    at AuthHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3253:49)\n' +
+      '    at async NextAuthRouteHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3460:30)\n' +
+      '    at async NextAuth._args$ (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3495:24)\n' +
+      '    at async AppRouteRouteModule.do (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:38696)\n' +
+      '    at async AppRouteRouteModule.handle (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:45978)\n' +
+      '    at async responseGenerator (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10852:38)\n' +
+      '    at async AppRouteRouteModule.handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:1:187643)\n' +
+      '    at async handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10914:32)\n' +
+      '    at async handler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10966:13)\n' +
+      '    at async DevServer.renderToResponseWithComponentsImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1422:9)\n' +
+      '    at async DevServer.renderPageComponent (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1474:24)\n' +
+      '    at async DevServer.renderToResponseImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1514:32)\n' +
+      '    at async DevServer.pipeImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1025:25)\n' +
+      '    at async NextNodeServer.handleCatchallRenderRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/next-server.js:393:17)\n' +
+      '    at async DevServer.handleRequestImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:916:17)\n' +
+      '    at async /Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:399:20\n' +
+      '    at async Span.traceAsyncFn (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/trace/trace.js:157:20)\n' +
+      '    at async DevServer.handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:395:24)\n' +
+      '    at async invokeRender (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:240:21)\n' +
+      '    at async handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:437:24)\n' +
+      '    at async requestHandlerImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:485:13)\n' +
+      '    at async Server.requestListener (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/start-server.js:226:13)',
+    name: 'TypeError'
+  },
+  providerId: 'spotify',
+  message: 'client_id is required'
+}
+ POST /api/auth/signin/spotify 200 in 233ms
+ GET /api/auth/error?error=OAuthSignin 302 in 244ms
+ GET /api/auth/signin?error=OAuthSignin 302 in 247ms
+ GET /?callbackUrl=http%3A%2F%2F127.0.0.1%3A3000%2F&error=OAuthSignin 200 in 63ms
+ GET /api/auth/session 200 in 254ms
+ GET /api/auth/providers 200 in 258ms
+ GET /api/auth/csrf 200 in 245ms
+[next-auth][error][SIGNIN_OAUTH_ERROR] 
+https://next-auth.js.org/errors#signin_oauth_error client_id is required {
+  error: {
+    message: 'client_id is required',
+    stack: 'TypeError: client_id is required\n' +
+      '    at new BaseClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:1318:19)\n' +
+      '    at new Client (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_openid-client_4882e497._.js:2843:13)\n' +
+      '    at openidClient (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:410:20)\n' +
+      '    at getAuthorizationUrl (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1764:51)\n' +
+      '    at Object.signin (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:1846:66)\n' +
+      '    at AuthHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3253:49)\n' +
+      '    at async NextAuthRouteHandler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3460:30)\n' +
+      '    at async NextAuth._args$ (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next-auth_a8ff9b61._.js:3495:24)\n' +
+      '    at async AppRouteRouteModule.do (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:38696)\n' +
+      '    at async AppRouteRouteModule.handle (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:5:45978)\n' +
+      '    at async responseGenerator (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10852:38)\n' +
+      '    at async AppRouteRouteModule.handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/compiled/next-server/app-route-turbo.runtime.dev.js:1:187643)\n' +
+      '    at async handleResponse (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10914:32)\n' +
+      '    at async handler (/Users/jorgemig/Desktop/playlists-mvp/web/.next/server/chunks/2374f_next_a5131f06._.js:10966:13)\n' +
+      '    at async DevServer.renderToResponseWithComponentsImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1422:9)\n' +
+      '    at async DevServer.renderPageComponent (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1474:24)\n' +
+      '    at async DevServer.renderToResponseImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1514:32)\n' +
+      '    at async DevServer.pipeImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:1025:25)\n' +
+      '    at async NextNodeServer.handleCatchallRenderRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/next-server.js:393:17)\n' +
+      '    at async DevServer.handleRequestImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/base-server.js:916:17)\n' +
+      '    at async /Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:399:20\n' +
+      '    at async Span.traceAsyncFn (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/trace/trace.js:157:20)\n' +
+      '    at async DevServer.handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/dev/next-dev-server.js:395:24)\n' +
+      '    at async invokeRender (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:240:21)\n' +
+      '    at async handleRequest (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:437:24)\n' +
+      '    at async requestHandlerImpl (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/router-server.js:485:13)\n' +
+      '    at async Server.requestListener (/Users/jorgemig/Desktop/playlists-mvp/web/node_modules/next/dist/server/lib/start-server.js:226:13)',
+    name: 'TypeError'
+  },
+  providerId: 'spotify',
+  message: 'client_id is required'
+}
+ POST /api/auth/signin/spotify 200 in 232ms
+ GET /api/auth/error?error=OAuthSignin 302 in 231ms
+ GET /api/auth/signin?error=OAuthSignin 302 in 232ms
+ GET /?callbackUrl=http%3A%2F%2F127.0.0.1%3A3000%2F&error=OAuthSignin 200 in 51ms
+ GET /api/auth/session 200 in 260ms

@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Favicon
+Sitemap: https://playlists.jeylabbb.com/sitemap.xml

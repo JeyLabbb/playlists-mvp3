@@ -1,0 +1,159 @@
+{
+  "common": {
+    "loading": "Cargando...",
+    "error": "Error",
+    "success": "Éxito",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "close": "Cerrar"
+  },
+  "auth": {
+    "connectSpotify": "Conectar Spotify",
+    "signOut": "Cerrar sesión",
+    "connectedAs": "Conectado como",
+    "notConnected": "No conectado a Spotify",
+    "checkingSession": "Verificando sesión...",
+    "redirectUriHelp": "Registra esta URI exacta en Spotify Dashboard → Redirect URIs:",
+    "copyUri": "Copiar URI"
+  },
+  "hero": {
+    "title": "PLEIA",
+    "subtitle": "Crea playlists perfectas con IA. Describe lo que quieres y lo haremos realidad.",
+    "description": "Genera playlists personalizadas usando inteligencia artificial. Desde festivales hasta géneros específicos, obtén exactamente la música que necesitas."
+  },
+  "prompt": {
+    "title": "¿Qué tipo de playlist quieres?",
+    "placeholder": "Describe tu playlist perfecta... ej: 'recordar Riverland 2025', 'reggaeton como Bad Bunny pero sin Bad Bunny', 'girl groups k-pop 2024'",
+    "tracksLabel": "Canciones:",
+    "generateButton": "Generar Playlist",
+    "generating": "Generando...",
+    "examples": "Prueba estos ejemplos:",
+    "example1": "recordar Riverland 2025",
+    "example2": "reggaeton como Bad Bunny pero sin Bad Bunny",
+    "example3": "girl groups k-pop 2024",
+    "example4": "hardstyle nightcore 80 canciones",
+    "example5": "para entrenar sin voces, 120-140 bpm",
+    "tipsButton": "Consejos"
+  },
+  "progress": {
+    "title": "Generando...",
+    "errorTitle": "Estado de generación",
+    "parsingIntent": "Analizando tu intención...",
+    "searchingFestival": "Buscando playlists de festivales...",
+    "findingTracks": "Encontrando canciones y artistas...",
+    "applyingFilters": "Aplicando filtros y optimización...",
+    "completed": "Playlist generada",
+      "aiThinking": "Esto puede tardar un par de minutos, la IA está seleccionando la música perfecta para ti"
+  },
+  "playlist": {
+    "createTitle": "Crear Playlist",
+    "nameLabel": "Nombre de playlist:",
+    "namePlaceholder": "(Usará tu prompt si lo dejas vacío)",
+    "publicLabel": "Pública",
+    "createButton": "Crear en Spotify",
+    "creating": "Creando...",
+    "created": "Playlist creada en tu Spotify!",
+    "tracksTitle": "Canciones generadas"
+  },
+  "errors": {
+    "enterPrompt": "Por favor ingresa un prompt",
+    "failedToGenerate": "Error al generar playlist. Intenta de nuevo con un prompt más específico o menos canciones.",
+    "failedToCreate": "No se pudo crear playlist en Spotify. Inicia sesión de nuevo e inténtalo.",
+    "notEnoughPlaylists": "No se encontraron suficientes playlists para",
+    "needAtLeast2": "Se requieren al menos 2 playlists del festival.",
+    "suggestion": "Intenta un año diferente o verifica la ortografía del nombre del festival.",
+    "insufficientMaterial": "Solo se encontraron",
+    "tracksNeed": "canciones, se necesitan",
+    "shortfallTooLarge": "La diferencia es demasiado grande.",
+    "tryDifferentYear": "Intenta un año diferente, reduce el número de canciones, o verifica el nombre del festival."
+  },
+  "empty": {
+    "title": "¿Listo para crear tu playlist?",
+    "description": "Ingresa un prompt arriba para comenzar. La IA entenderá tu intención y creará la playlist perfecta para ti."
+  },
+  "epic": {
+    "title": "La nueva era de las playlists",
+    "subtitle": "Potenciado por inteligencia artificial avanzada",
+    "description": "Experimenta la generación de playlists más precisa y personalizada jamás creada.",
+    "feature1": "Velocidad instantánea",
+    "feature1Desc": "Genera playlists completas en segundos",
+    "feature2": "Precisión perfecta",
+    "feature2Desc": "Entiende exactamente lo que quieres",
+    "feature3": "Control total",
+    "feature3Desc": "Reglas de calidad y filtros avanzados",
+    "cta": "Comenzar ahora"
+  },
+  "footer": {
+    "madeWith": "Hecho con",
+    "by": "por"
+  },
+  "tips": {
+    "title": "Cómo escribir un buen prompt",
+    "subtitle": "Consejos para obtener la playlist perfecta",
+    "closeButton": "Cerrar",
+    "intro": "Sé específico y combina elementos para mejores resultados. La IA entiende contexto, idioma, época y actividad.",
+    "proTip": {
+      "title": "💡 Consejo profesional",
+      "description": "Combina múltiples elementos: actividad + género + idioma + época + artistas. Ejemplo: 'reggaeton para correr, 160 BPM, solo español, como Bad Bunny pero sin Bad Bunny'"
+    },
+    "includeArtists": {
+      "title": "🎵 Incluye artistas de referencia",
+      "description": "Menciona 1-2 artistas que te gusten para que la IA entienda mejor tu estilo musical.",
+      "example": "reggaeton como Bad Bunny y J Balvin"
+    },
+    "specifyLanguage": {
+      "title": "🌍 Especifica el idioma",
+      "description": "Si quieres música en un idioma específico, menciónalo claramente. También funciona con 'solo español' o 'english only'.",
+      "example": "pop español de los 2000s"
+    },
+    "runningBPM": {
+      "title": "🏃 Para correr: indica BPM",
+      "description": "Especifica el tempo que necesitas para tu entrenamiento. 120-140 BPM para caminar, 150-180 BPM para correr.",
+      "example": "música para correr a 165 BPM"
+    },
+    "studyInstrumental": {
+      "title": "📚 Para estudiar: pide instrumental",
+      "description": "Si necesitas concentración, pide música sin voces. También puedes pedir 'lofi' o 'ambient'.",
+      "example": "música para estudiar, instrumental, sin voces"
+    },
+    "festivalFormat": {
+      "title": "🎪 Festivales: nombre + año",
+      "description": "Para festivales, incluye el nombre exacto y el año. La IA buscará playlists oficiales de ese festival.",
+      "example": "recordar Riverland 2025"
+    },
+    "excludeArtists": {
+      "title": "❌ Excluye artistas específicos",
+      "description": "Usa 'sin' para excluir artistas que no quieres. También funciona con 'excepto' o 'no'.",
+      "example": "reggaeton como Bad Bunny pero sin Bad Bunny"
+    },
+    "specificEra": {
+      "title": "⏰ Especifica épocas",
+      "description": "Menciona décadas o años específicos para música de esa época. '80s', '90s', '2000s', '2010s', '2020s'.",
+      "example": "pop de los 80s, rock de los 90s"
+    },
+    "activityContext": {
+      "title": "🎯 Contexto de actividad",
+      "description": "Menciona para qué vas a usar la playlist. La IA ajustará el tempo y energía según la actividad.",
+      "example": "música para estudiar, para correr, para una fiesta, para cocinar"
+    },
+    "genreCombinations": {
+      "title": "🎨 Combina géneros",
+      "description": "Puedes mezclar géneros para resultados únicos. También puedes pedir 'indie' o 'alternative'.",
+      "example": "indie pop con toques electrónicos"
+    },
+    "moodDescriptors": {
+      "title": "😊 Describe el ambiente",
+      "description": "Usa palabras que describan el mood que buscas. 'melancólico', 'épico', 'relajado', 'energético', 'nostálgico'.",
+      "example": "música melancólica, épica, relajada, energética"
+    },
+    "festivalYear": {
+      "title": "🎪 Festivales: incluye la palabra 'festival'",
+      "description": "Para festivales específicos, incluye la palabra 'festival' + nombre + año. La IA detecta automáticamente cualquier festival y busca sus playlists oficiales.",
+      "example": "festival Coachella 2024, festival Sónar 2025, festival Tomorrowland 2024, música para festival Primavera Sound 2024"
+    }
+  }
+}
+
+

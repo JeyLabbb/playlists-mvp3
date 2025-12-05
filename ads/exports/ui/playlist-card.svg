@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="960" height="500" viewBox="0 0 960 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .text { font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .card-bg { fill: #14181E; }
+      .text-primary { fill: #F5F7FA; }
+      .text-secondary { fill: #F5F7FA; opacity: 0.8; }
+      .text-muted { fill: #F5F7FA; opacity: 0.6; }
+      .pleia-green { fill: #36E2B4; }
+      .pleia-blue { fill: #5B8CFF; }
+      .border { stroke: rgba(255,255,255,0.08); stroke-width: 2; fill: none; }
+    </style>
+  </defs>
+  
+  <!-- Fondo de la card -->
+  <rect x="0" y="0" width="960" height="500" rx="30" class="card-bg"/>
+  
+  <!-- Título de la playlist -->
+  <text x="40" y="100" class="text text-primary" font-size="70" font-weight="700">Fiesta Reggaeton</text>
+  
+  <!-- Creador -->
+  <text x="40" y="150" class="text text-secondary" font-size="40" font-weight="400">PLEIA</text>
+  
+  <!-- Número de canciones -->
+  <text x="40" y="460" class="text text-muted" font-size="40">24 canciones</text>
+
+</svg>

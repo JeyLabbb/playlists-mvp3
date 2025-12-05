@@ -1,0 +1,294 @@
+/**
+ * PLEIA Agent Plan Generator
+ * 
+ * Este endpoint recibe un prompt y genera un plan de ejecución
+ * usando las herramientas del agente.
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import OpenAI from 'openai';
+import { generateAgentSystemPrompt, ExecutionPlan, ToolCall } from '@/lib/agent/tools';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const MODEL = 'gpt-4o-mini';
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// Validar API key al cargar
+if (!process.env.OPENAI_API_KEY) {
+  console.error('[AGENT-PLAN] ⚠️ OPENAI_API_KEY is not set!');
+}
+
+export async function POST(request: NextRequest) {
+  const startTime = Date.now();
+  console.log('[AGENT-PLAN] ===== GENERATING EXECUTION PLAN =====');
+
+  if (!process.env.OPENAI_API_KEY) {
+    return NextResponse.json(
+      { error: 'OpenAI API key not configured' },
+      { status: 500 }
+    );
+  }
+
+  try {
+    const { prompt, target_tracks = 50 } = await request.json();
+
+    if (!prompt || typeof prompt !== 'string') {
+      return NextResponse.json(
+        { error: 'Prompt is required' },
+        { status: 400 }
+      );
+    }
+
+    console.log('[AGENT-PLAN] Prompt:', prompt);
+    console.log('[AGENT-PLAN] Target tracks:', target_tracks);
+
+    // Generar el system prompt con todas las herramientas
+    const systemPrompt = generateAgentSystemPrompt();
+
+    // Mensaje del usuario
+    const userMessage = `Prompt del usuario: "${prompt}"
+Número de canciones solicitado: ${target_tracks}
+
+Analiza el prompt y genera un plan de ejecución usando las herramientas disponibles.
+
+⚠️ ATENCIÓN ESPECIAL - CASOS CRÍTICOS:
+
+1. **FESTIVALES ("festival X", "playlist de X festival", "música de X festival")**:
+   - DEBES usar search_playlists con query="X festival" o "X festival playlist"
+   - CRÍTICO: Usa min_consensus=2 para que solo se incluyan tracks que aparezcan en al menos 2 playlists diferentes
+   - Usa limit_playlists=10 y tracks_per_playlist=50 (mínimo 50 tracks por playlist para tener suficiente material)
+   - NO uses generate_creative_tracks para festivales - busca playlists reales del festival
+   - Los festivales tienen lineups específicos, NO inventes artistas
+
+2. **"Como X pero sin X" o "tipo X pero sin X"**:
+   - DEBES usar get_similar_style con seed_artists=['X'] y include_seed_artists=false
+   - NO uses generate_creative_tracks como primera opción
+   - El sistema filtrará automáticamente a X de todos los tracks, pero usa get_similar_style PRIMERO
+
+3. **Exclusiones ("sin X", "no X", "excluir X")**:
+   - El sistema detectará automáticamente estas exclusiones
+   - Si usas generate_creative_tracks, AÑADE X a artists_to_exclude
+   - Las exclusiones se aplicarán a TODAS las herramientas automáticamente
+
+4. **Artistas recomendados ("artistas tipo X podrían ser Y, Z")**:
+   - AÑADE Y, Z a artists_to_include en generate_creative_tracks O
+   - Usa get_similar_style con seed_artists que incluya Y, Z
+   - Estos artistas tendrán PRIORIDAD en el relleno
+
+5. **Artistas específicos pedidos explícitamente**:
+   - INCLÚYELOS en el plan con get_artist_tracks o get_similar_style
+   - Añádelos a requested_artists en el plan
+
+REGLAS GENERALES:
+- Usa máximo 5-6 herramientas
+- SIEMPRE incluye adjust_distribution al final
+- Los caps deben sumar aproximadamente ${Math.ceil(target_tracks * 1.3)} (para compensar duplicados)
+- Genera pensamientos naturales que expliquen tu razonamiento
+- RESPETA TODAS las exclusiones y recomendaciones del usuario
+- Para festivales: USA search_playlists, NO generate_creative_tracks
+- Para "como X pero sin X": USA get_similar_style PRIMERO, NO generate_creative_tracks`;
+
+    console.log('[AGENT-PLAN] Calling OpenAI...');
+
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'emit_plan',
+          description: 'Emite el plan de ejecución para la playlist',
+          parameters: {
+            type: 'object',
+            properties: {
+              thinking: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Pensamientos del agente (se mostrarán al usuario)'
+              },
+              execution_plan: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    tool: { type: 'string' },
+                    params: { type: 'object' },
+                    reason: { type: 'string' }
+                  },
+                  required: ['tool', 'params', 'reason']
+                },
+                description: 'Lista de herramientas a ejecutar en orden'
+              },
+              total_target: {
+                type: 'number',
+                description: 'Número total de tracks objetivo'
+              },
+              fill_strategy: {
+                type: 'string',
+                enum: ['only_requested_artists', 'similar_artists', 'any_from_genre', 'recommendations'],
+                description: 'Estrategia para rellenar si faltan tracks. "only_requested_artists" si el usuario dice SOLO de X artistas, "similar_artists" para tipo/estilo de, "any_from_genre" para prompts abstractos'
+              },
+              requested_artists: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Lista de artistas explícitamente pedidos por el usuario'
+              }
+            },
+            required: ['thinking', 'execution_plan', 'total_target', 'fill_strategy']
+          }
+        }
+      }],
+      tool_choice: { type: 'function', function: { name: 'emit_plan' } },
+      temperature: 0.3,
+      max_tokens: 2000
+    });
+
+    const result = completion.choices[0]?.message;
+    console.log('[AGENT-PLAN] OpenAI response received');
+
+    // Extraer el plan del tool call
+    if (!result?.tool_calls || result.tool_calls.length === 0) {
+      // Intentar parsear del contenido si no hay tool calls
+      if (result?.content) {
+        const match = result.content.match(/emit_plan\s*\((\{[\s\S]*?\})\)/);
+        if (match?.[1]) {
+          try {
+            const plan = JSON.parse(match[1]) as ExecutionPlan;
+            return NextResponse.json(validateAndEnrichPlan(plan, target_tracks));
+          } catch (e) {
+            console.error('[AGENT-PLAN] Failed to parse plan from content');
+          }
+        }
+      }
+      
+      return NextResponse.json(
+        { error: 'No plan generated' },
+        { status: 500 }
+      );
+    }
+
+    const toolCall = result.tool_calls[0];
+    if (toolCall.type !== 'function' || !('function' in toolCall)) {
+      return NextResponse.json(
+        { error: 'Invalid tool call format' },
+        { status: 500 }
+      );
+    }
+
+    const plan = JSON.parse(toolCall.function.arguments) as ExecutionPlan;
+    
+    // Validar y enriquecer el plan
+    const validatedPlan = validateAndEnrichPlan(plan, target_tracks);
+
+    const duration = Date.now() - startTime;
+    console.log('[AGENT-PLAN] Plan generated in', duration, 'ms');
+    console.log('[AGENT-PLAN] Thinking steps:', validatedPlan.thinking.length);
+    console.log('[AGENT-PLAN] Execution steps:', validatedPlan.execution_plan.length);
+
+    return NextResponse.json(validatedPlan);
+
+  } catch (error: any) {
+    console.error('[AGENT-PLAN] Error:', error.message);
+    return NextResponse.json(
+      { error: 'Failed to generate plan', details: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Valida y enriquece el plan de ejecución
+ */
+function validateAndEnrichPlan(plan: ExecutionPlan, targetTracks: number): ExecutionPlan {
+  // Asegurar que thinking existe
+  if (!Array.isArray(plan.thinking) || plan.thinking.length === 0) {
+    plan.thinking = ['Analizando el prompt...', 'Preparando las herramientas necesarias...'];
+  }
+
+  // Asegurar que execution_plan existe
+  if (!Array.isArray(plan.execution_plan) || plan.execution_plan.length === 0) {
+    plan.execution_plan = [{
+      tool: 'generate_creative_tracks',
+      params: { count: targetTracks },
+      reason: 'Generación por defecto'
+    }];
+  }
+
+  // Asegurar total_target
+  plan.total_target = plan.total_target || targetTracks;
+
+  // Asegurar fill_strategy (default: recommendations)
+  if (!plan.fill_strategy) {
+    plan.fill_strategy = 'recommendations';
+  }
+
+  // Extraer artistas de las herramientas si no se especificaron
+  if (!plan.requested_artists || plan.requested_artists.length === 0) {
+    const artists: string[] = [];
+    for (const step of plan.execution_plan) {
+      if (step.tool === 'get_artist_tracks' && step.params?.artist) {
+        artists.push(step.params.artist);
+      }
+      if (step.tool === 'get_collaborations') {
+        if (step.params?.main_artist) artists.push(step.params.main_artist);
+        if (step.params?.must_collaborate_with) {
+          artists.push(...step.params.must_collaborate_with);
+        }
+      }
+    }
+    plan.requested_artists = [...new Set(artists)];
+  }
+
+  console.log('[AGENT-PLAN] Fill strategy:', plan.fill_strategy);
+  console.log('[AGENT-PLAN] Requested artists:', plan.requested_artists);
+
+  // Verificar que adjust_distribution está al final
+  const lastTool = plan.execution_plan[plan.execution_plan.length - 1];
+  if (lastTool.tool !== 'adjust_distribution') {
+    plan.execution_plan.push({
+      tool: 'adjust_distribution',
+      params: {
+        shuffle: true,
+        avoid_consecutive_same_artist: true,
+        total_target: plan.total_target
+      },
+      reason: 'Ajuste final de distribución'
+    });
+
+    plan.thinking.push('Voy a ajustar la distribución final para variedad...');
+  }
+
+  // Limitar a 6 herramientas
+  if (plan.execution_plan.length > 6) {
+    plan.execution_plan = plan.execution_plan.slice(0, 6);
+  }
+
+  // Validar cada herramienta
+  const validTools = [
+    'get_artist_tracks',
+    'get_collaborations',
+    'get_similar_style',
+    'generate_creative_tracks',
+    'search_playlists',
+    'adjust_distribution'
+  ];
+
+  plan.execution_plan = plan.execution_plan.filter(step => {
+    if (!validTools.includes(step.tool)) {
+      console.warn('[AGENT-PLAN] Invalid tool removed:', step.tool);
+      return false;
+    }
+    return true;
+  });
+
+  return plan;
+}
+

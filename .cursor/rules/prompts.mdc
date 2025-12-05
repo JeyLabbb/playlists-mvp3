@@ -1,0 +1,14 @@
+---
+description: >
+  Siempre que se te envíen ejemplos o logs de error, úsalos solo como referencia
+  para entender el tipo de fallo. Las correcciones deben ser genéricas y robustas,
+  aplicables a cualquier prompt o variación (no solo al ejemplo concreto).
+  Evita soluciones acopladas a nombres/artistas/consultas específicas.
+
+  Al finalizar cada cambio, devuelve un bloque breve titulado "Resumen de cambios (genéricos)"
+  explicando: 1) qué comportamiento sistémico se ha corregido, 2) cómo se generaliza
+  más allá del ejemplo, y 3) qué tests o prompts variados has considerado mentalmente.
+
+globs:
+  alwaysApply: true
+---
