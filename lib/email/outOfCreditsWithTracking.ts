@@ -197,7 +197,12 @@ Nos vemos dentro.
     console.log('[OUT_OF_CREDITS_TRACKING] Recipient created:', recipient.id);
 
     // 5. Generate email content with tracking URLs
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://playlists.jeylabbb.com';
+    // Use production domain to avoid spam filters (URLs must match sending domain)
+    let baseUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.PRODUCTION_URL || 'https://playlists.jeylabbb.com';
+    // Ensure we're not using Vercel preview URLs
+    if (baseUrl.includes('vercel.app')) {
+      baseUrl = process.env.PRODUCTION_URL || 'https://playlists.jeylabbb.com';
+    }
     const pricingUrl = `${baseUrl}/pricing`;
     
     // Build tracking URL for CTA

@@ -136,10 +136,22 @@ export default function FeedbackGate({ currentPrompt = '' }: Props) {
       });
       
       if (response.ok) {
-        console.log('[FEEDBACK] Submitted successfully');
-        alert('¡Gracias por tu colaboración! ✅');
+        const result = await response.json();
+        console.log('[FEEDBACK] Submitted successfully', result);
+        if (result.emailSent) {
+          console.log('[FEEDBACK] ✅ Email enviado correctamente');
+          alert('¡Gracias por tu colaboración! ✅');
+        } else if (result.emailError) {
+          console.error('[FEEDBACK] ⚠️ El feedback se guardó pero el email falló:', result.emailError);
+          alert('⚠️ Tu feedback se guardó, pero hubo un problema al enviar el email. Revisa los logs del servidor.');
+        } else {
+          console.warn('[FEEDBACK] ⚠️ Estado del email desconocido');
+          alert('¡Gracias por tu colaboración! ✅');
+        }
       } else {
-        console.error('[FEEDBACK] Error:', await response.text());
+        const errorText = await response.text();
+        console.error('[FEEDBACK] Error:', errorText);
+        alert('❌ Error al enviar feedback. Por favor, inténtalo de nuevo.');
       }
     } catch (error) {
       console.error('[FEEDBACK] Network error:', error);

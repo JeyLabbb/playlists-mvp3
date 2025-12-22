@@ -236,7 +236,19 @@ export default function Home() {
   // UI Controls
   const [refining, setRefining] = useState(false);
   const [addingMore, setAddingMore] = useState(false);
+  
+  // User playlists state
+  const [userPlaylists, setUserPlaylists] = useState([]);
+  const [playlistsLoading, setPlaylistsLoading] = useState(false);
+  const [editingPlaylistName, setEditingPlaylistName] = useState(null);
+  const [editingNameValue, setEditingNameValue] = useState('');
   const [removing, setRemoving] = useState(false);
+  
+  // Playlist preview modal state
+  const [previewPlaylist, setPreviewPlaylist] = useState(null);
+  const [previewTracks, setPreviewTracks] = useState([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [copyLinkStatus, setCopyLinkStatus] = useState(null);
 
   // Feedback Modal
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -839,6 +851,55 @@ export default function Home() {
           }
         });
 
+        // Evento: Fallback activado
+        eventSource.addEventListener('FALLBACK_ACTIVATED', (event) => {
+          try {
+            if (!event.data || event.data.trim() === '') return;
+            const data = JSON.parse(event.data);
+            console.log('[AGENT] Fallback activated:', data);
+            setAgentThoughts(prev => [...prev, data.message || 'Usando sistema de respaldo...']);
+            bumpPhase('Sistema de respaldo activado...', 30);
+          } catch (e) {
+            console.error('[AGENT] Error parsing FALLBACK_ACTIVATED:', e);
+          }
+        });
+
+        // Evento: Tracks (usado por el fallback)
+        eventSource.addEventListener('TRACKS', async (event) => {
+          try {
+            if (!event.data || event.data.trim() === '') return;
+            const data = JSON.parse(event.data);
+            
+            if (data.tracks && Array.isArray(data.tracks)) {
+              // Consumir uso en el primer chunk
+              if (!usageConsumed && data.tracks.length > 0) {
+                usageConsumed = true;
+                setUsageLoading(true);
+                try {
+                  const latestUsage = await refreshUsage();
+                  if (latestUsage) {
+                    setUsageData(latestUsage);
+                  }
+                } catch (error) {
+                  console.error('[AGENT] Error refreshing usage:', error);
+                } finally {
+                  setUsageLoading(false);
+                }
+              }
+
+              // Actualizar tracks parciales
+              allTracks = [...allTracks, ...data.tracks];
+              setTracks([...allTracks]);
+              
+              // Actualizar progreso
+              const progress = data.progress || Math.min((allTracks.length / data.total) * 100, 100);
+              bumpPhase('', 20 + (progress / 100) * 60);
+            }
+          } catch (e) {
+            console.error('[AGENT] Error parsing TRACKS:', e);
+          }
+        });
+
         // Evento: Chunk de tracks (consumir uso, pero sin mostrar mensaje)
         eventSource.addEventListener('TRACKS_CHUNK', async (event) => {
           try {
@@ -883,6 +944,11 @@ export default function Home() {
             setAgentThoughts([]);
             setStatusText(''); // Limpiar cualquier mensaje residual
             
+            // Si fue fallback, mostrar mensaje especial
+            if (data.fallback) {
+              setStatusText(`✅ ${data.message || 'Playlist generada con sistema de respaldo'}`);
+            }
+            
             bumpPhase('', 100); // Sin mensaje, solo progreso
             finalizeGeneration(data);
           } catch (e) {
@@ -894,23 +960,53 @@ export default function Home() {
         eventSource.addEventListener('ERROR', (event) => {
           try {
             if (!event.data || event.data.trim() === '') {
+              // Si ya tenemos tracks del fallback, no mostrar error
+              if (allTracks.length > 0) {
+                console.log('[AGENT] Error received but we have tracks from fallback, ignoring error');
+                return;
+              }
               setError('Error desconocido');
               return;
             }
             const data = JSON.parse(event.data);
             console.error('[AGENT] ERROR event:', data);
-            setError(data.error || 'Error generando playlist');
-            setAgentThoughts([]); // Limpiar pensamientos en error
+            
+            // Si el fallback falló pero ya tenemos tracks, no mostrar error
+            if (data.fallbackFailed && allTracks.length > 0) {
+              console.log('[AGENT] Fallback failed but we have tracks, finalizing with existing tracks');
+              finalizeGeneration({ tracks: allTracks, totalTracks: allTracks.length });
+              return;
+            }
+            
+            // Si no hay tracks, mostrar error
+            if (allTracks.length === 0) {
+              setError(data.error || 'Error generando playlist');
+              setAgentThoughts([]); // Limpiar pensamientos en error
+              if (eventSource) {
+                eventSource.close();
+              }
+              finishProgress();
+              reject(new Error('Agent error'));
+            } else {
+              // Si tenemos tracks, finalizar con éxito aunque haya error
+              console.log('[AGENT] Error but we have tracks, finalizing with success');
+              finalizeGeneration({ tracks: allTracks, totalTracks: allTracks.length });
+            }
           } catch (e) {
             console.error('[AGENT] Error parsing ERROR event:', e, 'Raw data:', event.data);
-            setError('Error desconocido');
-            setAgentThoughts([]);
+            // Si tenemos tracks, finalizar con éxito
+            if (allTracks.length > 0) {
+              finalizeGeneration({ tracks: allTracks, totalTracks: allTracks.length });
+            } else {
+              setError('Error desconocido');
+              setAgentThoughts([]);
+              if (eventSource) {
+                eventSource.close();
+              }
+              finishProgress();
+              reject(new Error('Agent error'));
+            }
           }
-          if (eventSource) {
-            eventSource.close();
-          }
-          finishProgress();
-          reject(new Error('Agent error'));
         });
 
         // Error de conexión
@@ -1740,6 +1836,10 @@ export default function Home() {
           
           if (userPlaylistResult.success) {
             console.log('✅ Saved playlist to user collection:', userPlaylistData.name);
+            // Refresh playlists list
+            if (fetchUserPlaylists) {
+              fetchUserPlaylists();
+            }
           } else {
             console.error('❌ Failed to save playlist:', userPlaylistResult);
             // Fallback to localStorage if server save failed
@@ -1749,6 +1849,10 @@ export default function Home() {
               const updatedPlaylists = [userPlaylistData, ...existingPlaylists].slice(0, 200);
               localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
               console.log('✅ Saved playlist to localStorage as fallback:', userPlaylistData.name);
+              // Refresh playlists list
+              if (fetchUserPlaylists) {
+                fetchUserPlaylists();
+              }
             } catch (localStorageError) {
               console.error('❌ Failed to save to localStorage:', localStorageError);
             }
@@ -1902,6 +2006,201 @@ export default function Home() {
       alert('Failed to remove track');
     } finally {
       setRemoving(false);
+    }
+  };
+
+  // Fetch user playlists
+  const fetchUserPlaylists = useCallback(async () => {
+    if (!sessionUser?.email) {
+      setUserPlaylists([]);
+      return;
+    }
+    
+    try {
+      setPlaylistsLoading(true);
+      const response = await fetch('/api/userplaylists', { credentials: 'include' });
+      const data = await response.json();
+      
+      if (response.status === 401) {
+        setUserPlaylists([]);
+        return;
+      }
+      
+      if (data.success) {
+        if (data.fallback) {
+          const localKey = `jey_user_playlists:${sessionUser.email}`;
+          const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+          setUserPlaylists(Array.isArray(localPlaylists) ? localPlaylists : []);
+        } else {
+          setUserPlaylists(Array.isArray(data.playlists) ? data.playlists : []);
+        }
+      } else {
+        setUserPlaylists([]);
+      }
+    } catch (error) {
+      console.error('Error fetching playlists:', error);
+      setUserPlaylists([]);
+    } finally {
+      setPlaylistsLoading(false);
+    }
+  }, [sessionUser?.email]);
+
+  // Load playlists when user is authenticated
+  useEffect(() => {
+    if (sessionUser?.email) {
+      fetchUserPlaylists();
+    }
+  }, [sessionUser?.email, fetchUserPlaylists]);
+
+  // Refresh playlists after creating a new one
+  useEffect(() => {
+    if (isCreated && sessionUser?.email) {
+      fetchUserPlaylists();
+    }
+  }, [isCreated, sessionUser?.email, fetchUserPlaylists]);
+
+  // Handle edit playlist name
+  const handleEditPlaylistName = async (playlistId, newName) => {
+    if (!newName.trim()) {
+      setEditingPlaylistName(null);
+      setEditingNameValue('');
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/userplaylists', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlistId, name: newName.trim() }),
+        credentials: 'include',
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // Update local state
+        setUserPlaylists(prev => prev.map(p => 
+          p.playlistId === playlistId ? { ...p, name: newName.trim() } : p
+        ));
+        
+        // Also update localStorage as fallback
+        if (sessionUser?.email) {
+          try {
+            const localKey = `jey_user_playlists:${sessionUser.email}`;
+            const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+            const updatedPlaylists = localPlaylists.map(playlist =>
+              playlist.playlistId === playlistId 
+                ? { ...playlist, name: newName.trim(), updatedAt: new Date().toISOString() }
+                : playlist
+            );
+            localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
+          } catch (localError) {
+            console.warn('Error updating localStorage:', localError);
+          }
+        }
+        
+        setEditingPlaylistName(null);
+        setEditingNameValue('');
+        toast.success('Nombre actualizado');
+      } else {
+        console.error('Error response:', result);
+        toast.error(result.error || 'Error al editar el nombre');
+      }
+    } catch (error) {
+      console.error('Error editing playlist name:', error);
+      toast.error('Error al editar el nombre. Inténtalo de nuevo.');
+    }
+  };
+
+  // Handle delete playlist
+  const handleDeletePlaylist = async (playlistId, playlistName) => {
+    if (!confirm(`¿Estás seguro de que quieres eliminar "${playlistName}"?`)) {
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/userplaylists', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playlistId }),
+        credentials: 'include',
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        setUserPlaylists(prev => prev.filter(p => p.playlistId !== playlistId));
+      } else {
+        alert('Error al eliminar la playlist');
+      }
+    } catch (error) {
+      console.error('Error deleting playlist:', error);
+      alert('Error al eliminar la playlist');
+    }
+  };
+
+  // Load playlist preview
+  const loadPlaylistPreview = async (playlist) => {
+    try {
+      setLoadingPreview(true);
+      setPreviewPlaylist(playlist);
+      setPreviewTracks([]);
+      
+      // Extract playlist ID from URL
+      const playlistIdMatch = playlist.url?.match(/playlist\/([a-zA-Z0-9]+)/);
+      if (!playlistIdMatch) {
+        console.error('Could not extract playlist ID from URL:', playlist.url);
+        toast.error('No se pudo cargar la playlist');
+        return;
+      }
+      
+      const playlistId = playlistIdMatch[1];
+      
+      // Fetch playlist tracks
+      const ownerEmail = sessionUser?.email || null;
+      const tracksUrl = ownerEmail 
+        ? `/api/spotify/playlist-tracks?id=${playlistId}&ownerEmail=${encodeURIComponent(ownerEmail)}`
+        : `/api/spotify/playlist-tracks?id=${playlistId}`;
+      
+      const response = await fetch(tracksUrl, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setPreviewTracks(data.tracks || []);
+      } else {
+        console.error('Failed to load playlist tracks:', response.status);
+        toast.error('No se pudieron cargar las canciones');
+        setPreviewTracks([]);
+      }
+    } catch (error) {
+      console.error('Error loading playlist preview:', error);
+      toast.error('Error al cargar la playlist');
+      setPreviewTracks([]);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  // Copy playlist link
+  const handleCopyPlaylistLink = async () => {
+    if (!previewPlaylist?.url) {
+      toast.error('No hay enlace para copiar');
+      return;
+    }
+    
+    try {
+      await navigator.clipboard.writeText(previewPlaylist.url);
+      setCopyLinkStatus('copied');
+      toast.success('Enlace copiado al portapapeles');
+      setTimeout(() => setCopyLinkStatus(null), 2000);
+    } catch (error) {
+      console.error('Error copying link:', error);
+      setCopyLinkStatus('error');
+      toast.error('No se pudo copiar el enlace');
+      setTimeout(() => setCopyLinkStatus(null), 2000);
     }
   };
 
@@ -2537,6 +2836,270 @@ export default function Home() {
             </div>
           )}
 
+          {/* User Playlists Section - Always show below generation process and tracks */}
+          {sessionUser && (
+            <div className="spotify-card mt-6">
+              <h3 className="text-xl font-semibold text-white mb-4">
+                Mis Playlists {userPlaylists.length > 0 && `(${userPlaylists.length})`}
+              </h3>
+              
+              {playlistsLoading ? (
+                <div className="text-center py-8 text-gray-400">Cargando playlists...</div>
+              ) : userPlaylists.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <p className="text-sm">Aún no has creado ninguna playlist.</p>
+                  <p className="text-xs mt-2 opacity-70">Genera una playlist arriba para comenzar.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {userPlaylists.map((playlist, index) => {
+                    // Colores PLEIA con variaciones metálicas
+                    const pleiaGradients = [
+                      { 
+                        from: 'rgba(54, 226, 180, 0.2)', 
+                        to: 'rgba(71, 200, 209, 0.15)',
+                        border: 'rgba(54, 226, 180, 0.4)',
+                        glow: 'rgba(54, 226, 180, 0.3)',
+                        text: '#36E2B4'
+                      },
+                      { 
+                        from: 'rgba(71, 200, 209, 0.2)', 
+                        to: 'rgba(91, 140, 255, 0.15)',
+                        border: 'rgba(71, 200, 209, 0.4)',
+                        glow: 'rgba(71, 200, 209, 0.3)',
+                        text: '#47C8D1'
+                      },
+                      { 
+                        from: 'rgba(91, 140, 255, 0.2)', 
+                        to: 'rgba(54, 226, 180, 0.15)',
+                        border: 'rgba(91, 140, 255, 0.4)',
+                        glow: 'rgba(91, 140, 255, 0.3)',
+                        text: '#5B8CFF'
+                      },
+                    ];
+                    const colors = pleiaGradients[index % pleiaGradients.length];
+                    
+                    return (
+                      <div
+                        key={playlist.playlistId}
+                        className="group relative rounded-2xl border p-6 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 overflow-hidden"
+                        style={{
+                          background: `linear-gradient(135deg, ${colors.from} 0%, ${colors.to} 50%, rgba(255,255,255,0.02) 100%)`,
+                          borderColor: 'rgba(255,255,255,0.1)',
+                          boxShadow: '0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.2)',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = colors.border;
+                          e.currentTarget.style.boxShadow = `0 8px 32px rgba(0,0,0,0.5), 0 0 40px ${colors.glow}, inset 0 1px 0 rgba(255,255,255,0.12)`;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                          e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.2)';
+                        }}
+                      >
+                        {/* Metallic top shine */}
+                        <div 
+                          className="absolute top-0 left-0 right-0 h-px opacity-60 group-hover:opacity-100 transition-opacity duration-300"
+                          style={{
+                            background: `linear-gradient(90deg, transparent 0%, ${colors.text} 50%, transparent 100%)`,
+                            boxShadow: `0 0 8px ${colors.glow}`,
+                          }}
+                        />
+                        
+                        {/* Metallic reflection effect */}
+                        <div 
+                          className="absolute top-0 left-0 right-0 h-20 opacity-0 group-hover:opacity-30 transition-opacity duration-500 pointer-events-none"
+                          style={{
+                            background: `linear-gradient(180deg, ${colors.text} 0%, transparent 100%)`,
+                            filter: 'blur(20px)',
+                          }}
+                        />
+                        
+                        {/* Bottom metallic accent */}
+                        <div 
+                          className="absolute bottom-0 left-0 right-0 h-px opacity-40 group-hover:opacity-80 transition-opacity duration-300"
+                          style={{
+                            background: `linear-gradient(90deg, transparent 0%, ${colors.text} 30%, ${colors.text} 70%, transparent 100%)`,
+                          }}
+                        />
+
+                        <div className="relative">
+                          <div className="flex items-start justify-between mb-5">
+                            <div className="flex-1 min-w-0 pr-3">
+                              {editingPlaylistName === playlist.playlistId ? (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={editingNameValue}
+                                    onChange={(e) => setEditingNameValue(e.target.value)}
+                                    onBlur={() => {
+                                      if (editingNameValue.trim()) {
+                                        handleEditPlaylistName(playlist.playlistId, editingNameValue);
+                                      } else {
+                                        setEditingPlaylistName(null);
+                                        setEditingNameValue('');
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        if (editingNameValue.trim()) {
+                                          handleEditPlaylistName(playlist.playlistId, editingNameValue);
+                                        }
+                                      } else if (e.key === 'Escape') {
+                                        setEditingPlaylistName(null);
+                                        setEditingNameValue('');
+                                      }
+                                    }}
+                                    autoFocus
+                                    className="flex-1 px-3 py-2 rounded-xl border border-white/20 bg-white/[0.08] text-white text-sm focus:outline-none focus:ring-2 focus:ring-white/30 focus:border-white/30 transition-all"
+                                    style={{ fontFamily: 'var(--font-body)' }}
+                                  />
+                                </div>
+                              ) : (
+                                <>
+                                  <h4 
+                                    className="text-white font-bold text-lg mb-2 truncate leading-tight"
+                                    style={{ 
+                                      fontFamily: 'var(--font-body)',
+                                      textShadow: '0 2px 8px rgba(0,0,0,0.3)'
+                                    }}
+                                    title={playlist.name}
+                                  >
+                                    {playlist.name}
+                                  </h4>
+                                  <div className="flex items-center gap-2">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
+                                      <path d="M9 18V5l12-2v13"></path>
+                                      <circle cx="6" cy="18" r="3"></circle>
+                                      <circle cx="18" cy="16" r="3"></circle>
+                                    </svg>
+                                    <p className="text-xs text-gray-400 font-medium">
+                                      {playlist.tracks || 0} {playlist.tracks === 1 ? 'canción' : 'canciones'}
+                                    </p>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setEditingPlaylistName(playlist.playlistId);
+                                  setEditingNameValue(playlist.name);
+                                }}
+                                className="p-2 hover:bg-white/10 rounded-xl transition-all duration-200 hover:scale-110"
+                                title="Editar nombre"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
+                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                </svg>
+                              </button>
+                              <button
+                                onClick={() => handleDeletePlaylist(playlist.playlistId, playlist.name)}
+                                className="p-2 hover:bg-red-500/20 rounded-xl transition-all duration-200 hover:scale-110"
+                                title="Eliminar"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-400">
+                                  <path d="M3 6h18"></path>
+                                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div className="flex flex-col gap-2.5 mt-5">
+                            <button
+                              onClick={() => playlist.url && window.open(playlist.url, '_blank')}
+                              disabled={!playlist.url}
+                              className="w-full px-4 py-3 rounded-xl border text-sm font-semibold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 hover:scale-[1.02] relative overflow-hidden group/btn"
+                              style={{
+                                background: 'linear-gradient(135deg, rgba(29, 185, 84, 0.15) 0%, rgba(30, 215, 96, 0.12) 100%)',
+                                borderColor: 'rgba(29, 185, 84, 0.3)',
+                                color: '#1DB954',
+                                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.2)',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = 'rgba(29, 185, 84, 0.5)';
+                                e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.15), 0 4px 16px rgba(29, 185, 84, 0.3), 0 0 20px rgba(29, 185, 84, 0.2)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = 'rgba(29, 185, 84, 0.3)';
+                                e.currentTarget.style.boxShadow = 'inset 0 1px 0 rgba(255,255,255,0.1), 0 2px 8px rgba(0,0,0,0.2)';
+                              }}
+                            >
+                              <div className="absolute inset-0 opacity-0 group-hover/btn:opacity-20 transition-opacity duration-300" style={{ background: 'linear-gradient(135deg, rgba(29, 185, 84, 0.3) 0%, transparent 100%)' }} />
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="relative z-10">
+                                <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"/>
+                              </svg>
+                              <span className="relative z-10">Abrir en Spotify</span>
+                            </button>
+                            <button
+                              onClick={() => loadPlaylistPreview(playlist)}
+                              disabled={!playlist.url}
+                              className="w-full px-4 py-3 rounded-xl border text-sm font-semibold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 hover:scale-[1.02] relative overflow-hidden group/btn"
+                              style={{
+                                background: `linear-gradient(135deg, ${colors.from} 0%, ${colors.to} 100%)`,
+                                borderColor: colors.border,
+                                color: colors.text,
+                                boxShadow: `inset 0 1px 0 rgba(255,255,255,0.15), 0 2px 8px rgba(0,0,0,0.2), 0 0 12px ${colors.glow}`,
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = colors.text;
+                                e.currentTarget.style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.2), 0 4px 16px ${colors.glow}, 0 0 24px ${colors.glow}`;
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = colors.border;
+                                e.currentTarget.style.boxShadow = `inset 0 1px 0 rgba(255,255,255,0.15), 0 2px 8px rgba(0,0,0,0.2), 0 0 12px ${colors.glow}`;
+                              }}
+                            >
+                              <div className="absolute inset-0 opacity-0 group-hover/btn:opacity-30 transition-opacity duration-300" style={{ background: `linear-gradient(135deg, ${colors.text} 0%, transparent 100%)` }} />
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="relative z-10">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                              </svg>
+                              <span className="relative z-10">Ver canciones</span>
+                            </button>
+                          </div>
+                          
+                          <button
+                            onClick={() => {
+                              toast.info('Función "Rehacer con IA" próximamente');
+                            }}
+                            className="w-full mt-3 px-4 py-2.5 rounded-xl border text-xs font-medium transition-all duration-200 flex items-center justify-center gap-2 relative overflow-hidden group/btn"
+                            style={{
+                              background: 'linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)',
+                              borderColor: 'rgba(255,255,255,0.1)',
+                              color: 'rgba(255,255,255,0.6)',
+                              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
+                              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)';
+                              e.currentTarget.style.color = 'rgba(255,255,255,0.8)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                              e.currentTarget.style.background = 'linear-gradient(135deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%)';
+                              e.currentTarget.style.color = 'rgba(255,255,255,0.6)';
+                            }}
+                          >
+                            <span className="text-[10px] px-2.5 py-1 rounded-full border font-semibold relative z-10" style={{ 
+                              background: 'linear-gradient(135deg, rgba(147, 51, 234, 0.2) 0%, rgba(219, 39, 119, 0.15) 100%)',
+                              borderColor: 'rgba(147, 51, 234, 0.3)',
+                              color: 'rgba(196, 181, 253, 0.9)',
+                              boxShadow: '0 0 8px rgba(147, 51, 234, 0.2)',
+                            }}>Próximamente</span>
+                            <span className="relative z-10">Rehacer con IA</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Empty State */}
           {!loading && tracks.length === 0 && !error && (
             <div className="spotify-card text-center py-16">
@@ -2651,6 +3214,114 @@ export default function Home() {
       
       {/* Special Offer Popup */}
       <SpecialOfferPopup />
+
+      {/* Playlist Preview Modal */}
+      {previewPlaylist && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          onClick={() => setPreviewPlaylist(null)}
+        >
+          <div 
+            className="spotify-card max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
+              <div className="flex-1 min-w-0">
+                <h3 className="text-2xl font-bold text-white mb-1 truncate" style={{ fontFamily: 'var(--font-body)' }}>
+                  {previewPlaylist.name}
+                </h3>
+                <p className="text-sm text-gray-400">
+                  {previewTracks.length > 0 ? `${previewTracks.length} canciones` : `${previewPlaylist.tracks || 0} canciones`}
+                </p>
+              </div>
+              <button
+                onClick={() => setPreviewPlaylist(null)}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors ml-4"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
+                  <path d="M18 6L6 18M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap gap-3 mb-6">
+              <button
+                onClick={handleCopyPlaylistLink}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-gradient-to-r from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 border border-purple-500/30 text-purple-300 text-sm font-medium transition-all duration-200 flex items-center justify-center gap-2"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1M8 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M8 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m0 0h2a2 2 0 0 1 2 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path>
+                </svg>
+                {copyLinkStatus === 'copied' ? 'Copiado' : 'Copiar enlace'}
+              </button>
+              <button
+                onClick={() => {
+                  if (previewPlaylist.url) {
+                    const tuneUrl = `https://www.tunemymusic.com/transfer?source=spotify&target=spotify&url=${encodeURIComponent(previewPlaylist.url)}`;
+                    window.open(tuneUrl, '_blank');
+                  }
+                }}
+                disabled={!previewPlaylist.url}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-gradient-to-r from-cyan-500/20 to-blue-500/20 hover:from-cyan-500/30 hover:to-blue-500/30 border border-cyan-500/30 text-cyan-300 text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M7 13l3 3 7-7M8 13l-3-3"></path>
+                  <path d="M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20z"></path>
+                </svg>
+                Llevar a mi Spotify
+              </button>
+              <button
+                onClick={() => previewPlaylist.url && window.open(previewPlaylist.url, '_blank')}
+                disabled={!previewPlaylist.url}
+                className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-green-500/20 to-green-600/20 hover:from-green-500/30 hover:to-green-600/30 border border-green-500/30 text-green-400 text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.42 1.56-.299.421-1.02.599-1.559.3z"/>
+                </svg>
+                Abrir en Spotify
+              </button>
+            </div>
+
+            {/* Tracks List */}
+            <div className="flex-1 overflow-y-auto">
+              {loadingPreview ? (
+                <div className="text-center py-12">
+                  <div className="w-8 h-8 mx-auto border-2 border-white/20 border-t-white/70 rounded-full animate-spin mb-4"></div>
+                  <p className="text-sm text-gray-400">Cargando canciones...</p>
+                </div>
+              ) : previewTracks.length > 0 ? (
+                <AnimatedList
+                  items={previewTracks.map((track) => ({
+                    title: track.name || track.title || 'Título desconocido',
+                    artist: track.artistNames || track.artists?.join(', ') || 'Artista desconocido',
+                    trackId: track.id,
+                    openUrl: track.open_url || (track.id ? `https://open.spotify.com/track/${track.id}` : undefined)
+                  }))}
+                  onItemSelect={(item) => {
+                    if (item.openUrl) {
+                      window.open(item.openUrl, '_blank');
+                    }
+                  }}
+                  displayScrollbar={true}
+                  className=""
+                  itemClassName=""
+                />
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-sm text-gray-400">No se pudieron cargar las canciones</p>
+                  <button
+                    onClick={() => loadPlaylistPreview(previewPlaylist)}
+                    className="mt-4 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm transition-colors"
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

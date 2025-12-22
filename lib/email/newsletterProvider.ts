@@ -337,10 +337,21 @@ function normalizeRecipients(entries: RawRecipient[]): NormalizedRecipient[] {
 }
 
 function resolveBaseUrl() {
-  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  if (process.env.APP_URL) return process.env.APP_URL;
-  return '';
+  // Prefer production domain to avoid spam filters
+  // URLs must match the sending domain (Resend requirement)
+  if (process.env.PRODUCTION_URL) return process.env.PRODUCTION_URL;
+  
+  if (process.env.NEXT_PUBLIC_SITE_URL) {
+    const url = process.env.NEXT_PUBLIC_SITE_URL;
+    // Don't use Vercel preview URLs in emails (they trigger spam filters)
+    if (url.includes('vercel.app')) {
+      return process.env.PRODUCTION_URL || 'https://playlists.jeylabbb.com';
+    }
+    return url;
+  }
+  
+  // Default to production domain
+  return 'https://playlists.jeylabbb.com';
 }
 
 function buildClickUrl(baseUrl: string, campaignId: string | undefined, recipientId: string | undefined, targetUrl: string, label: string) {

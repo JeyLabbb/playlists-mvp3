@@ -61,4 +61,5 @@ next-env.d.ts
 
 # Temporary files
 *.tmp
-*.temp
+*.temp.env.local.bak
+scripts/output/

@@ -3931,6 +3931,22 @@ async function handleStreamingRequest(request) {
                   const limit = usageResult.plan === 'founder' ? '∞' : (usageResult.remaining === 'unlimited' ? '∞' : (typeof remaining === 'number' ? used + remaining : '∞'));
                   console.log(`[STREAM:${traceId}] ✅ Usage consumed successfully: ${used}/${limit} (remaining: ${remaining})`);
                   
+                  // 🚨 MTRYX: Track usage event to MTRYX
+                  try {
+                    const { trackUsage } = await import('../../../../lib/mtryxClient');
+                    await trackUsage({
+                      email: pleiaUser.email,
+                      userId: pleiaUser.id,
+                      feature: 'playlist_generation',
+                      remainingFreeUses: usageResult.remaining,
+                      plan: usageResult.plan || 'free',
+                      usageId: usageEventId,
+                    });
+                  } catch (mtryxError) {
+                    // No fallar el flujo si falla el tracking a MTRYX
+                    console.error(`[STREAM:${traceId}] ❌ Error tracking usage to MTRYX:`, mtryxError);
+                  }
+                  
                   // Enviar actualización de uso al frontend
                   try {
                     controller.enqueue(encoder.encode(`event: USAGE_UPDATE\ndata: ${JSON.stringify({

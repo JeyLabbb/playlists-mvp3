@@ -21,7 +21,14 @@ export async function POST(request: Request) {
     try {
       headersList = await headers();
       host = headersList?.get('host') || null;
-      protocol = headersList?.get('x-forwarded-proto') || 'https';
+      const forwardedProto = headersList?.get('x-forwarded-proto');
+      
+      // Si el host es localhost, forzar http (no https)
+      if (host && (host.includes('localhost') || host.includes('127.0.0.1'))) {
+        protocol = 'http';
+      } else {
+        protocol = forwardedProto || 'https';
+      }
     } catch (headersError) {
       console.error('[AUTH] Error getting headers:', headersError);
       // Fallback: usar variables de entorno
@@ -36,10 +43,13 @@ export async function POST(request: Request) {
     const isProduction = process.env.NODE_ENV === 'production' || (isVercel && !isVercelPreview);
     
     // Detectar si estamos en desarrollo local REAL
-    // Debe ser: NO Vercel, NODE_ENV=development, Y host localhost
+    // Debe ser: NO Vercel, Y host localhost (NODE_ENV puede no estar en development en algunos casos)
     const isLocalDev = !isVercel && 
-                       process.env.NODE_ENV === 'development' && 
                        host && (host.includes('localhost') || host.includes('127.0.0.1') || host.includes('192.168.'));
+    
+    // Forzar local dev si estamos en puerto 3000, 3001, 3002 (puertos comunes de desarrollo)
+    const isLocalPort = host && /^localhost(:\d+)?$|^127\.0\.0\.1(:\d+)?$/.test(host);
+    const finalIsLocalDev = isLocalDev || (isLocalPort && !isVercel);
     
     // Logs detallados para debugging (visibles en Vercel dashboard y local)
     console.log('[AUTH] 🔍 OAuth environment detection:', {
@@ -50,6 +60,8 @@ export async function POST(request: Request) {
       isVercelPreview,
       isProduction,
       isLocalDev,
+      isLocalPort,
+      finalIsLocalDev,
       VERCEL_URL: vercelUrl,
       NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
       redirectToFromClient: redirectTo
@@ -60,7 +72,7 @@ export async function POST(request: Request) {
     
     // 🚨 CRITICAL: Validar y corregir redirectTo según el entorno
     if (finalRedirectTo && (finalRedirectTo.includes('localhost') || finalRedirectTo.includes('127.0.0.1'))) {
-      if (!isLocalDev) {
+      if (!finalIsLocalDev) {
         // Estamos en producción pero el cliente envió localhost → corregir
         console.warn('[AUTH] ⚠️ RedirectTo contains localhost but NOT in local dev, forcing production URL');
         finalRedirectTo = finalRedirectTo.replace(/https?:\/\/[^/]+/, 'https://playlists.jeylabbb.com');
@@ -69,7 +81,7 @@ export async function POST(request: Request) {
         // Estamos en local y el cliente envió localhost → está bien
         console.log('[AUTH] ✅ Using localhost redirect (local development):', finalRedirectTo);
       }
-    } else if (finalRedirectTo && !isLocalDev && (finalRedirectTo.includes('localhost') || finalRedirectTo.includes('127.0.0.1'))) {
+    } else if (finalRedirectTo && !finalIsLocalDev && (finalRedirectTo.includes('localhost') || finalRedirectTo.includes('127.0.0.1'))) {
       // Caso edge: redirectTo tiene localhost pero no detectamos local dev
       console.warn('[AUTH] ⚠️ Edge case: redirectTo has localhost but isLocalDev=false, forcing production');
       finalRedirectTo = finalRedirectTo.replace(/https?:\/\/[^/]+/, 'https://playlists.jeylabbb.com');
@@ -77,9 +89,10 @@ export async function POST(request: Request) {
     
     // Si no hay redirectTo, construir uno según el entorno
     if (!finalRedirectTo) {
-      if (isLocalDev && host) {
-        // Desarrollo local: usar el host de la request
-        finalRedirectTo = `${protocol}://${host}/auth/callback`;
+      if (finalIsLocalDev && host) {
+        // Desarrollo local: usar el host de la request (forzar http en local)
+        const localProtocol = 'http'; // Siempre http en local
+        finalRedirectTo = `${localProtocol}://${host}/auth/callback`;
         console.log('[AUTH] ✅ Constructed localhost redirect for local development:', finalRedirectTo);
       } else {
         // Producción: usar URL de producción
@@ -96,13 +109,21 @@ export async function POST(request: Request) {
       host,
       protocol,
       hasEnvUrl: !!process.env.NEXT_PUBLIC_SITE_URL,
+      finalIsLocalDev,
     });
 
     const supabase = await createSupabaseRouteClient();
+    
+    // 🚨 CRITICAL: En local, forzar que Supabase use la URL de localhost
+    // Aunque Supabase tenga configurada la URL de producción, podemos forzar la redirección
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
         redirectTo: finalRedirectTo,
+        // En local, también especificar queryParams para asegurar que Google use la URL correcta
+        queryParams: finalIsLocalDev ? {
+          redirect_to: finalRedirectTo,
+        } : undefined,
       },
     });
 

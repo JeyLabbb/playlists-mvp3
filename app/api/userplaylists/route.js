@@ -51,13 +51,22 @@ async function saveToKV(userEmail, playlist) {
 // Update playlist in Vercel KV
 async function updateInKV(userEmail, playlistId, updates) {
   try {
-    console.log('[USERPLAYLISTS] updateInKV: Updating playlist:', playlistId);
+    console.log('[USERPLAYLISTS] updateInKV: Updating playlist:', playlistId, 'for user:', userEmail);
     const existing = await getFromKV(userEmail);
     const existingArray = Array.isArray(existing) ? existing : [];
     
+    // Check if playlist exists
+    const playlistExists = existingArray.some(p => p.playlistId === playlistId);
+    if (!playlistExists) {
+      console.warn('[USERPLAYLISTS] updateInKV: Playlist not found:', playlistId);
+      return false;
+    }
+    
     const updated = existingArray.map(playlist => {
       if (playlist.playlistId === playlistId) {
-        return { ...playlist, ...updates, updatedAt: new Date().toISOString() };
+        const updatedPlaylist = { ...playlist, ...updates, updatedAt: new Date().toISOString() };
+        console.log('[USERPLAYLISTS] updateInKV: Updated playlist:', updatedPlaylist.name || playlistId);
+        return updatedPlaylist;
       }
       return playlist;
     });
@@ -246,6 +255,73 @@ export async function PUT(request) {
   }
 }
 
+// PATCH: Update playlist (alias for PUT, commonly used for partial updates)
+export async function PATCH(request) {
+  try {
+    const pleiaUser = await getPleiaServerUser();
+    
+    if (!pleiaUser?.email) {
+      console.warn('[USERPLAYLISTS] PATCH: No user email found');
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const userEmail = pleiaUser.email;
+    let body;
+    try {
+      body = await request.json();
+    } catch (parseError) {
+      console.error('[USERPLAYLISTS] PATCH: Error parsing request body:', parseError);
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
+    
+    const { playlistId, ...updates } = body;
+    
+    if (!playlistId) {
+      return NextResponse.json({ error: 'Playlist ID is required' }, { status: 400 });
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: 'No updates provided' }, { status: 400 });
+    }
+
+    console.log('[USERPLAYLISTS] PATCH: Updating playlist:', playlistId, 'with updates:', updates);
+
+    // Update in KV if available
+    if (hasKV()) {
+      try {
+        const updated = await updateInKV(userEmail, playlistId, updates);
+        if (!updated) {
+          console.error('[USERPLAYLISTS] PATCH: updateInKV returned false');
+          return NextResponse.json({ error: 'Failed to update playlist in storage' }, { status: 500 });
+        }
+        console.log('[USERPLAYLISTS] PATCH: Successfully updated playlist in KV');
+      } catch (error) {
+        console.error('[USERPLAYLISTS] PATCH: KV update error:', error);
+        return NextResponse.json({ 
+          error: 'Failed to update playlist',
+          details: error.message 
+        }, { status: 500 });
+      }
+    } else {
+      // If KV not available, return success but note it's client-side only
+      console.log('[USERPLAYLISTS] PATCH: KV not available, client should update localStorage');
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Playlist updated successfully',
+      source: hasKV() ? 'kv' : 'localStorage'
+    });
+
+  } catch (error) {
+    console.error('[USERPLAYLISTS] PATCH: Unexpected error:', error);
+    return NextResponse.json({ 
+      error: 'Failed to update playlist',
+      details: error.message 
+    }, { status: 500 });
+  }
+}
+
 // DELETE: Delete playlist
 export async function DELETE(request) {
   try {
@@ -257,8 +333,8 @@ export async function DELETE(request) {
     }
 
     const userEmail = pleiaUser.email;
-    const { searchParams } = new URL(request.url);
-    const playlistId = searchParams.get('id');
+    const body = await request.json();
+    const playlistId = body?.playlistId;
     
     if (!playlistId) {
       return NextResponse.json({ error: 'Playlist ID is required' }, { status: 400 });

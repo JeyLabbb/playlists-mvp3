@@ -25,7 +25,8 @@
     "ad:preview": "remotion studio ads/src/index.tsx",
     "ad:preview:15": "remotion studio ads/src/Video15s.tsx",
     "ad:preview:30": "remotion studio ads/src/Video30s.tsx",
-    "ad:preview:v2": "remotion studio ads/src/VideoV2.tsx"
+    "ad:preview:v2": "remotion studio ads/src/VideoV2.tsx",
+    "export:mtryx": "npx tsx scripts/export_to_mtryx.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.6",
@@ -67,6 +68,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/node": "24.5.0",
     "@types/react": "19.1.13",
+    "dotenv": "^17.2.3",
     "eslint": "^9",
     "eslint-config-next": "15.5.2",
     "rimraf": "^6.0.1",

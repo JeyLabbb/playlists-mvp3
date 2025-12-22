@@ -55,7 +55,6 @@ export default function RootLayout({ children }) {
                 {
                   label: "Tu música",
                   links: [
-                    { label: "Mis playlists", href: "/my", ariaLabel: "Ver mis playlists guardadas" },
                     { label: "Mi perfil", href: "/me", ariaLabel: "Ver mi perfil" },
                     { label: "Planes", href: "/pricing", ariaLabel: "Ver planes y precios" }
                   ]

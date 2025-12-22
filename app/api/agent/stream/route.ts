@@ -151,6 +151,22 @@ export async function GET(request: NextRequest) {
             
             if (consumeResult.ok) {
               console.log(`[AGENT-STREAM] ✅ Usage consumed: ${consumeResult.used}/${consumeResult.remaining === 'unlimited' ? '∞' : consumeResult.remaining}`);
+              
+              // 🚨 MTRYX: Track usage event to MTRYX
+              try {
+                const { trackUsage } = await import('@/lib/mtryxClient');
+                await trackUsage({
+                  email: pleiaUser.email,
+                  userId: pleiaUser.id,
+                  feature: 'agent_playlist_generation',
+                  remainingFreeUses: consumeResult.remaining,
+                  plan: consumeResult.plan || 'free',
+                  usageId: null, // No tenemos usageId de la versión legacy de consumeUsage
+                });
+              } catch (mtryxError) {
+                // No fallar el flujo si falla el tracking a MTRYX
+                console.error('[AGENT-STREAM] ❌ Error tracking usage to MTRYX:', mtryxError);
+              }
             } else {
               const reason = 'reason' in consumeResult ? consumeResult.reason : 'unknown';
               console.warn(`[AGENT-STREAM] ⚠️ Usage consumption failed: ${reason}`);
@@ -173,7 +189,103 @@ export async function GET(request: NextRequest) {
         const plan = await generatePlan(prompt, targetTracks);
         
         if (!plan) {
-          sendEvent('ERROR', { error: 'No se pudo generar el plan' });
+          console.log('[AGENT-STREAM] ⚠️ Plan generation failed, activating fallback...');
+          sendThinking('No se pudo generar el plan. Usando sistema de respaldo...');
+          
+          // Activar fallback si no se puede generar el plan
+          try {
+            const url = new URL(request.url);
+            const protocol = url.protocol;
+            const host = url.host;
+            const baseUrl = `${protocol}//${host}`;
+            
+            const fallbackResponse = await fetch(`${baseUrl}/api/playlist/llm`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                prompt: prompt,
+                target_tracks: targetTracks,
+              }),
+            });
+            
+            if (fallbackResponse.ok) {
+              const fallbackData = await fallbackResponse.json();
+              const fallbackTracks = fallbackData.tracks || [];
+              
+              if (fallbackTracks.length > 0) {
+                console.log(`[AGENT-STREAM] ✅ Fallback successful (no plan): ${fallbackTracks.length} tracks`);
+                
+                sendEvent('FALLBACK_ACTIVATED', {
+                  message: 'Se usó el sistema de respaldo para generar tu playlist',
+                  reason: 'plan_generation_failed'
+                });
+                
+                // Enviar tracks
+                const chunkSize = 10;
+                for (let i = 0; i < fallbackTracks.length; i += chunkSize) {
+                  const chunk = fallbackTracks.slice(i, i + chunkSize);
+                  sendEvent('TRACKS', {
+                    tracks: chunk,
+                    total: fallbackTracks.length,
+                    progress: Math.min(100, Math.round(((i + chunk.length) / fallbackTracks.length) * 100))
+                  });
+                  await delay(100);
+                }
+                
+                // Crear playlist en Spotify
+                let fallbackPlaylist = null;
+                try {
+                  fallbackPlaylist = await createPlaylist(accessToken, playlistName, {
+                    description: `Generada por PLEIA: ${prompt.substring(0, 200)}`,
+                    public: false
+                  });
+                  
+                  if (fallbackPlaylist?.id) {
+                    await addTracksToPlaylist(accessToken, fallbackPlaylist.id, fallbackTracks.map(t => t.uri));
+                  }
+                } catch (playlistError) {
+                  console.error('[AGENT-STREAM] Error creating fallback playlist:', playlistError);
+                }
+                
+                await consumeUsageIfSuccess(savedPromptId, fallbackTracks.length);
+                
+                // Trackear fallback a MTRYX
+                try {
+                  const { trackUsage } = await import('@/lib/mtryxClient');
+                  await trackUsage({
+                    email: pleiaUser.email,
+                    userId: pleiaUser.id,
+                    feature: 'agent_fallback_playlist_generation',
+                    remainingFreeUses: null,
+                    plan: null,
+                    usageId: null,
+                  });
+                } catch (mtryxError) {
+                  console.error('[AGENT-STREAM] ❌ Error tracking fallback to MTRYX:', mtryxError);
+                }
+                
+                sendEvent('DONE', {
+                  tracks: fallbackTracks,
+                  totalTracks: fallbackTracks.length,
+                  target: targetTracks,
+                  playlist: fallbackPlaylist ? {
+                    id: fallbackPlaylist.id,
+                    name: fallbackPlaylist.name,
+                    url: fallbackPlaylist.external_urls?.spotify
+                  } : null,
+                  message: `¡Listo! Se generaron ${fallbackTracks.length} canciones usando el sistema de respaldo.`,
+                  fallback: true
+                });
+                
+                controller.close();
+                return;
+              }
+            }
+          } catch (fallbackError) {
+            console.error('[AGENT-STREAM] ❌ Fallback failed (no plan):', fallbackError);
+          }
+          
+          sendEvent('ERROR', { error: 'No se pudo generar el plan y el fallback también falló' });
           controller.close();
           return;
         }
@@ -1247,10 +1359,126 @@ export async function GET(request: NextRequest) {
           stack: error.stack,
           name: error.name
         });
-        sendEvent('ERROR', { 
-          error: error.message || 'Error desconocido en el agente',
-          details: error.stack?.split('\n').slice(0, 3).join(' | ') || 'No stack trace'
-        });
+        
+        // ═══════════════════════════════════════════════════════════════
+        // FALLBACK: Intentar generar playlist con sistema simple si el agente falla
+        // ═══════════════════════════════════════════════════════════════
+        console.log('[AGENT-STREAM] 🔄 Activating fallback playlist generation...');
+        sendThinking('El agente encontró un problema. Usando sistema de respaldo para generar tu playlist...');
+        
+        try {
+          // Obtener URL base para la llamada interna
+          const url = new URL(request.url);
+          const protocol = url.protocol;
+          const host = url.host;
+          const baseUrl = `${protocol}//${host}`;
+          
+          // Llamar al endpoint de generación simple como fallback
+          const fallbackResponse = await fetch(`${baseUrl}/api/playlist/llm`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: prompt,
+              target_tracks: targetTracks,
+            }),
+          });
+          
+          if (fallbackResponse.ok) {
+            const fallbackData = await fallbackResponse.json();
+            const fallbackTracks = fallbackData.tracks || [];
+            
+            if (fallbackTracks.length > 0) {
+              console.log(`[AGENT-STREAM] ✅ Fallback successful: ${fallbackTracks.length} tracks generated`);
+              
+              // Enviar tracks del fallback
+              sendEvent('FALLBACK_ACTIVATED', {
+                message: 'Se usó el sistema de respaldo para generar tu playlist',
+                originalError: error.message
+              });
+              
+              // Enviar tracks en chunks para mantener consistencia con el formato del agente
+              const chunkSize = 10;
+              for (let i = 0; i < fallbackTracks.length; i += chunkSize) {
+                const chunk = fallbackTracks.slice(i, i + chunkSize);
+                sendEvent('TRACKS', {
+                  tracks: chunk,
+                  total: fallbackTracks.length,
+                  progress: Math.min(100, Math.round(((i + chunk.length) / fallbackTracks.length) * 100))
+                });
+                await delay(100);
+              }
+              
+              // Intentar crear playlist en Spotify
+              let fallbackPlaylist = null;
+              try {
+                fallbackPlaylist = await createPlaylist(accessToken, playlistName, {
+                  description: `Generada por PLEIA: ${prompt.substring(0, 200)}`,
+                  public: false
+                });
+                
+                if (fallbackPlaylist?.id) {
+                  await addTracksToPlaylist(accessToken, fallbackPlaylist.id, fallbackTracks.map(t => t.uri));
+                  console.log('[AGENT-STREAM] ✅ Fallback playlist created in Spotify:', fallbackPlaylist.id);
+                }
+              } catch (playlistError) {
+                console.error('[AGENT-STREAM] Error creating fallback playlist:', playlistError);
+              }
+              
+              // Consumir uso si hay tracks
+              await consumeUsageIfSuccess(savedPromptId, fallbackTracks.length);
+              
+              // Trackear fallback a MTRYX
+              try {
+                const { trackUsage } = await import('@/lib/mtryxClient');
+                await trackUsage({
+                  email: pleiaUser.email,
+                  userId: pleiaUser.id,
+                  feature: 'agent_fallback_playlist_generation',
+                  remainingFreeUses: null,
+                  plan: null,
+                  usageId: null,
+                });
+              } catch (mtryxError) {
+                console.error('[AGENT-STREAM] ❌ Error tracking fallback to MTRYX:', mtryxError);
+              }
+              
+              // Enviar evento DONE con los tracks del fallback
+              sendEvent('DONE', {
+                tracks: fallbackTracks,
+                totalTracks: fallbackTracks.length,
+                target: targetTracks,
+                playlist: fallbackPlaylist ? {
+                  id: fallbackPlaylist.id,
+                  name: fallbackPlaylist.name,
+                  url: fallbackPlaylist.external_urls?.spotify
+                } : null,
+                message: `¡Listo! Se generaron ${fallbackTracks.length} canciones usando el sistema de respaldo.`,
+                fallback: true
+              });
+              
+              console.log('[AGENT-STREAM] ✅ Fallback completed successfully');
+              controller.close();
+              return;
+            }
+          }
+          
+          // Si el fallback también falla, enviar error
+          console.error('[AGENT-STREAM] ❌ Fallback also failed');
+          sendEvent('ERROR', { 
+            error: error.message || 'Error desconocido en el agente',
+            details: error.stack?.split('\n').slice(0, 3).join(' | ') || 'No stack trace',
+            fallbackFailed: true
+          });
+        } catch (fallbackError: any) {
+          console.error('[AGENT-STREAM] ❌ Fallback generation failed:', fallbackError);
+          sendEvent('ERROR', { 
+            error: error.message || 'Error desconocido en el agente',
+            details: error.stack?.split('\n').slice(0, 3).join(' | ') || 'No stack trace',
+            fallbackFailed: true,
+            fallbackError: fallbackError.message
+          });
+        }
+        
         controller.close();
       }
     }

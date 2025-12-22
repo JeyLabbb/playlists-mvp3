@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { stripe } from '@/lib/stripe';
 import { getPleiaServerUser } from '@/lib/auth/serverUser';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { trackPayment } from '@/lib/mtryxClient';
 
 // 🚨 CRITICAL: Forzar renderizado dinámico porque usamos searchParams y procesamos pagos
 export const dynamic = 'force-dynamic';
@@ -122,6 +123,21 @@ async function processPaymentOnServer(sessionId: string) {
       founder_source: updateData[0]?.founder_source,
       email: updateData[0]?.email
     });
+    
+    // 🚨 MTRYX: Track payment event to MTRYX
+    try {
+      await trackPayment({
+        email: userEmail,
+        amount: (stripeSession.amount_total || 500) / 100, // Convertir de centavos a euros
+        currency: stripeSession.currency?.toUpperCase() || 'EUR',
+        plan: 'founder',
+        stripeSessionId: stripeSession.id,
+        stripeCustomerId: typeof stripeSession.customer === 'string' ? stripeSession.customer : undefined,
+      });
+    } catch (mtryxError) {
+      // No fallar el procesamiento de pago si falla el tracking a MTRYX
+      console.error('[SUCCESS-PAGE-SERVER] ❌ Error tracking payment to MTRYX:', mtryxError);
+    }
     
     // 5. Registrar pago en telemetry
     try {

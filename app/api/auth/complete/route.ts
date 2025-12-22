@@ -12,6 +12,7 @@ import { createSupabaseRouteClient } from '@/lib/supabase/routeClient';
 import { getNewsletterAdminClient, ensureContactByEmail } from '@/lib/newsletter/server';
 import { executeWorkflowSteps } from '@/lib/newsletter/workflows';
 import { cacheUsernameMapping } from '@/lib/social/usernameCache';
+import { trackSignup } from '@/lib/mtryxClient';
 
 // 🚨 CRITICAL: Función para detectar columnas (similar a la de usageV2.ts)
 // Necesitamos verificar qué columnas existen en la base de datos antes de intentar actualizarlas
@@ -629,6 +630,22 @@ export async function POST(request: Request) {
       }
     } else {
       console.log('[AUTH-COMPLETE] ✅ Account complete from updatedUser');
+    }
+
+    // 🚨 MTRYX: Track signup event to MTRYX
+    if (finalHasCompleteAccount) {
+      try {
+        await trackSignup({
+          email: pleiaUser.email,
+          name: parsed.data.displayName || updatedUser.username || null,
+          userId: pleiaUser.id,
+          plan: updatedUser.plan || 'free',
+          referralEmail: parsed.data.referralEmail || null,
+        });
+      } catch (mtryxError) {
+        // No fallar la creación de cuenta si falla el tracking a MTRYX
+        console.error('[AUTH-COMPLETE] ❌ Error tracking signup to MTRYX:', mtryxError);
+      }
     }
 
     // 🚨 CRITICAL: Track referral si existe cuando se crea la cuenta
