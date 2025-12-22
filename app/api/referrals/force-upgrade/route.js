@@ -138,7 +138,6 @@ export async function POST(request) {
               .update({
                 plan: 'founder',
                 max_uses: null, // Unlimited
-                updated_at: now
               })
               .or(`email.eq.${userEmail}`);
             
@@ -164,7 +163,6 @@ export async function POST(request) {
               .update({
                 plan: 'founder',
                 max_uses: null, // Unlimited
-                updated_at: now
               })
               .or(`email.eq.${userEmail}`);
           

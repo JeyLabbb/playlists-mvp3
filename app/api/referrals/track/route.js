@@ -175,23 +175,30 @@ export async function POST(request) {
             const { getSupabaseAdmin } = await import('@/lib/supabase/server');
             const supabaseAdmin = getSupabaseAdmin();
             
-            // 🚨 CRITICAL: Actualización directa de 'plan', 'max_uses', 'updated_at' y 'founder_source'
+            // 🚨 CRITICAL: Actualización directa de 'plan', 'max_uses' y 'founder_source'
             // 🚨 OPTIMIZATION: Usar email directamente (no tenemos id del referrer)
             const { error: updateError } = await supabaseAdmin
               .from('users')
               .update({
                 plan: 'founder',
                 max_uses: null, // 🚨 CRITICAL: null = infinito
-                updated_at: now,
                 // 🚨 NEW: Marcar que el founder se obtuvo mediante referidos
                 founder_source: 'referral' // 'purchase' o 'referral'
               })
               .eq('email', referralEmail); // 🚨 OPTIMIZATION: Usar eq en lugar de or cuando solo hay email
             
             if (updateError) {
-              console.error('[REF] ❌ Direct update failed:', updateError);
+              console.error('[REF] ❌ Direct update failed:', {
+                error: updateError,
+                message: updateError.message,
+                details: updateError.details,
+                hint: updateError.hint,
+                email: referralEmail
+              });
               throw updateError;
             }
+            
+            console.log('[REF] ✅ Update query executed, verifying...');
             
             // 🚨 OPTIMIZATION: Reducir delay - Supabase es rápido
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -245,8 +252,15 @@ export async function POST(request) {
               throw new Error('Plan update verification failed - Supabase not updated');
             }
           } catch (planError) {
-            console.error('[REF] ❌ Error updating plan to founder in Supabase:', planError);
+            console.error('[REF] ❌ Error updating plan to founder in Supabase:', {
+              error: planError,
+              message: planError?.message,
+              stack: planError?.stack,
+              email: referralEmail,
+              referredQualifiedCount
+            });
             // No fallar silenciosamente - el error ya se logueó
+            // El upgrade se intentará de nuevo cuando el usuario consulte sus stats
           }
       }
 

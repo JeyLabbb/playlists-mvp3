@@ -103,22 +103,25 @@ export async function GET(request) {
       canInvite: true,
     };
 
-    // 🚨 CRITICAL: Si tiene 3/3 referidos pero NO es founder, actualizar automáticamente
+    // 🚨 CRITICAL: Si tiene 1/1 referidos pero NO es founder, actualizar automáticamente
+    // Esto corrige casos donde el contador se actualizó en KV pero el upgrade a Supabase falló
     if (qualifiedReferrals >= REF_REQUIRED_COUNT) {
       const currentPlan = planContext?.plan || 'free';
       
       if (currentPlan !== 'founder') {
-        console.log('[REF-STATS] 🚨 User has 3/3 but plan is not founder! Auto-upgrading...', {
+        console.log('[REF-STATS] 🚨 User has 1/1 referido but plan is not founder! Auto-upgrading...', {
           email: normalizedEmail,
           qualifiedReferrals,
-          currentPlan
+          requiredCount: REF_REQUIRED_COUNT,
+          currentPlan,
+          planInKV: profile.plan
         });
         
         try {
           const { getSupabaseAdmin } = await import('@/lib/supabase/server');
           const now = new Date().toISOString();
           
-          // 🚨 CRITICAL: Actualización directa de 'plan', 'max_uses' y 'updated_at'
+          // 🚨 CRITICAL: Actualización directa de 'plan', 'max_uses' y 'founder_source'
           // Esto es más confiable que setUserPlan
           const supabaseAdmin = getSupabaseAdmin();
           
@@ -128,7 +131,6 @@ export async function GET(request) {
             .update({
               plan: 'founder',
               max_uses: null, // 🚨 CRITICAL: null = infinito
-              updated_at: now,
               // 🚨 NEW: Marcar que el founder se obtuvo mediante referidos
               founder_source: 'referral' // 'purchase' o 'referral'
             });
@@ -142,9 +144,17 @@ export async function GET(request) {
           const { error: updateError } = await updateQuery;
           
           if (updateError) {
-            console.error('[REF-STATS] ❌ Direct update failed:', updateError);
+            console.error('[REF-STATS] ❌ Direct update failed:', {
+              error: updateError,
+              message: updateError.message,
+              details: updateError.details,
+              hint: updateError.hint,
+              email: normalizedEmail
+            });
             throw updateError;
           }
+          
+          console.log('[REF-STATS] ✅ Update query executed, verifying...');
           
           // 🚨 OPTIMIZATION: Reducir delay - Supabase es rápido
           await new Promise(resolve => setTimeout(resolve, 100));

@@ -702,29 +702,73 @@ export async function POST(request: Request) {
                   updatedAt: new Date().toISOString()
                 };
                 
-                // 🚨 CRITICAL: Si alcanza 3/3, actualizar a founder
+                // 🚨 CRITICAL: Si alcanza 1/1 (oferta especial), actualizar a founder
                 const { REF_REQUIRED_COUNT } = await import('@/lib/referrals');
                 if (referredQualifiedCount >= REF_REQUIRED_COUNT) {
-                  const { setUserPlan } = await import('@/lib/billing/usage');
                   const now = new Date().toISOString();
                   
                   updatedReferrerProfile.plan = 'founder';
                   updatedReferrerProfile.founderSince = now;
                   
-                  // Actualizar en Supabase
-                  await setUserPlan(refEmail, 'founder', {
-                    isFounder: true,
-                    since: now
-                  });
-                  
-                  // Enviar email de bienvenida
+                  // 🚨 CRITICAL: Actualizar plan en Supabase directamente (más confiable que setUserPlan)
                   try {
-                    const { sendFounderWelcomeEmail } = await import('@/lib/newsletter/workflows');
-                    await sendFounderWelcomeEmail(refEmail, {
-                      origin: 'referral_founder_upgrade_account_creation'
-                    });
-                  } catch (emailError) {
-                    console.error('[AUTH-COMPLETE] Error sending founder email:', emailError);
+                    const { getSupabaseAdmin } = await import('@/lib/supabase/server');
+                    const supabaseAdmin = getSupabaseAdmin();
+                    
+                    // Actualización directa de 'plan', 'max_uses', 'updated_at' y 'founder_source'
+                    const { error: updateError } = await supabaseAdmin
+                      .from('users')
+                      .update({
+                        plan: 'founder',
+                        max_uses: null, // null = infinito
+                        founder_source: 'referral' // 'purchase' o 'referral'
+                      })
+                      .eq('email', refEmail);
+                    
+                    if (updateError) {
+                      console.error('[AUTH-COMPLETE] ❌ Direct update failed:', updateError);
+                      throw updateError;
+                    }
+                    
+                    // Verificar que se actualizó correctamente
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    const { data: afterUpdate, error: selectError } = await supabaseAdmin
+                      .from('users')
+                      .select('id, email, plan, max_uses, founder_source')
+                      .eq('email', refEmail)
+                      .maybeSingle();
+                    
+                    if (afterUpdate?.plan === 'founder' && afterUpdate?.max_uses === null) {
+                      console.log('[AUTH-COMPLETE] ✅ Successfully updated plan to founder in Supabase (verified):', {
+                        email: refEmail,
+                        plan: afterUpdate.plan,
+                        max_uses: afterUpdate.max_uses
+                      });
+                      
+                      // Actualizar KV DESPUÉS de Supabase (KV es solo caché, Supabase es la fuente de verdad)
+                      await kv.kv.set(referrerProfileKey, updatedReferrerProfile);
+                      
+                      // Enviar email de bienvenida SOLO después de verificar que Supabase se actualizó
+                      try {
+                        const { sendFounderWelcomeEmail } = await import('@/lib/newsletter/workflows');
+                        await sendFounderWelcomeEmail(refEmail, {
+                          origin: 'referral_founder_upgrade_account_creation'
+                        });
+                        console.log('[AUTH-COMPLETE] ✅ Founder welcome email sent to:', refEmail);
+                      } catch (emailError) {
+                        console.error('[AUTH-COMPLETE] ❌ Error sending founder email:', emailError);
+                        // No fallar el upgrade si falla el email
+                      }
+                    } else {
+                      console.error('[AUTH-COMPLETE] ❌ Plan not updated correctly in Supabase! Still:', {
+                        plan: afterUpdate?.plan,
+                        max_uses: afterUpdate?.max_uses
+                      });
+                      throw new Error('Plan update verification failed - Supabase not updated');
+                    }
+                  } catch (planError) {
+                    console.error('[AUTH-COMPLETE] ❌ Error updating plan to founder in Supabase:', planError);
+                    // No fallar silenciosamente - el error ya se logueó
                   }
                 }
                 
