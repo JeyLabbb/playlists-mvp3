@@ -84,11 +84,13 @@ export async function GET(request: NextRequest) {
         }
       };
 
+      // Variables que necesitan estar en scope para el catch
+      let savedPromptId: string | null = null;
+      
       try {
         console.log('[AGENT-STREAM] Starting for:', prompt);
 
         // Guardar el prompt en la base de datos (SIN consumir uso todavía)
-        let savedPromptId: string | null = null;
         const savePrompt = async (): Promise<string | null> => {
           try {
             if (pleiaUser?.email && prompt) {
@@ -235,7 +237,8 @@ export async function GET(request: NextRequest) {
                 // Crear playlist en Spotify
                 let fallbackPlaylist = null;
                 try {
-                  fallbackPlaylist = await createPlaylist(accessToken, playlistName, {
+                  fallbackPlaylist = await createPlaylist(accessToken, {
+                    name: playlistName,
                     description: `Generada por PLEIA: ${prompt.substring(0, 200)}`,
                     public: false
                   });
@@ -1411,7 +1414,8 @@ export async function GET(request: NextRequest) {
               // Intentar crear playlist en Spotify
               let fallbackPlaylist = null;
               try {
-                fallbackPlaylist = await createPlaylist(accessToken, playlistName, {
+                fallbackPlaylist = await createPlaylist(accessToken, {
+                  name: playlistName,
                   description: `Generada por PLEIA: ${prompt.substring(0, 200)}`,
                   public: false
                 });
@@ -1424,8 +1428,19 @@ export async function GET(request: NextRequest) {
                 console.error('[AGENT-STREAM] Error creating fallback playlist:', playlistError);
               }
               
-              // Consumir uso si hay tracks
-              await consumeUsageIfSuccess(savedPromptId, fallbackTracks.length);
+              // Consumir uso si hay tracks (usar la función definida arriba)
+              if (fallbackTracks.length > 0 && savedPromptId && pleiaUser?.email) {
+                try {
+                  await consumeUsage(pleiaUser.email, {
+                    prompt_id: savedPromptId,
+                    prompt: prompt.substring(0, 100),
+                    source: 'agent_stream_fallback'
+                  });
+                  console.log('[AGENT-STREAM] ✅ Usage consumed for fallback tracks');
+                } catch (usageError) {
+                  console.error('[AGENT-STREAM] Error consuming usage for fallback:', usageError);
+                }
+              }
               
               // Trackear fallback a MTRYX
               try {
