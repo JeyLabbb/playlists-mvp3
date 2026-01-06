@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import AnimatedList from '../components/AnimatedList';
-import { normalizeUsername } from '../../lib/social/usernameUtils';
+// Username se usa tal cual de Supabase - sin normalizar
 
 export default function TrendingPage() {
   const router = useRouter();
@@ -502,9 +502,9 @@ export default function TrendingPage() {
             </div>
           ) : (
             <div className="space-y-3 sm:space-y-6">
-              {playlists.map((playlist) => (
+              {playlists.map((playlist, index) => (
                 <div
-                  key={playlist.id}
+                  key={playlist.id || playlist.playlistId || `playlist-${index}`}
                   className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 sm:p-6 hover:border-gray-600 transition-all duration-200 hover:bg-gray-800/70"
                   onMouseEnter={() => trackView(playlist.playlistId)}
                 >
@@ -551,7 +551,7 @@ export default function TrendingPage() {
                                     }}
                                     title="Ver perfil del autor"
                                   >
-                                    @{normalizeUsername(playlist.author?.username) || playlist.author?.username || 'unknown'}
+                                    @{playlist.author?.username || 'unknown'}
                                   </span>
                                   <div className="text-xs text-gray-500 sm:block hidden">
                                     {playlist.author?.displayName || 'Usuario'}

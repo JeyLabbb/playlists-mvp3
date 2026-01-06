@@ -10,6 +10,7 @@ import LoadingStatus from "./components/LoadingStatus";
 import FeedbackModal from "./components/FeedbackModal";
 import FeedbackGate from "./components/FeedbackGate";
 import AnimatedList from "./components/AnimatedList";
+import FeaturedPlaylistCard from "./components/FeaturedPlaylistCard";
 import { REFERRALS_ENABLED, canInvite } from "../lib/referrals";
 import UsageLimitReached from "./components/UsageLimitReached";
 import { useProfile } from "../lib/useProfile";
@@ -240,6 +241,7 @@ export default function Home() {
   // User playlists state
   const [userPlaylists, setUserPlaylists] = useState([]);
   const [playlistsLoading, setPlaylistsLoading] = useState(false);
+  const [updatingPrivacy, setUpdatingPrivacy] = useState(new Set());
   const [editingPlaylistName, setEditingPlaylistName] = useState(null);
   const [editingNameValue, setEditingNameValue] = useState('');
   const [removing, setRemoving] = useState(false);
@@ -2045,6 +2047,63 @@ export default function Home() {
     }
   }, [sessionUser?.email]);
 
+  // Toggle playlist privacy
+  const togglePlaylistPrivacy = async (playlistId, currentPublic) => {
+    const newPublic = !currentPublic;
+    
+    try {
+      setUpdatingPrivacy(prev => new Set([...prev, playlistId]));
+      
+      const response = await fetch('/api/userplaylists', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playlistId: playlistId,
+          public: newPublic
+        }),
+        credentials: 'include',
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        // Update local state
+        setUserPlaylists(prev => (Array.isArray(prev) ? prev : []).map(playlist => 
+          playlist.playlistId === playlistId 
+            ? { ...playlist, public: newPublic }
+            : playlist
+        ));
+        
+        // If fallback to localStorage, update there too
+        if (result.reason === 'fallback-localStorage' && sessionUser?.email) {
+          const localKey = `jey_user_playlists:${sessionUser.email}`;
+          const localPlaylists = JSON.parse(localStorage.getItem(localKey) || '[]');
+          const updatedPlaylists = localPlaylists.map(playlist =>
+            playlist.playlistId === playlistId 
+              ? { ...playlist, public: newPublic }
+              : playlist
+          );
+          localStorage.setItem(localKey, JSON.stringify(updatedPlaylists));
+        }
+        
+        console.log(`Playlist ${newPublic ? 'publicada' : 'privada'} exitosamente`);
+        toast.success(`Playlist ${newPublic ? 'pública' : 'privada'}`);
+      } else {
+        console.error('Error updating privacy:', result.error);
+        toast.error(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error toggling privacy:', error);
+      toast.error('Error al cambiar la privacidad de la playlist');
+    } finally {
+      setUpdatingPrivacy(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(playlistId);
+        return newSet;
+      });
+    }
+  };
+
   // Load playlists when user is authenticated
   useEffect(() => {
     if (sessionUser?.email) {
@@ -2836,6 +2895,9 @@ export default function Home() {
             </div>
           )}
 
+          {/* Featured Playlist Section */}
+          <FeaturedPlaylistCard />
+
           {/* User Playlists Section - Always show below generation process and tracks */}
           {sessionUser && (
             <div className="spotify-card mt-6">
@@ -3033,6 +3095,42 @@ export default function Home() {
                               </svg>
                               <span className="relative z-10">Abrir en Spotify</span>
                             </button>
+                            
+                            {/* Privacy Toggle */}
+                            <div className="flex items-center justify-between p-2.5 bg-white/[0.05] rounded-lg border border-white/10">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-300">Visible en Trending</span>
+                                <span className={`text-xs px-2 py-1 rounded ${
+                                  (playlist.public !== false && playlist.public !== undefined) || playlist.public === true
+                                    ? 'bg-green-500/20 text-green-400' 
+                                    : 'bg-red-500/20 text-red-400'
+                                }`}>
+                                  {(playlist.public !== false && playlist.public !== undefined) || playlist.public === true ? 'Pública' : 'Privada'}
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  const currentPublic = (playlist.public !== false && playlist.public !== undefined) || playlist.public === true;
+                                  togglePlaylistPrivacy(playlist.playlistId, currentPublic);
+                                }}
+                                disabled={updatingPrivacy.has(playlist.playlistId)}
+                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-white/30 ${
+                                  (playlist.public !== false && playlist.public !== undefined) || playlist.public === true
+                                    ? 'bg-green-500' 
+                                    : 'bg-gray-600'
+                                } ${updatingPrivacy.has(playlist.playlistId) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title={(playlist.public !== false && playlist.public !== undefined) || playlist.public === true ? 'Hacer privada' : 'Hacer pública'}
+                              >
+                                <span
+                                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform duration-200 ${
+                                    (playlist.public !== false && playlist.public !== undefined) || playlist.public === true
+                                      ? 'translate-x-5' 
+                                      : 'translate-x-1'
+                                  }`}
+                                />
+                              </button>
+                            </div>
+                            
                             <button
                               onClick={() => loadPlaylistPreview(playlist)}
                               disabled={!playlist.url}

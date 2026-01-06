@@ -1050,6 +1050,12 @@ export default function AdminDebugDB() {
                 Última actualización: {new Date().toLocaleTimeString('es-ES')}
               </div>
               <Link 
+                href="/admin/featured-playlist"
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm sm:text-base text-center"
+              >
+                ⭐ Playlist Destacada
+              </Link>
+              <Link 
                 href="/admin/newsletter"
                 className="px-4 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700 transition-colors text-sm sm:text-base text-center"
               >

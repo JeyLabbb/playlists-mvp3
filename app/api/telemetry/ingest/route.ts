@@ -151,7 +151,8 @@ async function insertPlaylist(userEmail: string, playlistName: string, prompt: s
         prompt: prompt,
         spotify_url: spotifyUrl,
         spotify_id: spotifyId,
-        track_count: trackCount || 0
+        track_count: trackCount || 0,
+        is_public: true // Por defecto públicas (se puede cambiar después)
       }] as any)
       .select()
       .single();

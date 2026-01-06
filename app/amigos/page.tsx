@@ -2,10 +2,11 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import useSWR from "swr";
 import { usePleiaSession } from "../../lib/auth/usePleiaSession";
 import { useAuthActions } from "../../lib/auth/clientActions";
-import { normalizeUsername, getDisplayName } from "../../lib/social/usernameUtils";
+// Usar username tal cual de Supabase - sin normalizar
 import { markFriendsNotificationsAsSeen, isNewNotification } from "../../lib/hooks/useFriendsNotifications";
 
 const fetcher = async (url: string) => {
@@ -151,12 +152,10 @@ export default function FriendsPage() {
   };
 
   const handleViewProfile = (friend: FriendEntry) => {
-    const username = normalizeUsername(friend.username);
+    // Usar username tal cual de Supabase - sin normalizar
+    const username = friend.username || friend.email?.split('@')[0];
     if (username) {
-      router.push(`/u/${username}`);
-    } else if (friend.email) {
-      // Si no hay username, intentar usar el email (aunque no es ideal)
-      router.push(`/u/${friend.email.split('@')[0]}`);
+      router.push(`/u/${encodeURIComponent(username)}`);
     }
   };
 
@@ -271,8 +270,8 @@ export default function FriendsPage() {
                       const isNew = isNewNotification(req.requestId);
                       return (
                       <li key={req.requestId} className={`border rounded-xl p-4 ${isNew ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-gray-800 bg-gray-950/60'}`}>
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <div className="flex-1 min-w-0">
                             {isNew && (
                               <span className="inline-block mb-1 px-2 py-0.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 rounded-full border border-emerald-500/30">
                                 NEW
@@ -280,34 +279,40 @@ export default function FriendsPage() {
                             )}
                             <p className="font-medium text-white">
                               {(() => {
-                                const displayName = getDisplayName(req.username, req.email);
-                                const normalizedUsername = normalizeUsername(req.username);
-                                return normalizedUsername ? (
-                                  <span className="flex items-center gap-2">
-                                    <span>@{normalizedUsername}</span>
+                                // Usar username tal cual - sin normalizar
+                                const username = req.username || req.email?.split('@')[0] || 'unknown';
+                                const profileUrl = req.username ? `/u/${encodeURIComponent(req.username)}` : null;
+                                
+                                return profileUrl ? (
+                                  <Link 
+                                    href={profileUrl}
+                                    className="text-emerald-400 hover:text-emerald-300 hover:underline transition-colors flex items-center gap-2"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <span>@{username}</span>
                                     {req.email && (
                                       <span className="text-xs text-gray-500">({req.email})</span>
                                     )}
-                                  </span>
+                                  </Link>
                                 ) : (
-                                  <span className="text-gray-400 italic">{displayName}</span>
+                                  <span className="text-gray-400">@{username}</span>
                                 );
                               })()}
                             </p>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-gray-500 mt-1">
                               Desde {new Date(req.createdAt).toLocaleString()}
                             </p>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                             <button
                               onClick={() => handleRespond(req.requestId, "accept")}
-                              className="px-3 py-1.5 rounded-lg bg-emerald-500 text-black text-xs font-semibold hover:bg-emerald-400"
+                              className="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-emerald-500 text-black text-xs font-semibold hover:bg-emerald-400"
                             >
                               Aceptar
                             </button>
                             <button
                               onClick={() => handleRespond(req.requestId, "decline")}
-                              className="px-3 py-1.5 rounded-lg border border-gray-700 text-xs font-semibold text-gray-200 hover:bg-gray-800"
+                              className="w-full sm:w-auto px-3 py-1.5 rounded-lg border border-gray-700 text-xs font-semibold text-gray-200 hover:bg-gray-800"
                             >
                               Rechazar
                             </button>
@@ -333,8 +338,8 @@ export default function FriendsPage() {
                       const isNew = req.status === 'accepted' && isNewNotification(req.requestId);
                       return (
                       <li key={req.requestId} className={`border rounded-xl p-4 ${isNew ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-gray-800 bg-gray-950/60'}`}>
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex-1">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                          <div className="flex-1 min-w-0">
                             {isNew && (
                               <span className="inline-block mb-1 px-2 py-0.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 rounded-full border border-emerald-500/30">
                                 NEW
@@ -342,21 +347,27 @@ export default function FriendsPage() {
                             )}
                             <p className="font-medium text-white">
                               {(() => {
-                                const displayName = getDisplayName(req.username, req.email);
-                                const normalizedUsername = normalizeUsername(req.username);
-                                return normalizedUsername ? (
-                                  <span className="flex items-center gap-2">
-                                    <span>@{normalizedUsername}</span>
+                                // Usar username tal cual - sin normalizar
+                                const username = req.username || req.email?.split('@')[0] || 'unknown';
+                                const profileUrl = req.username ? `/u/${encodeURIComponent(req.username)}` : null;
+                                
+                                return profileUrl ? (
+                                  <Link 
+                                    href={profileUrl}
+                                    className="text-cyan-400 hover:text-cyan-300 hover:underline transition-colors flex items-center gap-2"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <span>@{username}</span>
                                     {req.email && (
                                       <span className="text-xs text-gray-500">({req.email})</span>
                                     )}
-                                  </span>
+                                  </Link>
                                 ) : (
-                                  <span className="text-gray-400 italic">{displayName}</span>
+                                  <span className="text-gray-400">@{username}</span>
                                 );
                               })()}
                             </p>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-gray-500 mt-1">
                               Estado: {req.status === 'accepted' ? 'Aceptada' : req.status === 'declined' ? 'Declinada' : 'Pendiente'}
                             </p>
                           </div>
@@ -392,38 +403,50 @@ export default function FriendsPage() {
                 <ul className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
                   {sortedFriends.map((friend) => {
                     const isNew = isNewNotification(friend.friendId);
-                    const normalizedUsername = normalizeUsername(friend.username);
-                    const displayName = normalizedUsername 
-                      ? `@${normalizedUsername}` 
-                      : getDisplayName(friend.username, friend.email);
+                    // Usar username tal cual - sin normalizar
+                    const username = friend.username || friend.email?.split('@')[0] || 'unknown';
+                    const profileUrl = friend.username ? `/u/${encodeURIComponent(friend.username)}` : null;
                     
                     return (
                     <li
                       key={friend.friendId}
-                      className={`border rounded-xl p-4 cursor-pointer transition-all hover:bg-gray-900/50 ${isNew ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-gray-800 bg-gray-950/50'}`}
-                      onClick={() => handleViewProfile(friend)}
+                      className={`border rounded-xl p-4 transition-all hover:bg-gray-900/50 ${isNew ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-gray-800 bg-gray-950/50'}`}
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex-1">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="flex-1 min-w-0">
                           {isNew && (
                             <span className="inline-block mb-1 px-2 py-0.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 rounded-full border border-emerald-500/30">
                               NEW
                             </span>
                           )}
-                          <p className="font-semibold text-white hover:text-emerald-400 transition-colors">
-                            {displayName}
-                          </p>
-                          <p className="text-xs text-gray-500">
+                          {profileUrl ? (
+                            <Link 
+                              href={profileUrl}
+                              className="font-semibold text-white hover:text-emerald-400 transition-colors block"
+                            >
+                              @{username}
+                            </Link>
+                          ) : (
+                            <p className="font-semibold text-white">
+                              @{username}
+                            </p>
+                          )}
+                          {friend.email && (
+                            <p className="text-xs text-gray-500 break-all">
+                              {friend.email}
+                            </p>
+                          )}
+                          <p className="text-xs text-gray-500 mt-1">
                             Amigos desde {new Date(friend.createdAt).toLocaleDateString()}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs uppercase tracking-wide text-emerald-300/80 border border-emerald-500/30 rounded-full px-3 py-1">
+                        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                          <span className="text-xs uppercase tracking-wide text-emerald-300/80 border border-emerald-500/30 rounded-full px-3 py-1 shrink-0">
                             {friend.plan || 'free'}
                           </span>
                           <button
                             onClick={(e) => handleRemoveFriend(friend.friendId, e)}
-                            className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-semibold hover:bg-red-500/30 border border-red-500/30 transition-colors"
+                            className="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-semibold hover:bg-red-500/30 border border-red-500/30 transition-colors"
                             title="Eliminar amigo"
                           >
                             Eliminar

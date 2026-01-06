@@ -564,28 +564,36 @@ export default function MyPlaylistsPage() {
                   </div>
                 </div>
 
-                {/* Privacy Toggle */}
+                {/* Privacy Toggle - SIEMPRE mostrar */}
                 <div className="flex items-center justify-between mb-3 sm:mb-4 p-2 sm:p-3 bg-gray-700/30 rounded-md sm:rounded-lg">
                   <div className="flex items-center gap-1 sm:gap-2">
                     <span className="text-xs sm:text-sm text-gray-300">Visible en Trending</span>
                     <span className={`text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 rounded ${
-                      playlist.public !== false 
+                      (playlist.public !== false && playlist.public !== undefined) || playlist.public === true
                         ? 'bg-green-500/20 text-green-400' 
                         : 'bg-red-500/20 text-red-400'
                     }`}>
-                      {playlist.public !== false ? 'Pública' : 'Privada'}
+                      {(playlist.public !== false && playlist.public !== undefined) || playlist.public === true ? 'Pública' : 'Privada'}
                     </span>
                   </div>
                   <button
-                    onClick={() => togglePlaylistPrivacy(playlist.playlistId, playlist.public !== false)}
+                    onClick={() => {
+                      const currentPublic = (playlist.public !== false && playlist.public !== undefined) || playlist.public === true;
+                      togglePlaylistPrivacy(playlist.playlistId, currentPublic);
+                    }}
                     disabled={updatingPrivacy.has(playlist.playlistId)}
                     className={`relative inline-flex h-5 w-9 sm:h-6 sm:w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${
-                      playlist.public !== false ? 'bg-green-500' : 'bg-gray-600'
+                      (playlist.public !== false && playlist.public !== undefined) || playlist.public === true
+                        ? 'bg-green-500' 
+                        : 'bg-gray-600'
                     } ${updatingPrivacy.has(playlist.playlistId) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    title={(playlist.public !== false && playlist.public !== undefined) || playlist.public === true ? 'Hacer privada' : 'Hacer pública'}
                   >
                     <span
                       className={`inline-block h-3 w-3 sm:h-4 sm:w-4 transform rounded-full bg-white transition-transform duration-200 ${
-                        playlist.public !== false ? 'translate-x-5 sm:translate-x-6' : 'translate-x-1'
+                        (playlist.public !== false && playlist.public !== undefined) || playlist.public === true
+                          ? 'translate-x-5 sm:translate-x-6' 
+                          : 'translate-x-1'
                       }`}
                     />
                   </button>

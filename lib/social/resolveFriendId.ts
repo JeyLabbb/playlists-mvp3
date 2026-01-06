@@ -128,20 +128,24 @@ async function resolveByUsernameDb(
   supabase: SupabaseClientLike,
   username?: string,
 ): Promise<ResolveOutput | null> {
-  const normalizedUsername = normalizeUsername(username);
-  if (!normalizedUsername) return null;
+  // Usar username tal cual (solo sanitizar para búsqueda, no normalizar que quite sufijos)
+  const sanitized = (username || '').toLowerCase().trim().replace(/[^a-z0-9._-]/g, '').substring(0, 30);
+  if (!sanitized) return null;
 
+  // Buscar por username exacto (case-insensitive) - NO normalizar
   const user = await fetchSingle<{ id: string; email: string | null; username: string | null }>(
     supabase
       .from('users')
       .select('id, email, username')
-      .eq('username', normalizedUsername),
+      .ilike('username', sanitized), // Case-insensitive search
   );
 
   if (user?.id && !isPlaceholderEmail(user.email)) {
     const email = normalizeEmail(user.email);
+    // Usar el username tal cual está en Supabase (sin normalizar)
+    const actualUsername = user.username || sanitized;
     await cacheUsernameMapping({
-      username: user.username ?? normalizedUsername,
+      username: actualUsername,
       email,
       userId: user.id,
     }).catch(() => {});
@@ -149,7 +153,7 @@ async function resolveByUsernameDb(
     return {
       userId: user.id,
       email,
-      username: user.username ?? normalizedUsername,
+      username: actualUsername, // Username tal cual en Supabase
       source: 'username-db',
     };
   }
@@ -161,7 +165,7 @@ async function resolveByUsernameDb(
     supabase
       .from('playlists')
       .select('user_id, user_email')
-      .eq('user_email', `${normalizedUsername}@example.com`),
+      .eq('user_email', `${sanitized}@example.com`),
   );
 
   if (playlistOwner?.user_id && !isPlaceholderEmail(playlistOwner.user_email)) {

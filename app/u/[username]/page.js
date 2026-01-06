@@ -25,101 +25,59 @@ export default function PublicProfilePage({ params }) {
     try {
       setLoading(true); 
       
-      let userPlaylists = [];
+      // OPTIMIZATION: Cargar perfil y playlists en paralelo desde endpoints optimizados
+      const [profileResponse, playlistsResponse] = await Promise.all([
+        fetch(`/api/social/profile/${encodeURIComponent(username)}`),
+        fetch(`/api/social/profile/${encodeURIComponent(username)}/playlists`)
+      ]);
       
-      // First, try trending endpoint
-      const trendingResponse = await fetch('/api/trending?limit=500');
-      const trendingData = await trendingResponse.json();
-      
-      if (trendingData.success && trendingData.playlists) {
-        // Filter playlists by this username
-        userPlaylists = trendingData.playlists.filter(
-          playlist => playlist.author?.username === username
-        );
-      }
-      
-      // If no playlists from trending (KV not available), try localStorage fallback
-      if (userPlaylists.length === 0) {
-        console.log('[USER-PROFILE] No data from trending, trying localStorage fallback');
-        userPlaylists = await getPlaylistsFromLocalStorage();
-        
-        if (userPlaylists.length > 0) {
-          console.log(`[USER-PROFILE] Found ${userPlaylists.length} total playlists from localStorage`);
-          
-          // Filter for this specific username
-          userPlaylists = userPlaylists.filter(
-            playlist => playlist.author?.username === username
-          );
-          
-          console.log(`[USER-PROFILE] Found ${userPlaylists.length} playlists for user ${username}`);
+      // Procesar perfil
+      let fullProfile = null;
+      if (profileResponse.ok) {
+        const profileData = await profileResponse.json();
+        if (profileData.success && profileData.profile) {
+          fullProfile = profileData.profile;
         }
       }
       
-      if (userPlaylists.length === 0) {
+      // Procesar playlists
+      let userPlaylists = [];
+      if (playlistsResponse.ok) {
+        const playlistsData = await playlistsResponse.json();
+        if (playlistsData.success && playlistsData.playlists) {
+          userPlaylists = playlistsData.playlists.map(playlist => ({
+            id: playlist.id,
+            playlistId: playlist.playlistId,
+            playlistName: playlist.playlistName,
+            prompt: playlist.prompt,
+            spotifyUrl: playlist.spotifyUrl,
+            trackCount: playlist.trackCount,
+            createdAt: playlist.createdAt,
+            author: {
+              username: fullProfile?.username || username,
+              displayName: fullProfile?.displayName || username,
+              image: fullProfile?.image || null,
+            },
+            ownerEmail: playlist.ownerEmail || fullProfile?.email || null
+          }));
+        }
+      }
+      
+      if (userPlaylists.length === 0 && !fullProfile) {
         setError('Usuario no encontrado o sin playlists públicas');
         return;
       }
       
-      // Extract profile info from the first playlist (they should all have same author)
-      const authorInfo = userPlaylists[0].author;
-      
-      // Try to get full profile information from API
-      let fullProfile = null;
-      try {
-        const profileResponse = await fetch(`/api/social/profile/${encodeURIComponent(username)}`);
-        if (profileResponse.ok) {
-          const profileData = await profileResponse.json();
-          if (profileData.success && profileData.profile) {
-            fullProfile = profileData.profile;
-            console.log('[USER-PROFILE] Loaded profile from API:', fullProfile);
-          }
-        }
-      } catch (profileError) {
-        console.warn('[USER-PROFILE] Error fetching profile from API:', profileError);
-        
-        // Fallback: Look for user profile in localStorage
-        try {
-          const allProfileKeys = [];
-          for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && key.startsWith('jey_user_profile:')) {
-              allProfileKeys.push(key);
-            }
-          }
-          
-          // Find profile by username
-          for (const key of allProfileKeys) {
-            try {
-              const profileData = JSON.parse(localStorage.getItem(key) || 'null');
-              if (profileData && normalizeUsername(profileData.username) === normalizeUsername(username)) {
-                fullProfile = profileData;
-                break;
-              }
-            } catch (parseError) {
-              console.warn(`Error parsing profile key ${key}:`, parseError);
-            }
-          }
-        } catch (localStorageError) {
-          console.warn('Error searching for full profile in localStorage:', localStorageError);
-        }
-      }
-      
-      // Use full profile if available, otherwise use basic author info
+      // Construir perfil final - usar username tal cual (sin normalizar que quite sufijos)
       const finalProfile = {
-        username: normalizeUsername(fullProfile?.username || authorInfo?.username || username),
-        displayName: fullProfile?.displayName || authorInfo?.displayName || username,
-        image: fullProfile?.image || authorInfo?.image || null,
+        username: fullProfile?.username || username, // Usar username tal cual de Supabase
+        displayName: fullProfile?.displayName || username,
+        image: fullProfile?.image || null,
         bio: fullProfile?.bio || null,
-        email: fullProfile?.email || null // Store email for playlist access control
+        email: fullProfile?.email || null
       };
       setProfile(finalProfile);
-      
-      // Add owner email to each playlist for access control
-      const playlistsWithOwner = userPlaylists.map(playlist => ({
-        ...playlist,
-        ownerEmail: finalProfile.email || playlist.author?.email || playlist.ownerEmail || null
-      }));
-      setPublicPlaylists(playlistsWithOwner);
+      setPublicPlaylists(userPlaylists);
       
     } catch (error) {
       console.error('Error fetching user profile:', error);

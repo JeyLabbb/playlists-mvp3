@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import { normalizeUsername } from '@/lib/social/usernameUtils';
 
 // Check if Vercel KV is available
 function hasKV() {
@@ -105,39 +104,54 @@ function getFallbackPlaylists() {
   });
 }
 
-// Get all trending playlists from KV
+// Get all trending playlists from KV (OPTIMIZADO - limitar cantidad)
 async function getAllTrendingPlaylists() {
   try {
     const kv = await import('@vercel/kv');
     const allPlaylists = [];
+    const MAX_PLAYLISTS_PER_USER = 10; // Limitar playlists por usuario
+    const MAX_TOTAL_PLAYLISTS = 200; // Límite total
     
-    // Get user playlists
+    // Get user playlists (limitado)
     const userPlaylistKeys = await kv.kv.keys('userplaylists:*');
     
-    for (const key of userPlaylistKeys) {
+    // Limitar a los primeros 50 usuarios para no sobrecargar
+    const limitedKeys = userPlaylistKeys.slice(0, 50);
+    
+    for (const key of limitedKeys) {
       try {
         const playlists = await kv.kv.get(key);
         if (Array.isArray(playlists)) {
-          allPlaylists.push(...playlists);
+          // Filtrar solo playlists públicas y limitar cantidad por usuario
+          const publicPlaylists = playlists
+            .filter(p => p.public !== false)
+            .slice(0, MAX_PLAYLISTS_PER_USER);
+          allPlaylists.push(...publicPlaylists);
+          
+          // Si ya tenemos suficientes, parar
+          if (allPlaylists.length >= MAX_TOTAL_PLAYLISTS) {
+            break;
+          }
         }
       } catch (err) {
         console.warn('Error getting user playlists for key:', key, err);
       }
     }
     
-    // Get trending playlists
+    // Get trending playlists (limitado)
     const trendingKeys = await kv.kv.keys('trending:*');
+    const limitedTrendingKeys = trendingKeys.slice(0, 20); // Solo primeros 20
     
-    for (const key of trendingKeys) {
+    for (const key of limitedTrendingKeys) {
+      if (allPlaylists.length >= MAX_TOTAL_PLAYLISTS) break;
+      
       try {
         const playlist = await kv.kv.get(key);
         if (playlist) {
-          // Extract Spotify playlist ID from URL
           const spotifyId = playlist.spotifyUrl ? 
             playlist.spotifyUrl.split('/').pop() : 
             key.replace('trending:', '');
           
-          // Convert trending format to user playlist format
           const convertedPlaylist = {
             playlistId: spotifyId,
             prompt: playlist.prompt || 'Playlist trending',
@@ -153,7 +167,7 @@ async function getAllTrendingPlaylists() {
             userEmail: `${playlist.creator || 'jeylabbb'}@example.com`,
             userName: playlist.creator || 'JeyLabbb User',
             userImage: null,
-            isTrending: true // Mark as trending playlist
+            isTrending: true
           };
           
           allPlaylists.push(convertedPlaylist);
@@ -163,7 +177,7 @@ async function getAllTrendingPlaylists() {
       }
     }
     
-    return allPlaylists;
+    return allPlaylists.slice(0, MAX_TOTAL_PLAYLISTS);
   } catch (error) {
     console.warn('Error getting all trending playlists from KV:', error);
     return [];
@@ -181,16 +195,17 @@ async function getPlaylistsFromSupabase() {
 
     console.log('[TRENDING] Fetching playlists from Supabase...');
     
-    // Get playlists from Supabase (try with public column first, fallback to all if column doesn't exist)
+    // Get playlists from Supabase - SOLO playlists públicas
     let { data: playlists, error } = await supabase
       .from('playlists')
-      .select('id, user_email, playlist_name, prompt, spotify_url, track_count, created_at')
+      .select('id, user_email, playlist_name, prompt, spotify_url, track_count, created_at, is_public')
+      .eq('is_public', true) // SOLO playlists públicas
       .order('created_at', { ascending: false })
       .limit(100);
     
-    // If error is about missing column, try without public filter
+    // If error is about missing column, try without is_public filter (fallback para migraciones antiguas)
     if (error && error.code === '42703') {
-      console.log('[TRENDING] public column not found, fetching all playlists...');
+      console.log('[TRENDING] is_public column not found, fetching all playlists (fallback)...');
       const retry = await supabase
         .from('playlists')
         .select('id, user_email, playlist_name, prompt, spotify_url, track_count, created_at')
@@ -212,41 +227,23 @@ async function getPlaylistsFromSupabase() {
 
     console.log(`[TRENDING] Found ${playlists.length} playlists from Supabase`);
 
-    // Get user details for each playlist
+    // OPTIMIZACIÓN: Obtener solo usernames (sin imágenes - muy lento)
     const userEmails = [...new Set(playlists.map(p => p.user_email).filter(Boolean))];
     const userDetailsMap = new Map();
 
     if (userEmails.length > 0) {
       const { data: users } = await supabase
         .from('users')
-        .select('id, email, username')
+        .select('email, username') // Solo email y username (sin id para evitar auth.admin)
         .in('email', userEmails);
 
       if (users) {
-        // Get user images from Supabase auth
-        const { getSupabaseAdmin } = await import('@/lib/supabase/server');
-        const adminSupabase = getSupabaseAdmin();
-        
         for (const user of users) {
-          if (user.email && user.id) {
-            let userImage = null;
-            
-            // Try to get image from Supabase auth
-            if (adminSupabase) {
-              try {
-                const { data: authUser } = await adminSupabase.auth.admin.getUserById(user.id);
-                if (authUser?.user?.user_metadata?.avatar_url) {
-                  userImage = authUser.user.user_metadata.avatar_url;
-                }
-              } catch (authError) {
-                console.warn(`[TRENDING] Could not fetch image for user ${user.email}:`, authError);
-              }
-            }
-            
+          if (user.email) {
             userDetailsMap.set(user.email.toLowerCase(), {
-              username: user.username || null,
+              username: user.username || null, // Username tal cual en Supabase
               email: user.email,
-              image: userImage
+              image: null // Sin imágenes (más rápido)
             });
           }
         }
@@ -256,24 +253,27 @@ async function getPlaylistsFromSupabase() {
     // Convert Supabase playlists to the expected format
     const formattedPlaylists = playlists.map(playlist => {
       const userDetails = userDetailsMap.get(playlist.user_email?.toLowerCase()) || {};
+      // Usar username TAL CUAL está en Supabase - SIN NORMALIZAR
       const rawUsername = userDetails.username || playlist.user_email?.split('@')[0] || 'unknown';
-      const normalized = normalizeUsername(rawUsername);
 
       return {
+        id: playlist.id, // ID único para React key
         playlistId: playlist.id,
         prompt: playlist.prompt || 'Playlist creada',
-        name: playlist.playlist_name || playlist.prompt || 'Playlist',
-        url: playlist.spotify_url || '#',
-        tracks: playlist.track_count || 0,
+        playlistName: playlist.playlist_name || playlist.prompt || 'Playlist',
+        spotifyUrl: playlist.spotify_url || '#',
+        trackCount: playlist.track_count || 0,
         views: 0, // Supabase doesn't track views yet
         clicks: 0, // Supabase doesn't track clicks yet
         createdAt: playlist.created_at || new Date().toISOString(),
         updatedAt: playlist.created_at || new Date().toISOString(),
-        public: true, // Assume all playlists from Supabase are public for trending
-        username: normalized || rawUsername,
-        userEmail: playlist.user_email,
-        userName: userDetails.username || playlist.user_email?.split('@')[0] || 'Usuario',
-        userImage: userDetails.image || null
+        ownerEmail: playlist.user_email || null,
+        author: {
+          username: rawUsername || 'unknown', // Usar username TAL CUAL de Supabase
+          displayName: userDetails.username || rawUsername || playlist.user_email?.split('@')[0] || 'Usuario',
+          image: userDetails.image || null,
+          email: playlist.user_email || null
+        }
       };
     });
 
@@ -359,64 +359,29 @@ export async function GET(request) {
 
     let playlists = [];
 
-    // Try KV first
-    if (hasKV()) {
-      console.log('[TRENDING] KV is available, fetching playlists...');
+    // OPTIMIZACIÓN: Intentar Supabase primero (más rápido y directo)
+    const supabasePlaylists = await getPlaylistsFromSupabase();
+    let source = 'kv';
+    
+    if (supabasePlaylists.length > 0) {
+      console.log(`[TRENDING] Using ${supabasePlaylists.length} playlists from Supabase (fast)`);
+      playlists = supabasePlaylists;
+      source = 'supabase';
+    } else if (hasKV()) {
+      // Fallback a KV solo si Supabase no tiene datos
+      console.log('[TRENDING] KV fallback, fetching playlists...');
       const allPlaylists = await getAllTrendingPlaylists();
       console.log(`[TRENDING] Found ${allPlaylists.length} total playlists from KV`);
       
-      // Get user emails to fetch profile images
-      const userEmails = [...new Set(allPlaylists.map(p => p.userEmail).filter(Boolean))];
-      const userImagesMap = new Map();
+      // OPTIMIZACIÓN: No buscar imágenes de perfil (muy lento)
+      // Las imágenes se pueden cargar lazy en el frontend si es necesario
       
-      // Fetch profile images from KV and Supabase auth
-      if (userEmails.length > 0 && hasKV()) {
-        try {
-          const kv = await import('@vercel/kv');
-          const supabase = getSupabaseAdmin();
-          
-          // Get profiles from KV
-          for (const email of userEmails) {
-            try {
-              const profile = await kv.kv.get(`jey_user_profile:${email}`);
-              if (profile?.image) {
-                userImagesMap.set(email.toLowerCase(), profile.image);
-              }
-            } catch (kvError) {
-              console.warn(`[TRENDING] Could not get profile from KV for ${email}:`, kvError);
-            }
-            
-            // If no image in KV, try Supabase auth
-            if (!userImagesMap.has(email.toLowerCase()) && supabase) {
-              try {
-                const { data: user } = await supabase
-                  .from('users')
-                  .select('id')
-                  .eq('email', email.toLowerCase())
-                  .maybeSingle();
-                
-                if (user?.id) {
-                  const { data: authUser } = await supabase.auth.admin.getUserById(user.id);
-                  if (authUser?.user?.user_metadata?.avatar_url) {
-                    userImagesMap.set(email.toLowerCase(), authUser.user.user_metadata.avatar_url);
-                  }
-                }
-              } catch (authError) {
-                console.warn(`[TRENDING] Could not get image from auth for ${email}:`, authError);
-              }
-            }
-          }
-        } catch (error) {
-          console.warn('[TRENDING] Error fetching user images:', error);
-        }
-      }
-      
-      // Filter only public playlists, remove duplicates, and add author info
+      // OPTIMIZACIÓN: Formatear playlists sin buscar imágenes (más rápido)
       const seenIds = new Set();
       playlists = allPlaylists
-        .filter(playlist => playlist.public === true) // Default to true for legacy playlists
+        .filter(playlist => playlist.public === true) // Solo públicas
         .filter(playlist => {
-          // Remove playlists with fake IDs (sample1, sample2, etc.)
+          // Remove playlists with fake IDs
           if (playlist.playlistId.startsWith('sample') || playlist.playlistId.startsWith('176071')) {
             return false;
           }
@@ -427,75 +392,28 @@ export async function GET(request) {
           seenIds.add(playlist.playlistId);
           return true;
         })
-        .map(playlist => {
-          const userEmail = playlist.userEmail?.toLowerCase();
-          const userImage = userEmail ? userImagesMap.get(userEmail) : null;
-          
-          return {
-            id: playlist.playlistId,
-            prompt: playlist.prompt || 'Playlist creada',
-            playlistName: playlist.name,
-            playlistId: playlist.playlistId,
-            spotifyUrl: playlist.url,
-            trackCount: playlist.tracks || 0,
-            views: playlist.views || 0,
-            clicks: playlist.clicks || 0,
-            createdAt: playlist.createdAt,
-            updatedAt: playlist.updatedAt || playlist.createdAt,
-            ownerEmail: playlist.userEmail || null, // Add owner email for access control
-            author: {
-              username: normalizeUsername(playlist.username || playlist.userEmail?.split('@')[0] || 'unknown') || 'unknown',
-              displayName: playlist.userName || playlist.userEmail?.split('@')[0] || 'Usuario',
-              image: userImage || playlist.userImage || null,
-              email: playlist.userEmail || null // Add email to author for access control
-            }
-          };
-        });
+        .slice(0, limit) // Limitar cantidad
+        .map(playlist => ({
+          id: playlist.playlistId,
+          prompt: playlist.prompt || 'Playlist creada',
+          playlistName: playlist.name,
+          playlistId: playlist.playlistId,
+          spotifyUrl: playlist.url,
+          trackCount: playlist.tracks || 0,
+          views: playlist.views || 0,
+          clicks: playlist.clicks || 0,
+          createdAt: playlist.createdAt,
+          updatedAt: playlist.updatedAt || playlist.createdAt,
+          ownerEmail: playlist.userEmail || null,
+          author: {
+            username: playlist.username || playlist.userEmail?.split('@')[0] || 'unknown', // Usar username TAL CUAL de Supabase
+            displayName: playlist.userName || playlist.username || playlist.userEmail?.split('@')[0] || 'Usuario',
+            image: playlist.userImage || null, // Sin buscar imágenes (más rápido)
+            email: playlist.userEmail || null
+          }
+        }));
       
-      console.log(`[TRENDING] Found ${playlists.length} public playlists after filtering from KV`);
-    }
-
-    // If no playlists from KV, try Supabase as fallback
-    if (playlists.length === 0) {
-      console.log('[TRENDING] No playlists from KV, trying Supabase fallback...');
-      const supabasePlaylists = await getPlaylistsFromSupabase();
-      
-      if (supabasePlaylists.length > 0) {
-        // Filter and format Supabase playlists
-        const seenIds = new Set();
-        playlists = supabasePlaylists
-          .filter(playlist => {
-            // Remove playlists with fake IDs
-            if (playlist.playlistId.startsWith('sample') || playlist.playlistId.startsWith('176071')) {
-              return false;
-            }
-            // Remove duplicates
-            if (seenIds.has(playlist.playlistId)) {
-              return false;
-            }
-            seenIds.add(playlist.playlistId);
-            return true;
-          })
-          .map(playlist => ({
-            id: playlist.playlistId,
-            prompt: playlist.prompt || 'Playlist creada',
-            playlistName: playlist.name,
-            playlistId: playlist.playlistId,
-            spotifyUrl: playlist.url,
-            trackCount: playlist.tracks || 0,
-            views: playlist.views || 0,
-            clicks: playlist.clicks || 0,
-            createdAt: playlist.createdAt,
-            updatedAt: playlist.updatedAt || playlist.createdAt,
-            author: {
-              username: normalizeUsername(playlist.username) || 'unknown',
-              displayName: playlist.userName || 'Usuario',
-              image: playlist.userImage || null
-            }
-          }));
-        
-        console.log(`[TRENDING] Found ${playlists.length} playlists from Supabase`);
-      }
+      console.log(`[TRENDING] Found ${playlists.length} public playlists from KV`);
     }
 
     // Sort playlists
@@ -528,7 +446,7 @@ export async function GET(request) {
       success: true,
       playlists: limitedPlaylists,
       total: playlists.length,
-      source: 'kv'
+      source: source
     });
 
   } catch (error) {

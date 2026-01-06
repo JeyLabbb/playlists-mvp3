@@ -136,6 +136,12 @@ export async function GET(request) {
       }
     }
 
+    // Asegurar que todas las playlists tengan el campo 'public' (default true si no existe)
+    playlists = playlists.map(playlist => ({
+      ...playlist,
+      public: playlist.public !== false // Default a true si no está definido
+    }));
+
     // Sort by creation date (newest first)
     playlists.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
@@ -243,6 +249,33 @@ export async function PUT(request) {
       }
     }
 
+    // Sincronizar con Supabase si se actualiza la privacidad
+    if (updates.hasOwnProperty('public') || updates.hasOwnProperty('is_public')) {
+      try {
+        const { getSupabaseAdmin } = await import('@/lib/supabase/server');
+        const supabase = getSupabaseAdmin();
+        if (supabase) {
+          const isPublic = updates.public !== undefined ? updates.public : updates.is_public;
+          // Buscar playlist por spotify_id
+          const { error: updateError } = await supabase
+            .from('playlists')
+            .update({ is_public: isPublic !== false })
+            .eq('spotify_id', playlistId)
+            .eq('user_email', userEmail.toLowerCase());
+          
+          if (updateError) {
+            console.warn('[USERPLAYLISTS] Failed to sync privacy to Supabase:', updateError);
+            // No fallar si Supabase falla, KV ya está actualizado
+          } else {
+            console.log('[USERPLAYLISTS] Privacy synced to Supabase for playlist:', playlistId);
+          }
+        }
+      } catch (supabaseError) {
+        console.warn('[USERPLAYLISTS] Error syncing to Supabase:', supabaseError);
+        // No fallar si Supabase falla
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Playlist updated successfully',
@@ -305,6 +338,33 @@ export async function PATCH(request) {
     } else {
       // If KV not available, return success but note it's client-side only
       console.log('[USERPLAYLISTS] PATCH: KV not available, client should update localStorage');
+    }
+
+    // Sincronizar con Supabase si se actualiza la privacidad
+    if (updates.hasOwnProperty('public') || updates.hasOwnProperty('is_public')) {
+      try {
+        const { getSupabaseAdmin } = await import('@/lib/supabase/server');
+        const supabase = getSupabaseAdmin();
+        if (supabase) {
+          const isPublic = updates.public !== undefined ? updates.public : updates.is_public;
+          // Buscar playlist por spotify_id
+          const { error: updateError } = await supabase
+            .from('playlists')
+            .update({ is_public: isPublic !== false })
+            .eq('spotify_id', playlistId)
+            .ilike('user_email', userEmail);
+          
+          if (updateError) {
+            console.warn('[USERPLAYLISTS] Failed to sync privacy to Supabase:', updateError);
+            // No fallar si Supabase falla, KV ya está actualizado
+          } else {
+            console.log('[USERPLAYLISTS] Privacy synced to Supabase');
+          }
+        }
+      } catch (supabaseError) {
+        console.warn('[USERPLAYLISTS] Error syncing to Supabase:', supabaseError);
+        // No fallar si Supabase falla
+      }
     }
 
     return NextResponse.json({

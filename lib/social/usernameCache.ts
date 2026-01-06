@@ -12,20 +12,12 @@ export type UsernameCachePayload = {
 export function normalizeUsername(username?: string | null) {
   if (!username) return '';
   
-  // Primero sanitizar (lowercase, quitar caracteres inválidos)
-  const sanitized = username.toLowerCase().replace(/[^a-z0-9._-]/g, '').substring(0, 30);
+  // SOLO sanitizar (lowercase, quitar caracteres inválidos)
+  // NO quitar sufijos automáticamente - usar el username tal cual está en Supabase
+  const sanitized = username.toLowerCase().trim().replace(/[^a-z0-9._-]/g, '').substring(0, 30);
   
-  // Luego quitar el sufijo generado automáticamente (formato: nombre-xxxxx)
-  // Buscar el último guion seguido de 6-8 caracteres alfanuméricos al final
-  const suffixPattern = /-([a-z0-9]{6,8})$/i;
-  const match = sanitized.match(suffixPattern);
-  
-  if (match) {
-    // Si coincide con el patrón, extraer la parte antes del guion
-    return sanitized.substring(0, sanitized.lastIndexOf('-'));
-  }
-  
-  // Si no coincide, devolver el username sanitizado
+  // Devolver el username sanitizado tal cual (sin quitar sufijos)
+  // Los usernames en Supabase son la fuente de verdad
   return sanitized;
 }
 
@@ -49,8 +41,9 @@ async function loadKv() {
 }
 
 export async function cacheUsernameMapping(payload: UsernameCachePayload) {
-  const normalized = normalizeUsername(payload.username);
-  if (!normalized) return false;
+  // Usar username TAL CUAL - solo sanitizar para la clave (no normalizar que quite sufijos)
+  const sanitized = (payload.username || '').toLowerCase().trim().replace(/[^a-z0-9._-]/g, '').substring(0, 30);
+  if (!sanitized) return false;
 
   const kv = await loadKv();
   if (!kv) return false;
@@ -58,10 +51,10 @@ export async function cacheUsernameMapping(payload: UsernameCachePayload) {
   const pipeline = (kv as Redis).pipeline();
 
   if (payload.email) {
-    pipeline.set(`${USERNAME_INDEX_PREFIX}${normalized}`, payload.email);
+    pipeline.set(`${USERNAME_INDEX_PREFIX}${sanitized}`, payload.email);
   }
   if (payload.userId) {
-    pipeline.set(`${USERNAME_ID_PREFIX}${normalized}`, payload.userId);
+    pipeline.set(`${USERNAME_ID_PREFIX}${sanitized}`, payload.userId);
   }
 
   try {
@@ -74,8 +67,9 @@ export async function cacheUsernameMapping(payload: UsernameCachePayload) {
 }
 
 export async function getCachedUsernameMapping(username: string) {
-  const normalized = normalizeUsername(username);
-  if (!normalized) {
+  // Solo sanitizar para la búsqueda (no normalizar que quite sufijos)
+  const sanitized = (username || '').toLowerCase().trim().replace(/[^a-z0-9._-]/g, '').substring(0, 30);
+  if (!sanitized) {
     return { email: null as string | null, userId: null as string | null };
   }
 
@@ -86,8 +80,8 @@ export async function getCachedUsernameMapping(username: string) {
 
   try {
     const [email, userId] = await Promise.all([
-      kv.get<string | null>(`${USERNAME_INDEX_PREFIX}${normalized}`),
-      kv.get<string | null>(`${USERNAME_ID_PREFIX}${normalized}`),
+      kv.get<string | null>(`${USERNAME_INDEX_PREFIX}${sanitized}`),
+      kv.get<string | null>(`${USERNAME_ID_PREFIX}${sanitized}`),
     ]);
 
     return {

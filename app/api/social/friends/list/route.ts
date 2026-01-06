@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getPleiaServerUser } from '@/lib/auth/serverUser';
 import { createSupabaseRouteClient } from '@/lib/supabase/routeClient';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
-import { normalizeUsername } from '@/lib/social/usernameUtils';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -55,7 +54,8 @@ export async function GET() {
     >();
     if (uniqueUserIds.length > 0) {
       // 🚨 CRITICAL: Asegurarse de obtener email y username correctamente
-      const { data: userRows, error: usersError } = await supabase
+      const userClient = adminSupabase || supabase;
+      const { data: userRows, error: usersError } = await userClient
         .from('users')
         .select('id, email, username, plan')
         .in('id', uniqueUserIds);
@@ -69,7 +69,7 @@ export async function GET() {
 
       if (usersError?.code === '42703') {
         // Si la columna username no existe, intentar obtenerla de otra forma
-        const fallback = await supabase
+        const fallback = await userClient
           .from('users')
           .select('id, email, plan')
           .in('id', uniqueUserIds);
@@ -84,7 +84,7 @@ export async function GET() {
           // Intentar obtener username de la tabla profiles si existe
           for (const row of effectiveRows) {
             try {
-              const { data: profileRow } = await supabase
+              const { data: profileRow } = await userClient
                 .from('profiles')
                 .select('username')
                 .eq('email', row.email)
@@ -129,7 +129,7 @@ export async function GET() {
         
         if (emailsToFetch.length > 0) {
           try {
-            const { data: profileRows } = await supabase
+            const { data: profileRows } = await userClient
               .from('profiles')
               .select('email, username')
               .in('email', emailsToFetch);
@@ -198,11 +198,13 @@ export async function GET() {
 
     const friends = (friendsRes.data ?? []).map((row) => {
       const detail = userDetailsMap.get(row.friend_id) ?? { email: null, username: null, plan: null };
+      // Usar username TAL CUAL de Supabase - SIN NORMALIZAR
+      const username = detail.username || detail.email?.split('@')[0] || 'unknown';
       return {
         friendId: row.friend_id,
         createdAt: row.created_at,
         email: detail.email,
-        username: normalizeUsername(detail.username) || detail.username, // Normalizar username
+        username: username, // Usar username tal cual
         plan: detail.plan,
         lastActivity: null, // Usar prompts.created_at en el futuro si es necesario
       };
@@ -211,16 +213,14 @@ export async function GET() {
     const incoming = (incomingRes.data ?? []).map((row) => {
       const detail = userDetailsMap.get(row.sender_id) ?? { email: null, username: null };
       
-      // 🚨 CRITICAL: Si no encontramos el usuario, log para debugging
-      if (!detail.email && !detail.username) {
-        // Log reducido - solo errores críticos
-      }
+      // Usar username TAL CUAL de Supabase - SIN NORMALIZAR
+      const username = detail.username || detail.email?.split('@')[0] || 'unknown';
       
       return {
         requestId: row.id,
         senderId: row.sender_id,
         email: detail.email,
-        username: normalizeUsername(detail.username) || detail.username, // Normalizar username
+        username: username, // Usar username tal cual
         createdAt: row.created_at,
       };
     });
@@ -235,7 +235,8 @@ export async function GET() {
         
         // Intentar buscar directamente en users
         try {
-          const { data: directUser, error: directError } = await supabase
+          const userClient = adminSupabase || supabase;
+          const { data: directUser, error: directError } = await userClient
             .from('users')
             .select('id, email, username')
             .eq('id', row.receiver_id)
@@ -302,12 +303,15 @@ export async function GET() {
         }
       }
       
+      // Usar username TAL CUAL de Supabase - SIN NORMALIZAR
+      const username = detail.username || detail.email?.split('@')[0] || 'unknown';
+      
       return {
         requestId: row.id,
         receiverId: row.receiver_id,
         status: row.status,
         email: detail.email,
-        username: normalizeUsername(detail.username) || detail.username, // Normalizar username
+        username: username, // Usar username tal cual
         createdAt: row.created_at,
       };
     });

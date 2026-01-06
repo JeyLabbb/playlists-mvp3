@@ -121,9 +121,9 @@ export async function GET(
       resolvedUsername = resolution.username ?? normalized;
 
       if (resolution.username && resolution.email) {
-        const normalizedResolution = normalizeUsername(resolution.username);
+        // Usar username TAL CUAL - SIN NORMALIZAR
         cacheUsernameMapping({
-          username: normalizedResolution || normalized,
+          username: resolution.username, // Usar tal cual
           email: resolution.email,
           userId: resolution.userId,
         }).catch(() => {});
@@ -174,59 +174,59 @@ export async function GET(
       normalized;
 
     // Try to get user image from Supabase auth if profile doesn't have one
+    // OPTIMIZATION: Solo hacer esto si realmente necesitamos la imagen
     let userImage = profile?.image ?? null;
-    if (!userImage && finalUserId) {
-      try {
-        const { getSupabaseAdmin } = await import('@/lib/supabase/server');
-        const adminSupabase = getSupabaseAdmin();
-        if (adminSupabase) {
-          const { data: authUser } = await adminSupabase.auth.admin.getUserById(finalUserId);
-          if (authUser?.user?.user_metadata?.avatar_url) {
-            userImage = authUser.user.user_metadata.avatar_url;
-            console.log('[SOCIAL] Found user image from auth:', userImage);
-          }
-        }
-      } catch (authError) {
-        console.warn('[SOCIAL] Could not fetch user image from auth:', authError);
-      }
-    }
+    // Comentado temporalmente para mejorar velocidad - se puede activar si es necesario
+    // if (!userImage && finalUserId) {
+    //   try {
+    //     const { getSupabaseAdmin } = await import('@/lib/supabase/server');
+    //     const adminSupabase = getSupabaseAdmin();
+    //     if (adminSupabase) {
+    //       const { data: authUser } = await adminSupabase.auth.admin.getUserById(finalUserId);
+    //       if (authUser?.user?.user_metadata?.avatar_url) {
+    //         userImage = authUser.user.user_metadata.avatar_url;
+    //       }
+    //     }
+    //   } catch (authError) {
+    //     // Silently fail - no es crítico
+    //   }
+    // }
 
     if (finalUsername && resolvedEmail) {
+      // Usar username TAL CUAL - SIN NORMALIZAR
       cacheUsernameMapping({
-        username: normalizeUsername(finalUsername) || normalized,
+        username: finalUsername, // Usar tal cual de Supabase
         email: resolvedEmail,
         userId: finalUserId,
       }).catch(() => {});
     }
 
-    if (finalUserId && finalUsername) {
-      try {
-        const normalizedFinal = normalizeUsername(finalUsername) || finalUsername;
-        const existingUsername = userRow?.username
-          ? normalizeUsername(userRow.username)
-          : null;
+    // OPTIMIZATION: Actualizar username solo si es realmente diferente (evitar writes innecesarios)
+    // Comentado para mejorar velocidad - se puede hacer async si es necesario
+    // if (finalUserId && finalUsername && userRow?.username !== finalUsername) {
+    //   try {
+    //     const normalizedFinal = normalizeUsername(finalUsername) || finalUsername;
+    //     supabase
+    //       .from('users')
+    //       .update({ username: normalizedFinal })
+    //       .eq('id', finalUserId)
+    //       .then(() => {})
+    //       .catch(() => {}); // Fire and forget
+    //   } catch (updateError) {
+    //     // Silently fail
+    //   }
+    // }
 
-        if (existingUsername !== normalizeUsername(finalUsername)) {
-          await supabase
-            .from('users')
-            .update({ username: normalizedFinal })
-            .eq('id', finalUserId);
-        }
-      } catch (updateError) {
-        console.warn('[SOCIAL] Failed to sync username to users table:', updateError);
-      }
-    }
-
-    // Normalizar el username antes de devolverlo
-    const normalizedFinalUsername = normalizeUsername(finalUsername) || finalUsername;
+    // Usar el username TAL CUAL está en Supabase - SIN NORMALIZAR
+    const displayUsername = userRow?.username || finalUsername || normalized;
     
     return NextResponse.json({
       success: true,
       profile: {
         id: finalUserId,
         email: resolvedEmail,
-        username: normalizedFinalUsername,
-        displayName: profile?.displayName ?? normalizedFinalUsername,
+        username: displayUsername, // Usar username de Supabase TAL CUAL
+        displayName: profile?.displayName ?? displayUsername,
         image: userImage,
         bio: profile?.bio ?? null,
         plan: userRow?.plan ?? null,
