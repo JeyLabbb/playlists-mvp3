@@ -8,6 +8,7 @@ import EpicSection from "./components/EpicSection";
 import PromptTips from "./components/PromptTips";
 import LoadingStatus from "./components/LoadingStatus";
 import FeedbackModal from "./components/FeedbackModal";
+import TracksPreview from "./components/TracksPreview";
 import FeedbackGate from "./components/FeedbackGate";
 import AnimatedList from "./components/AnimatedList";
 import FeaturedPlaylistCard from "./components/FeaturedPlaylistCard";
@@ -245,6 +246,11 @@ export default function Home() {
   const [editingPlaylistName, setEditingPlaylistName] = useState(null);
   const [editingNameValue, setEditingNameValue] = useState('');
   const [removing, setRemoving] = useState(false);
+  
+  // Playlist tracks preview state
+  const [playlistTracks, setPlaylistTracks] = useState({}); // { playlistId: tracks[] }
+  const [showPlaylistTracks, setShowPlaylistTracks] = useState({}); // { playlistId: boolean }
+  const [loadingPlaylistTracks, setLoadingPlaylistTracks] = useState({}); // { playlistId: boolean }
   
   // Playlist preview modal state
   const [previewPlaylist, setPreviewPlaylist] = useState(null);
@@ -2048,6 +2054,62 @@ export default function Home() {
   }, [sessionUser?.email]);
 
   // Toggle playlist privacy
+  // Load tracks for a playlist
+  const loadPlaylistTracks = async (playlistId, spotifyUrl) => {
+    if (playlistTracks[playlistId]?.length > 0) {
+      // Toggle if already loaded
+      setShowPlaylistTracks(prev => ({
+        ...prev,
+        [playlistId]: !prev[playlistId]
+      }));
+      return;
+    }
+
+    setLoadingPlaylistTracks(prev => ({ ...prev, [playlistId]: true }));
+
+    try {
+      // Extract Spotify playlist ID from URL
+      const spotifyIdMatch = spotifyUrl?.match(/playlist\/([a-zA-Z0-9]+)/);
+      const spotifyId = spotifyIdMatch ? spotifyIdMatch[1] : null;
+
+      if (!spotifyId) {
+        throw new Error('No se pudo extraer el ID de Spotify');
+      }
+
+      const response = await fetch(`/api/spotify/playlist-tracks?id=${spotifyId}&ownerEmail=${encodeURIComponent(sessionUser?.email || '')}`);
+      const data = await response.json();
+
+      if (data.success && data.tracks && data.tracks.length > 0) {
+        setPlaylistTracks(prev => ({
+          ...prev,
+          [playlistId]: data.tracks
+        }));
+        setShowPlaylistTracks(prev => ({
+          ...prev,
+          [playlistId]: true
+        }));
+      } else {
+        console.error('[PLAYLISTS] Error loading tracks:', data.error);
+        setPlaylistTracks(prev => ({
+          ...prev,
+          [playlistId]: []
+        }));
+      }
+    } catch (err) {
+      console.error('[PLAYLISTS] Error fetching tracks:', err);
+      setPlaylistTracks(prev => ({
+        ...prev,
+        [playlistId]: []
+      }));
+    } finally {
+      setLoadingPlaylistTracks(prev => {
+        const newState = { ...prev };
+        delete newState[playlistId];
+        return newState;
+      });
+    }
+  };
+
   const togglePlaylistPrivacy = async (playlistId, currentPublic) => {
     const newPublic = !currentPublic;
     
@@ -3070,6 +3132,47 @@ export default function Home() {
                           </div>
                           
                           <div className="flex flex-col gap-2.5 mt-5">
+                            {/* Ver canciones button */}
+                            <button
+                              onClick={() => loadPlaylistTracks(playlist.playlistId, playlist.url)}
+                              disabled={loadingPlaylistTracks[playlist.playlistId]}
+                              className="w-full px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:scale-[1.02]"
+                              style={{
+                                background: 'linear-gradient(135deg, rgba(54, 226, 180, 0.15) 0%, rgba(91, 140, 255, 0.12) 100%)',
+                                borderColor: 'rgba(54, 226, 180, 0.3)',
+                                color: '#36E2B4',
+                              }}
+                            >
+                              {loadingPlaylistTracks[playlist.playlistId] ? (
+                                <>
+                                  <span className="animate-spin">⏳</span>
+                                  <span>Cargando...</span>
+                                </>
+                              ) : showPlaylistTracks[playlist.playlistId] ? (
+                                <>
+                                  <span>Ocultar canciones</span>
+                                  <span>↑</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span>Ver canciones</span>
+                                  <span>↓</span>
+                                </>
+                              )}
+                            </button>
+
+                            {/* Tracks preview */}
+                            {showPlaylistTracks[playlist.playlistId] && (
+                              <div className="mt-2">
+                                <TracksPreview
+                                  tracks={playlistTracks[playlist.playlistId] || []}
+                                  totalTracks={playlist.tracks || 0}
+                                  spotifyPlaylistUrl={playlist.url}
+                                  loading={loadingPlaylistTracks[playlist.playlistId]}
+                                />
+                              </div>
+                            )}
+
                             <button
                               onClick={() => playlist.url && window.open(playlist.url, '_blank')}
                               disabled={!playlist.url}

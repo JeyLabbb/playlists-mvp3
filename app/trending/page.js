@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import AnimatedList from '../components/AnimatedList';
+import TracksPreview from '../components/TracksPreview';
 // Username se usa tal cual de Supabase - sin normalizar
 
 export default function TrendingPage() {
@@ -179,9 +180,13 @@ export default function TrendingPage() {
                   return {
                     id: track.id,
                     name: track.name,
-                    artists: track.artists?.map(artist => artist.name) || [],
+                    artists: track.artists?.map(artist => ({ name: artist.name })) || [],
                     artistNames: track.artists?.map(artist => artist.name).join(', ') || 'Artista desconocido',
                     open_url: track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
+                    spotify_url: track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
+                    external_urls: track.external_urls,
+                    album: track.album || {},
+                    image: track.album?.images?.[0]?.url || null,
                     preview_url: track.preview_url || null,
                     duration_ms: track.duration_ms,
                     popularity: track.popularity
@@ -656,21 +661,11 @@ export default function TrendingPage() {
                     </div>
                   ) : previewTracks.length > 0 ? (
                     <div className="p-4">
-                      <AnimatedList
-                        items={previewTracks.map((track) => ({
-                          title: track.name || 'Título desconocido',
-                          artist: track.artists?.join(', ') || track.artistNames || 'Artista desconocido',
-                          trackId: track.id,
-                          openUrl: track.open_url || `https://open.spotify.com/track/${track.id}`
-                        }))}
-                        onItemSelect={(item) => {
-                          if (item.openUrl) {
-                            window.open(item.openUrl, '_blank');
-                          }
-                        }}
-                        displayScrollbar={true}
-                        className=""
-                        itemClassName=""
+                      <TracksPreview
+                        tracks={previewTracks}
+                        totalTracks={previewPlaylist?.trackCount || previewTracks.length}
+                        spotifyPlaylistUrl={previewPlaylist?.spotifyUrl}
+                        loading={false}
                       />
                       {previewPlaylist && previewPlaylist.trackCount > previewTracks.length && (
                         <div className="text-center py-4 border-t border-gray-700 mt-4">

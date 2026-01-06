@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import TracksPreview from './TracksPreview';
 
 type FeaturedPlaylist = {
   id: string;
@@ -325,93 +326,12 @@ export default function FeaturedPlaylistCard() {
         {/* Tracks preview */}
         {showTracks && (
           <div className="mb-6">
-            {tracksLoading ? (
-              <div className="text-center py-8 text-gray-400">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-400 mx-auto mb-2"></div>
-                <p className="text-sm">Cargando canciones...</p>
-              </div>
-            ) : tracks.length > 0 ? (
-              <div 
-                className="space-y-2 max-h-96 overflow-y-auto rounded-xl p-4"
-                style={{
-                  background: 'rgba(0, 0, 0, 0.2)',
-                  border: '1px solid rgba(255, 255, 255, 0.05)',
-                }}
-              >
-                {tracks.map((track, index) => (
-                  <a
-                    key={index}
-                    href={track.spotify_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/10 transition-all duration-200 group/track"
-                    style={{
-                      backdropFilter: 'blur(4px)',
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {track.image && (
-                      <div className="relative">
-                        <img
-                          src={track.image}
-                          alt={track.name}
-                          className="w-12 h-12 rounded-lg object-cover"
-                          style={{
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-                          }}
-                        />
-                        <div 
-                          className="absolute inset-0 rounded-lg opacity-0 group-hover/track:opacity-100 transition-opacity"
-                          style={{
-                            background: 'linear-gradient(135deg, rgba(54, 226, 180, 0.2), rgba(91, 140, 255, 0.2))',
-                          }}
-                        />
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate group-hover/track:text-green-300 transition-colors">
-                        {track.name}
-                      </p>
-                      <p className="text-xs text-gray-400 truncate">{track.artist}</p>
-                    </div>
-                    <span className="text-xs text-gray-500 opacity-0 group-hover/track:opacity-100 transition-opacity">
-                      →
-                    </span>
-                  </a>
-                ))}
-                
-                {/* Mensaje "... y x canciones más" */}
-                {totalTracks > tracks.length && (
-                  <div className="pt-2 mt-2 border-t border-white/5 text-center">
-                    <p className="text-xs text-gray-400">
-                      ... y <span className="font-semibold text-gray-300">{totalTracks - tracks.length}</span> canciones más
-                    </p>
-                    <a
-                      href={featured.spotify_playlist_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-green-400 hover:text-green-300 mt-1 inline-block"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      Ver todas en Spotify →
-                    </a>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-4 text-gray-400 text-sm">
-                <p>No se pudieron cargar las canciones</p>
-                <a
-                  href={featured.spotify_playlist_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-green-400 hover:text-green-300 mt-2 inline-block text-xs"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  Ver playlist en Spotify →
-                </a>
-              </div>
-            )}
+            <TracksPreview
+              tracks={tracks}
+              totalTracks={totalTracks}
+              spotifyPlaylistUrl={featured.spotify_playlist_url}
+              loading={tracksLoading}
+            />
           </div>
         )}
 

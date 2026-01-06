@@ -105,9 +105,13 @@ export async function GET(request) {
       return {
         id: track.id,
         name: track.name,
-        artists: track.artists?.map(artist => artist.name) || [],
+        artists: track.artists?.map(artist => ({ name: artist.name })) || [],
         artistNames: track.artists?.map(artist => artist.name).join(', ') || 'Artista desconocido',
         open_url: track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
+        spotify_url: track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
+        external_urls: track.external_urls,
+        album: track.album || {},
+        image: track.album?.images?.[0]?.url || null,
         preview_url: track.preview_url || null,
         duration_ms: track.duration_ms,
         popularity: track.popularity
