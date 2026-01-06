@@ -65,41 +65,47 @@ export default function FeaturedPlaylistCard() {
       return;
     }
 
-    // Cargar tracks desde Spotify
+    // Prioridad 1: Usar preview_tracks si están disponibles (más rápido)
+    if (featured?.preview_tracks && featured.preview_tracks.length > 0) {
+      const formattedTracks = featured.preview_tracks.slice(0, 15).map((t: any) => ({
+        name: t.name || 'Sin nombre',
+        artist: t.artists?.[0]?.name || t.artist || 'Artista desconocido',
+        spotify_url: t.external_urls?.spotify || t.spotify_url || '#',
+        image: t.album?.images?.[0]?.url || t.image || null,
+      }));
+      setTracks(formattedTracks);
+      setTotalTracks(featured.preview_tracks.length);
+      setShowTracks(true);
+      return;
+    }
+
+    // Prioridad 2: Si no hay preview_tracks, intentar cargar desde Spotify
     setTracksLoading(true);
     try {
       const res = await fetch(`/api/featured-playlist/tracks?playlist_id=${featured?.spotify_playlist_id}`);
+      
+      if (!res.ok) {
+        throw new Error('Failed to fetch tracks');
+      }
+      
       const data = await res.json();
       
-      if (data.success) {
-        setTracks(data.tracks || []);
-        setTotalTracks(data.total || 0);
+      if (data.success && data.tracks && data.tracks.length > 0) {
+        setTracks(data.tracks);
+        setTotalTracks(data.total || data.tracks.length);
         setShowTracks(true);
       } else {
+        // Si falla, mostrar mensaje
         console.error('[FEATURED] Error loading tracks:', data.error);
-        // Si falla, usar preview_tracks si están disponibles
-        if (featured?.preview_tracks && featured.preview_tracks.length > 0) {
-          setTracks(featured.preview_tracks.slice(0, 15).map(t => ({
-            name: t.name,
-            artist: t.artist,
-            spotify_url: t.spotify_url || '#',
-          })));
-          setTotalTracks(featured.preview_tracks.length);
-          setShowTracks(true);
-        }
+        setTracks([]);
+        setTotalTracks(0);
+        setShowTracks(true);
       }
     } catch (err) {
       console.error('[FEATURED] Error fetching tracks:', err);
-      // Fallback a preview_tracks
-      if (featured?.preview_tracks && featured.preview_tracks.length > 0) {
-        setTracks(featured.preview_tracks.slice(0, 15).map(t => ({
-          name: t.name,
-          artist: t.artist,
-          spotify_url: t.spotify_url || '#',
-        })));
-        setTotalTracks(featured.preview_tracks.length);
-        setShowTracks(true);
-      }
+      setTracks([]);
+      setTotalTracks(0);
+      setShowTracks(true);
     } finally {
       setTracksLoading(false);
     }
@@ -394,7 +400,16 @@ export default function FeaturedPlaylistCard() {
               </div>
             ) : (
               <div className="text-center py-4 text-gray-400 text-sm">
-                No se pudieron cargar las canciones
+                <p>No se pudieron cargar las canciones</p>
+                <a
+                  href={featured.spotify_playlist_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-green-400 hover:text-green-300 mt-2 inline-block text-xs"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Ver playlist en Spotify →
+                </a>
               </div>
             )}
           </div>

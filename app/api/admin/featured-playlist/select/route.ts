@@ -135,9 +135,30 @@ export async function POST(request: Request) {
     // 3. Obtener preview de tracks desde Spotify (opcional, puede fallar)
     let previewTracks: any[] = [];
     try {
-      // TODO: Si tienes acceso a Spotify API, obtener tracks aquí
-      // Por ahora, dejamos vacío y se puede rellenar después
-      console.log('[FEATURED] Preview tracks: usando array vacío por ahora');
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
+      const ownerEmailParam = ownerEmail ? `&ownerEmail=${encodeURIComponent(ownerEmail)}` : '';
+      const tracksResponse = await fetch(`${baseUrl}/api/spotify/playlist-tracks?id=${spotify_playlist_id}${ownerEmailParam}`);
+      
+      if (tracksResponse.ok) {
+        const tracksData = await tracksResponse.json();
+        if (tracksData.tracks && Array.isArray(tracksData.tracks)) {
+          // Guardar hasta 15 tracks con toda la info necesaria
+          previewTracks = tracksData.tracks.slice(0, 15).map((track: any) => ({
+            name: track.name,
+            artist: track.artistNames || track.artists?.join(', ') || 'Artista desconocido',
+            artists: track.artists || [{ name: track.artistNames || 'Artista desconocido' }],
+            album: track.album || {},
+            external_urls: {
+              spotify: track.open_url || `https://open.spotify.com/track/${track.id}`
+            },
+            spotify_url: track.open_url || `https://open.spotify.com/track/${track.id}`,
+            image: track.album?.images?.[0]?.url || null,
+          }));
+          console.log(`[FEATURED] Preview tracks obtenidos: ${previewTracks.length} tracks`);
+        }
+      } else {
+        console.warn('[FEATURED] Error fetching Spotify tracks: response not ok');
+      }
     } catch (spotifyError) {
       console.warn('[FEATURED] Error fetching Spotify tracks:', spotifyError);
       // Continuar sin preview tracks
