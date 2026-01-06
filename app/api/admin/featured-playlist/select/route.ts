@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { ensureAdminAccess } from '@/lib/admin/session';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
 import { getPleiaServerUser } from '@/lib/auth/serverUser';
+import { getHubAccessToken } from '@/lib/spotify/hubAuth';
 
 /**
  * POST /api/admin/featured-playlist/select
@@ -135,32 +136,45 @@ export async function POST(request: Request) {
     // 3. Obtener preview de tracks desde Spotify (opcional, puede fallar)
     let previewTracks: any[] = [];
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
-      const ownerEmailParam = ownerEmail ? `&ownerEmail=${encodeURIComponent(ownerEmail)}` : '';
-      const tracksResponse = await fetch(`${baseUrl}/api/spotify/playlist-tracks?id=${spotify_playlist_id}${ownerEmailParam}`);
+      // Obtener token de Spotify directamente (más confiable que fetch HTTP interno)
+      const accessToken = await getHubAccessToken();
       
-      if (tracksResponse.ok) {
-        const tracksData = await tracksResponse.json();
-        if (tracksData.tracks && Array.isArray(tracksData.tracks)) {
-          // Guardar hasta 15 tracks con toda la info necesaria
-          previewTracks = tracksData.tracks.slice(0, 15).map((track: any) => ({
+      // Llamar directamente a la API de Spotify
+      const response = await fetch(`https://api.spotify.com/v1/playlists/${spotify_playlist_id}/tracks?limit=100`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const items = data.items || [];
+        
+        // Formatear tracks con toda la info necesaria
+        previewTracks = items.slice(0, 15).map((item: any) => {
+          const track = item.track;
+          if (!track) return null;
+          
+          return {
             name: track.name,
-            artist: track.artistNames || track.artists?.join(', ') || 'Artista desconocido',
-            artists: track.artists || [{ name: track.artistNames || 'Artista desconocido' }],
+            artist: track.artists?.map((a: any) => a.name).join(', ') || 'Artista desconocido',
+            artists: track.artists?.map((a: any) => ({ name: a.name })) || [{ name: 'Artista desconocido' }],
             album: track.album || {},
             external_urls: {
-              spotify: track.open_url || `https://open.spotify.com/track/${track.id}`
+              spotify: track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`
             },
-            spotify_url: track.open_url || `https://open.spotify.com/track/${track.id}`,
+            spotify_url: track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
             image: track.album?.images?.[0]?.url || null,
-          }));
-          console.log(`[FEATURED] Preview tracks obtenidos: ${previewTracks.length} tracks`);
-        }
+          };
+        }).filter((t: any) => t !== null);
+        
+        console.log(`[FEATURED] Preview tracks obtenidos: ${previewTracks.length} tracks`);
       } else {
-        console.warn('[FEATURED] Error fetching Spotify tracks: response not ok');
+        console.warn(`[FEATURED] Error fetching Spotify tracks: ${response.status} ${response.statusText}`);
       }
-    } catch (spotifyError) {
-      console.warn('[FEATURED] Error fetching Spotify tracks:', spotifyError);
+    } catch (spotifyError: any) {
+      console.warn('[FEATURED] Error fetching Spotify tracks:', spotifyError?.message || spotifyError);
       // Continuar sin preview tracks
     }
 
