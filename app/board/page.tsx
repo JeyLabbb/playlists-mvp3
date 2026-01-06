@@ -43,7 +43,8 @@ export default function BoardPage() {
     if (status === 'authenticated' && sessionData?.user) {
       loadBoard();
     }
-  }, [status, sessionData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, sessionData?.user]);
 
   const loadBoard = async () => {
     try {
@@ -522,7 +523,7 @@ function BoardRenderer({
               <circle cx="18" cy="16" r="3"></circle>
             </svg>
             <p className="text-xl font-medium">Aún no hay playlists públicas</p>
-            <p className="text-sm mt-2 opacity-60">Asegúrate de que tus playlists tengan la opción "Pública" activada</p>
+            <p className="text-sm mt-2 opacity-60">Asegúrate de que tus playlists tengan la opción &quot;Pública&quot; activada</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-20">

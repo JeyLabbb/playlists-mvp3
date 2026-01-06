@@ -13,12 +13,6 @@ export default function PublicBoardPage() {
   const [board, setBoard] = useState<any>(null);
   const [playlists, setPlaylists] = useState<any[]>([]);
 
-  useEffect(() => {
-    if (slug) {
-      loadPublicBoard();
-    }
-  }, [slug]);
-
   const loadPublicBoard = async () => {
     try {
       const res = await fetch(`/api/board/public/${slug}`);
@@ -36,6 +30,13 @@ export default function PublicBoardPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (slug) {
+      loadPublicBoard();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
 
   if (loading) {
     return (

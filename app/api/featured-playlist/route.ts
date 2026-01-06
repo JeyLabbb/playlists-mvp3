@@ -89,29 +89,6 @@ export async function GET() {
               .update(updates)
               .eq('id', data.id);
           }
-        } else {
-          // Si no hay username en users, intentar desde profile/KV
-          if (data.owner_email) {
-            try {
-              const { getProfileFromKV } = await import('@/lib/profile/kv');
-              const profile = await getProfileFromKV(data.owner_email);
-              if (profile?.username) {
-                const profileUrl = `/u/${encodeURIComponent(profile.username)}`;
-                data.owner_username = profile.username;
-                data.owner_profile_url = profileUrl;
-                // Actualizar también en la DB
-                await supabase
-                  .from('featured_playlists')
-                  .update({ 
-                    owner_username: profile.username,
-                    owner_profile_url: profileUrl 
-                  })
-                  .eq('id', data.id);
-              }
-            } catch (profileError) {
-              console.warn('[FEATURED] Could not get username from profile:', profileError);
-            }
-          }
         }
       } catch (err) {
         console.warn('[FEATURED] Error fetching username/profile_url from Supabase:', err);
