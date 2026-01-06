@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/server';
+import { getHubAccessToken } from '@/lib/spotify/hubAuth';
 
 /**
  * GET /api/featured-playlist/tracks?playlist_id=xxx
@@ -17,45 +18,43 @@ export async function GET(request: Request) {
       );
     }
 
-    // Obtener tracks desde Spotify API
+    // Obtener tracks directamente desde Spotify API (sin fetch HTTP interno)
     try {
-      // Obtener info de la playlist destacada para tener el owner_email
-      const supabase = getSupabaseAdmin();
-      const { data: featuredData } = await supabase
-        .from('featured_playlists')
-        .select('owner_email, spotify_playlist_id')
-        .eq('spotify_playlist_id', playlistId)
-        .eq('is_active', true)
-        .single();
-
-      // Usar el endpoint existente de playlist-tracks
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
-      const ownerEmailParam = featuredData?.owner_email ? `&ownerEmail=${encodeURIComponent(featuredData.owner_email)}` : '';
-      const tracksResponse = await fetch(`${baseUrl}/api/spotify/playlist-tracks?id=${playlistId}${ownerEmailParam}`);
+      // Obtener token de Spotify directamente (más confiable que fetch HTTP interno)
+      const accessToken = await getHubAccessToken();
       
-      if (!tracksResponse.ok) {
-        throw new Error('Failed to fetch tracks from Spotify');
+      // Llamar directamente a la API de Spotify
+      const response = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        console.error(`[FEATURED_TRACKS] Spotify API error: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to fetch tracks from Spotify: ${response.status}`);
       }
 
-      const tracksData = await tracksResponse.json();
+      const data = await response.json();
+      const items = data.items || [];
       
-      if (tracksData.error) {
-        return NextResponse.json(
-          { success: false, error: tracksData.error, tracks: [] },
-          { status: 500 }
-        );
-      }
-
       // Formatear tracks para el componente
-      const allTracks = tracksData.tracks || [];
-      const formattedTracks = allTracks.slice(0, 15).map((track: any) => ({
-        name: track.name,
-        artist: track.artistNames || track.artists?.join(', ') || 'Artista desconocido',
-        spotify_url: track.open_url || `https://open.spotify.com/track/${track.id}`,
-        image: null, // Se puede obtener después si es necesario
-      }));
+      const allTracks = items.map((item: any) => {
+        const track = item.track;
+        if (!track) return null;
+        
+        return {
+          name: track.name,
+          artist: track.artists?.map((a: any) => a.name).join(', ') || 'Artista desconocido',
+          spotify_url: track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
+          image: track.album?.images?.[0]?.url || null,
+        };
+      }).filter((t: any) => t !== null);
 
-      const totalTracks = tracksData.total || allTracks.length || 0;
+      // Limitar a 15 tracks para el preview
+      const formattedTracks = allTracks.slice(0, 15);
+      const totalTracks = allTracks.length;
 
       return NextResponse.json({
         success: true,
@@ -65,7 +64,7 @@ export async function GET(request: Request) {
       });
 
     } catch (spotifyError: any) {
-      console.error('[FEATURED_TRACKS] Error fetching from Spotify:', spotifyError);
+      console.error('[FEATURED_TRACKS] Error fetching from Spotify:', spotifyError?.message || spotifyError);
       return NextResponse.json(
         { 
           success: false, 
