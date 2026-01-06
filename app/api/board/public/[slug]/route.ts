@@ -8,9 +8,10 @@ const adminSupabase = createClient(supabaseUrl, supabaseServiceKey);
 // GET /api/board/public/[slug] - Obtener board público por slug
 export async function GET(
   req: NextRequest,
-  { params }: { params: { slug: string } }
+  context: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const params = await context.params;
     const { slug } = params;
 
     if (!slug) {
