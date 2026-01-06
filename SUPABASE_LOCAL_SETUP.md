@@ -50,3 +50,4 @@ Después de configurar:
 2. Verifica que el código detecte correctamente localhost (revisa los logs)
 3. Asegúrate de que `.env.local` tenga `NEXT_PUBLIC_SITE_URL` comentado (ya lo hicimos)
 
+

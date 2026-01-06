@@ -75,3 +75,4 @@
 - **¿Está arreglado?** Sí, ahora se auto-corrige cuando consultas tus stats y hay mejor detección de errores
 - **¿Qué pasa si falla de nuevo?** El sistema lo intentará automáticamente la próxima vez que consultes tus stats
 
+
