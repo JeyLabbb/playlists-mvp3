@@ -1,6 +1,7 @@
 {
-  "/api/trending/route": "app/api/trending/route.js",
+  "/trending/page": "app/trending/page.js",
   "/admin/featured-playlist/page": "app/admin/featured-playlist/page.js",
-  "/page": "app/page.js",
-  "/trending/page": "app/trending/page.js"
+  "/login/page": "app/login/page.js",
+  "/me/page": "app/me/page.js",
+  "/page": "app/page.js"
 }

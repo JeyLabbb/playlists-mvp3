@@ -38,6 +38,7 @@ export async function GET(request: Request) {
 
       const data = await response.json();
       const items = data.items || [];
+      const totalTracksFromAPI = data.total || items.length; // Total real de canciones en la playlist
       
       // Formatear tracks para el componente
       const allTracks = items.map((item: any) => {
@@ -47,6 +48,7 @@ export async function GET(request: Request) {
         return {
           name: track.name,
           artist: track.artists?.map((a: any) => a.name).join(', ') || 'Artista desconocido',
+          artists: track.artists?.map((a: any) => ({ name: a.name })) || [],
           spotify_url: track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
           image: track.album?.images?.[0]?.url || null,
         };
@@ -54,7 +56,7 @@ export async function GET(request: Request) {
 
       // Limitar a 15 tracks para el preview
       const formattedTracks = allTracks.slice(0, 15);
-      const totalTracks = allTracks.length;
+      const totalTracks = totalTracksFromAPI; // Usar el total real de la API, no solo los que cargamos
 
       return NextResponse.json({
         success: true,

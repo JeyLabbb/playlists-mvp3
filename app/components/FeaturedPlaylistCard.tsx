@@ -77,7 +77,8 @@ export default function FeaturedPlaylistCard() {
         image: t.album?.images?.[0]?.url || t.image || null,
       }));
       setTracks(formattedTracks);
-      // Usar total_tracks de la DB si está disponible, sino usar el número de preview_tracks
+      // Usar total_tracks de la DB si está disponible (total real de la playlist)
+      // Si no hay total_tracks, usar el número de preview_tracks como fallback
       setTotalTracks(featured.total_tracks || featured.preview_tracks.length);
       setShowTracks(true);
       return;

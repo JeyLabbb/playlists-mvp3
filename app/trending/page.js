@@ -130,22 +130,11 @@ export default function TrendingPage() {
         await updateMetricsInLocalStorage(playlist.playlistId, 'click');
       }
       
-      // Load playlist tracks - usar el mismo endpoint que Mis Playlists (no requiere variables de entorno)
+      // Load playlist tracks - usar EXACTAMENTE el mismo endpoint que FeaturedPlaylistCard
       console.log('[TRENDING] Fetching tracks for playlist:', playlist.playlistId);
       
-      // Usar el mismo endpoint que Mis Playlists usa
-      const ownerEmail = playlist.ownerEmail || playlist.author?.email || null;
-      const tracksUrl = ownerEmail 
-        ? `/api/spotify/playlist-tracks?id=${playlist.playlistId}&ownerEmail=${encodeURIComponent(ownerEmail)}`
-        : `/api/spotify/playlist-tracks?id=${playlist.playlistId}`;
-      
-      console.log('[TRENDING] Calling endpoint:', tracksUrl);
-      
-      const res = await fetch(tracksUrl, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-      });
+      // Usar el mismo endpoint que FeaturedPlaylistCard usa: /api/featured-playlist/tracks
+      const res = await fetch(`/api/featured-playlist/tracks?playlist_id=${playlist.playlistId}`);
       
       console.log('[TRENDING] Response status:', res.status, res.ok);
       
@@ -163,19 +152,22 @@ export default function TrendingPage() {
       console.log('[TRENDING] Tracks response:', JSON.stringify(tracksData, null, 2));
       
       if (tracksData.success && tracksData.tracks && tracksData.tracks.length > 0) {
-        // Formatear tracks para TracksPreview (el endpoint devuelve artists como array)
+        // Formatear tracks para TracksPreview (igual que FeaturedPlaylistCard)
         const formattedTracks = tracksData.tracks.map((track) => ({
-          name: track.name,
-          artist: track.artistNames || track.artists?.join(', ') || 'Artista desconocido',
-          artists: track.artists?.map(a => typeof a === 'string' ? { name: a } : a) || [],
-          artistNames: track.artistNames || track.artists?.join(', ') || 'Artista desconocido',
-          spotify_url: track.open_url || track.spotify_url || `https://open.spotify.com/track/${track.id}`,
-          image: track.album?.images?.[0]?.url || track.image || null,
+          name: track.name || 'Sin nombre',
+          artist: track.artist || 'Artista desconocido',
+          artists: track.artists || [],
+          spotify_url: track.spotify_url || '#',
+          image: track.image || null,
         }));
         
-        console.log('[TRENDING] Setting', formattedTracks.length, 'tracks');
+        console.log('[TRENDING] Setting', formattedTracks.length, 'tracks, total:', tracksData.total);
         setPreviewTracks(formattedTracks);
-        console.log('[TRENDING] Successfully loaded', formattedTracks.length, 'tracks');
+        // Guardar el total para pasarlo a TracksPreview
+        if (previewPlaylist) {
+          previewPlaylist.trackCount = tracksData.total || formattedTracks.length;
+        }
+        console.log('[TRENDING] Successfully loaded', formattedTracks.length, 'tracks of', tracksData.total || formattedTracks.length, 'total');
       } else {
         // Si falla, simplemente no mostrar tracks
         console.error('[TRENDING] Error loading tracks - success:', tracksData.success, 'tracks length:', tracksData.tracks?.length, 'error:', tracksData.error);
@@ -635,24 +627,6 @@ export default function TrendingPage() {
                         spotifyPlaylistUrl={previewPlaylist?.spotifyUrl}
                         loading={false}
                       />
-                      {previewPlaylist && previewPlaylist.trackCount > previewTracks.length && (
-                        <div className="text-center py-4 border-t border-gray-700 mt-4">
-                          <p className="text-gray-400 text-sm mb-3">
-                            Mostrando {previewTracks.length} de {previewPlaylist.trackCount} canciones
-                          </p>
-                          {previewPlaylist.spotifyUrl && (
-                            <button
-                              onClick={() => {
-                                trackClick(previewPlaylist.playlistId, previewPlaylist.spotifyUrl);
-                              }}
-                              className="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-lg transition-colors duration-200 mx-auto"
-                            >
-                              <span className="text-xl">🎧</span>
-                              <span>Abrir playlist completa en Spotify</span>
-                            </button>
-                          )}
-                        </div>
-                      )}
                     </div>
                   ) : (
                     <div className="p-4">
