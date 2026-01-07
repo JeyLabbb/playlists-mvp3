@@ -130,9 +130,6 @@ export default function TrendingPage() {
       // Continuar aunque falle el tracking
     }
     
-    // COPIAR EXACTAMENTE handleShowTracks de FeaturedPlaylistCard (líneas 59-117)
-    // Pero adaptado para Trending (usar previewPlaylist en lugar de featured, previewTracks en lugar de tracks)
-    
     // Si ya tenemos tracks cargados para esta playlist, solo mostrar
     if (previewPlaylist?.playlistId === playlist.playlistId && previewTracks.length > 0) {
       // Ya tenemos tracks, solo abrir el modal si está cerrado
@@ -143,11 +140,32 @@ export default function TrendingPage() {
     // Establecer la playlist primero
     setPreviewPlaylist(playlist);
     
-    // Prioridad 1: Usar preview_tracks si están disponibles (más rápido)
-    // En Trending no tenemos preview_tracks en la DB, así que saltamos esto
+    // PRIORIDAD 1: Usar tracksData de la respuesta si está disponible (desde DB)
+    if (playlist.tracksData && Array.isArray(playlist.tracksData) && playlist.tracksData.length > 0) {
+      console.log('[TRENDING] Using tracksData from playlist response:', playlist.tracksData.length, 'tracks');
+      
+      // Formatear tracks desde tracksData para el componente
+      const formattedTracks = playlist.tracksData.slice(0, 15).map((track) => ({
+        name: track.name || 'Sin nombre',
+        artist: track.artist || (Array.isArray(track.artists) ? track.artists.map((a) => a.name || a).join(', ') : 'Artista desconocido'),
+        artists: Array.isArray(track.artists) 
+          ? track.artists.map((a) => ({ name: typeof a === 'string' ? a : (a.name || 'Artista desconocido') }))
+          : track.artist 
+            ? [{ name: track.artist }]
+            : [{ name: 'Artista desconocido' }],
+        spotify_url: track.spotify_url || track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
+        image: track.image || track.album?.images?.[0]?.url || null,
+      }));
+      
+      setPreviewTracks(formattedTracks);
+      setPreviewPlaylist({
+        ...playlist,
+        trackCount: playlist.trackCount || playlist.tracksData.length
+      });
+      return;
+    }
     
-    // Prioridad 2: Si no hay preview_tracks, intentar cargar desde Spotify
-    // EXACTAMENTE igual que FeaturedPlaylistCard.handleShowTracks líneas 87-116
+    // PRIORIDAD 2: Si no hay tracksData, cargar desde API (fallback)
     setLoadingPreview(true);
     try {
       const res = await fetch(`/api/featured-playlist/tracks?playlist_id=${playlist.playlistId}`);
@@ -159,15 +177,12 @@ export default function TrendingPage() {
       const data = await res.json();
       
       if (data.success && data.tracks && data.tracks.length > 0) {
-        // EXACTAMENTE igual que FeaturedPlaylistCard línea 99: setTracks(data.tracks);
         setPreviewTracks(data.tracks);
-        // EXACTAMENTE igual que FeaturedPlaylistCard línea 100: setTotalTracks(data.total || data.tracks.length);
         setPreviewPlaylist({
           ...playlist,
           trackCount: data.total || data.tracks.length
         });
       } else {
-        // Si falla, mostrar mensaje (igual que FeaturedPlaylistCard líneas 103-107)
         console.error('[TRENDING] Error loading tracks:', data.error);
         setPreviewTracks([]);
         setPreviewPlaylist({
@@ -176,7 +191,6 @@ export default function TrendingPage() {
         });
       }
     } catch (err) {
-      // EXACTAMENTE igual que FeaturedPlaylistCard (líneas 109-113)
       console.error('[TRENDING] Error fetching tracks:', err);
       setPreviewTracks([]);
       setPreviewPlaylist({
@@ -184,7 +198,6 @@ export default function TrendingPage() {
         trackCount: 0
       });
     } finally {
-      // EXACTAMENTE igual que FeaturedPlaylistCard línea 115: setTracksLoading(false);
       setLoadingPreview(false);
     }
   };

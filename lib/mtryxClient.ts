@@ -75,6 +75,18 @@ export async function sendEventToMtryx(event: MtryxEventPayload): Promise<void> 
         // Ignorar error al leer el cuerpo
       }
 
+      // Si es 404, solo loguear warning (MTRYX no está configurado o endpoint no existe)
+      if (response.status === 404) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn('[MTRYX] Endpoint no encontrado (404) - MTRYX probablemente no está configurado:', {
+            eventType: event.type,
+            url: mtryxUrl
+          });
+        }
+        return;
+      }
+
+      // Para otros errores, loguear como error
       console.error('[MTRYX] Error enviando evento a MTRYX:', {
         status: response.status,
         statusText: response.statusText,

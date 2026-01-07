@@ -23,6 +23,7 @@ export async function POST(req) {
     let description = "AI Generated Playlist · by MTRYX";
     let isPublic = true; // Always public
     let uris = [];
+    let tracksData = null; // NUEVO: Tracks completos para guardar
     
     try {
       const body = await req.json();
@@ -38,8 +39,39 @@ export async function POST(req) {
       // Always use fixed description
       description = "AI Generated Playlist · by MTRYX";
       isPublic = true; // Always public
-      uris = Array.isArray(body?.uris) ? body.uris.filter(Boolean) : 
-             (Array.isArray(body?.tracks) ? body.tracks.filter(Boolean) : []);
+      
+      // Si vienen tracks completos, formatearlos y extraer URIs
+      if (Array.isArray(body?.tracks) && body.tracks.length > 0) {
+        // Formatear tracks completos para guardar
+        tracksData = body.tracks.map((track) => {
+          const artists = Array.isArray(track.artists) 
+            ? track.artists.map((a) => ({ name: a.name || a, id: a.id || null }))
+            : track.artist 
+              ? [{ name: track.artist, id: null }]
+              : [{ name: 'Artista desconocido', id: null }];
+          
+          return {
+            id: track.id,
+            name: track.name || 'Sin nombre',
+            artist: artists.map((a) => a.name).join(', '), // String para compatibilidad
+            artists: artists, // Array completo
+            album: {
+              name: track.album?.name || track.album_name || '',
+              images: track.album?.images || track.album?.image ? [track.album.image] : []
+            },
+            spotify_url: track.external_urls?.spotify || track.spotify_url || track.open_url || `https://open.spotify.com/track/${track.id}`,
+            image: track.album?.images?.[0]?.url || track.album?.image || track.image || null
+          };
+        });
+        
+        // Extraer URIs de los tracks
+        uris = body.tracks
+          .map(t => t.uri || (t.id ? `spotify:track:${t.id}` : null))
+          .filter(Boolean);
+      } else {
+        // Si solo vienen URIs, usarlos directamente
+        uris = Array.isArray(body?.uris) ? body.uris.filter(Boolean) : [];
+      }
     } catch (parseError) {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
@@ -138,7 +170,8 @@ export async function POST(req) {
           prompt: 'Generated from streaming',
           spotifyUrl: createResult.data?.external_urls?.spotify,
           spotifyId: playlistId,
-          trackCount: addedTotal
+          trackCount: addedTotal,
+          tracksData: tracksData || undefined // NUEVO: Pasar tracks completos si están disponibles
         }
       })
     }).catch(err => {

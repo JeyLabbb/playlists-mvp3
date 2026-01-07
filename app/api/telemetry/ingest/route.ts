@@ -135,12 +135,28 @@ async function insertUsageEvent(userEmail: string, action: string, meta: any = {
   }
 }
 
-async function insertPlaylist(userEmail: string, playlistName: string, prompt: string, spotifyUrl?: string, spotifyId?: string, trackCount?: number): Promise<string | null> {
+async function insertPlaylist(userEmail: string, playlistName: string, prompt: string, spotifyUrl?: string, spotifyId?: string, trackCount?: number, tracksData?: any[]): Promise<string | null> {
   try {
     const supabase = getSupabaseAdmin();
     
     // Try to get user UUID, but don't fail if not found
     const userUUID = await getUserUUID(userEmail);
+    
+    // Formatear tracks_data para JSONB (solo campos esenciales para reducir tamaño)
+    const formattedTracksData = tracksData && tracksData.length > 0
+      ? tracksData.map((track: any) => ({
+          id: track.id,
+          name: track.name || track.track_name,
+          artist: track.artist || track.artist_name,
+          artists: track.artists || (track.artist_names ? track.artist_names.map((n: string) => ({ name: n })) : []),
+          album: {
+            name: track.album?.name || track.album_name || '',
+            images: track.album?.images || (track.album_image_url ? [{ url: track.album_image_url }] : [])
+          },
+          spotify_url: track.spotify_url || track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
+          image: track.image || track.album?.images?.[0]?.url || track.album_image_url || null
+        }))
+      : [];
     
     const { data, error } = await supabase
       .from('playlists')
@@ -151,7 +167,8 @@ async function insertPlaylist(userEmail: string, playlistName: string, prompt: s
         prompt: prompt,
         spotify_url: spotifyUrl,
         spotify_id: spotifyId,
-        track_count: trackCount || 0,
+        track_count: trackCount || formattedTracksData.length || 0,
+        tracks_data: formattedTracksData.length > 0 ? formattedTracksData : null, // NUEVO: Guardar tracks completos en JSONB
         is_public: true // Por defecto públicas (se puede cambiar después)
       }] as any)
       .select()
@@ -286,7 +303,7 @@ export async function POST(request: NextRequest) {
       }
       
     } else if (type === 'playlist') {
-      const { email, playlistName, prompt, spotifyUrl, spotifyId, trackCount } = payload;
+      const { email, playlistName, prompt, spotifyUrl, spotifyId, trackCount, tracksData } = payload;
       
       if (!email || !playlistName || !prompt) {
         console.error('[TELEMETRY] Missing required fields:', { email: !!email, playlistName: !!playlistName, prompt: !!prompt });
@@ -296,8 +313,8 @@ export async function POST(request: NextRequest) {
         }, { status: 400 });
       }
       
-      console.log(`[TELEMETRY] Inserting playlist for ${email}:`, { playlistName, spotifyUrl, spotifyId, trackCount });
-      const playlistId = await insertPlaylist(email, playlistName, prompt, spotifyUrl, spotifyId, trackCount);
+      console.log(`[TELEMETRY] Inserting playlist for ${email}:`, { playlistName, spotifyUrl, spotifyId, trackCount, tracksDataCount: tracksData?.length || 0 });
+      const playlistId = await insertPlaylist(email, playlistName, prompt, spotifyUrl, spotifyId, trackCount, tracksData);
       
       if (playlistId) {
         console.log(`[TELEMETRY] ✅ Playlist inserted successfully: ${playlistId}`);

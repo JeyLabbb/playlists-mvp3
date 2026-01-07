@@ -14,7 +14,7 @@ export interface Track {
   name: string;
   artists: Array<{ name: string; id?: string }>;
   artistNames?: string[];
-  album?: { name: string; id?: string };
+  album?: { name: string; id?: string; images?: Array<{ url: string; height?: number; width?: number }> };
   uri?: string;
   popularity?: number;
   duration_ms?: number;
@@ -1865,7 +1865,11 @@ function normalizeTrack(raw: any): Track {
     name: raw.name,
     artists: raw.artists?.map((a: any) => ({ name: a.name, id: a.id })) || [],
     artistNames: raw.artists?.map((a: any) => a.name) || [],
-    album: raw.album ? { name: raw.album.name, id: raw.album.id } : undefined,
+    album: raw.album ? { 
+      name: raw.album.name, 
+      id: raw.album.id,
+      images: raw.album.images || [] // NUEVO: Incluir imágenes del álbum
+    } : undefined,
     uri: raw.uri,
     popularity: raw.popularity,
     duration_ms: raw.duration_ms,

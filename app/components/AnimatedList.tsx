@@ -9,6 +9,7 @@ type TrackItem = {
   artist: string;
   trackId?: string;
   openUrl?: string;
+  image?: string | null; // NUEVO: URL de la portada del álbum
 };
 
 function AnimatedItem({
@@ -144,6 +145,20 @@ export default function AnimatedList({
                   onItemSelect?.(item, idx);
                 }}
               >
+                {/* Album Art */}
+                {item.image && (
+                  <div className={styles.albumArt}>
+                    <img 
+                      src={item.image} 
+                      alt={item.title}
+                      className={styles.albumImage}
+                      onError={(e) => {
+                        // Si falla la imagen, ocultar el contenedor
+                        e.currentTarget.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
                 <div className={styles.trackDetails}>
                   <div className={styles.trackTitle}>{item.title}</div>
                   <div className={styles.trackArtist}>{item.artist}</div>

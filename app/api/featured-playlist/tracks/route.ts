@@ -18,7 +18,49 @@ export async function GET(request: Request) {
       );
     }
 
-    // Obtener tracks directamente desde Spotify API (sin fetch HTTP interno)
+    // PRIORIDAD 1: Intentar obtener tracks desde Supabase (tracks_data)
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data: playlistData, error: dbError } = await supabase
+        .from('playlists')
+        .select('tracks_data, track_count')
+        .eq('spotify_id', playlistId)
+        .maybeSingle();
+
+      if (!dbError && playlistData && playlistData.tracks_data && Array.isArray(playlistData.tracks_data) && playlistData.tracks_data.length > 0) {
+        console.log(`[FEATURED_TRACKS] Using tracks_data from DB: ${playlistData.tracks_data.length} tracks`);
+        
+        // Formatear tracks desde DB para el componente
+        const formattedTracks = playlistData.tracks_data.slice(0, 15).map((track: any) => ({
+          name: track.name || 'Sin nombre',
+          artist: track.artist || (Array.isArray(track.artists) ? track.artists.map((a: any) => a.name || a).join(', ') : 'Artista desconocido'),
+          artists: Array.isArray(track.artists) 
+            ? track.artists.map((a: any) => ({ name: typeof a === 'string' ? a : (a.name || 'Artista desconocido') }))
+            : track.artist 
+              ? [{ name: track.artist }]
+              : [{ name: 'Artista desconocido' }],
+          spotify_url: track.spotify_url || track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
+          image: track.image || track.album?.images?.[0]?.url || null,
+        }));
+
+        const totalTracks = playlistData.track_count || playlistData.tracks_data.length;
+
+        return NextResponse.json({
+          success: true,
+          tracks: formattedTracks,
+          total: totalTracks,
+          showing: formattedTracks.length,
+          source: 'database'
+        });
+      } else {
+        console.log('[FEATURED_TRACKS] No tracks_data in DB, falling back to Spotify API');
+      }
+    } catch (dbError) {
+      console.warn('[FEATURED_TRACKS] Error checking DB for tracks_data:', dbError);
+      // Continuar con fallback a Spotify API
+    }
+
+    // PRIORIDAD 2: Obtener tracks directamente desde Spotify API (fallback)
     try {
       // Intentar usar token del usuario primero, luego hub token como fallback
       let accessToken: string | null = null;

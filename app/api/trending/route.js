@@ -198,7 +198,7 @@ async function getPlaylistsFromSupabase() {
     // Get playlists from Supabase - SOLO playlists públicas
     let { data: playlists, error } = await supabase
       .from('playlists')
-      .select('id, user_email, playlist_name, prompt, spotify_url, track_count, created_at, is_public')
+      .select('id, user_email, playlist_name, prompt, spotify_url, track_count, tracks_data, created_at, is_public')
       .eq('is_public', true) // SOLO playlists públicas
       .order('created_at', { ascending: false })
       .limit(100);
@@ -208,7 +208,7 @@ async function getPlaylistsFromSupabase() {
       console.log('[TRENDING] is_public column not found, fetching all playlists (fallback)...');
       const retry = await supabase
         .from('playlists')
-        .select('id, user_email, playlist_name, prompt, spotify_url, track_count, created_at')
+        .select('id, user_email, playlist_name, prompt, spotify_url, track_count, tracks_data, created_at')
         .order('created_at', { ascending: false })
         .limit(100);
       playlists = retry.data;
@@ -273,6 +273,7 @@ async function getPlaylistsFromSupabase() {
         playlistName: playlist.playlist_name || playlist.prompt || 'Playlist',
         spotifyUrl: playlist.spotify_url || '#',
         trackCount: playlist.track_count || 0,
+        tracksData: playlist.tracks_data || null, // NUEVO: Tracks completos desde DB
         views: 0, // Supabase doesn't track views yet
         clicks: 0, // Supabase doesn't track clicks yet
         createdAt: playlist.created_at || new Date().toISOString(),

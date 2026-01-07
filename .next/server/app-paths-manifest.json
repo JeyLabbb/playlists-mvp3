@@ -1,8 +1,9 @@
 {
-  "/api/trending/route": "app/api/trending/route.js",
-  "/admin/featured-playlist/page": "app/admin/featured-playlist/page.js",
-  "/trending/page": "app/trending/page.js",
-  "/me/page": "app/me/page.js",
-  "/page": "app/page.js",
-  "/login/page": "app/login/page.js"
+  "/api/social/friends/list/route": "app/api/social/friends/list/route.js",
+  "/api/usage/status/route": "app/api/usage/status/route.js",
+  "/api/intent/route": "app/api/intent/route.js",
+  "/api/agent/stream/route": "app/api/agent/stream/route.js",
+  "/api/telemetry/ingest/route": "app/api/telemetry/ingest/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/page": "app/page.js"
 }

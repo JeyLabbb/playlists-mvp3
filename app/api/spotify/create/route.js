@@ -26,7 +26,7 @@ export async function POST(req) {
     };
     
     // Sanitize inputs
-    const { name: rawName, description: rawDesc, public: rawPublic, uris: rawUris, prompt: rawPrompt } = await req.json();
+    const { name: rawName, description: rawDesc, public: rawPublic, uris: rawUris, tracks: rawTracks, prompt: rawPrompt } = await req.json();
     const name = String(rawName || '').trim();
     const prompt = String(rawPrompt || '').trim();
     
@@ -47,9 +47,44 @@ export async function POST(req) {
     const description = (rawDesc == null ? '' : String(rawDesc)).replace(/[^\w\s\-\.]/g, '').replace(/\n/g, ' ').trim().slice(0, 300);
     const isPublic = !!rawPublic;
     
-    const uris = Array.isArray(rawUris)
-      ? rawUris.map(toUri).filter(Boolean).slice(0, 200)
-      : [];
+    // NUEVO: Si vienen tracks completos, formatearlos y extraer URIs
+    let tracksData = null;
+    let uris = [];
+    
+    if (Array.isArray(rawTracks) && rawTracks.length > 0) {
+      // Formatear tracks completos para guardar
+      tracksData = rawTracks.map((track) => {
+        const artists = Array.isArray(track.artists) 
+          ? track.artists.map((a) => ({ name: a.name || a, id: a.id || null }))
+          : track.artist 
+            ? [{ name: track.artist, id: null }]
+            : [{ name: 'Artista desconocido', id: null }];
+        
+        return {
+          id: track.id,
+          name: track.name || 'Sin nombre',
+          artist: artists.map((a) => a.name).join(', '), // String para compatibilidad
+          artists: artists, // Array completo
+          album: {
+            name: track.album?.name || track.album_name || '',
+            images: track.album?.images || track.album?.image ? [track.album.image] : []
+          },
+          spotify_url: track.external_urls?.spotify || track.spotify_url || track.open_url || `https://open.spotify.com/track/${track.id}`,
+          image: track.album?.images?.[0]?.url || track.album?.image || track.image || null
+        };
+      });
+      
+      // Extraer URIs de los tracks
+      uris = rawTracks
+        .map(t => toUri(t.uri || t.id))
+        .filter(Boolean)
+        .slice(0, 200);
+    } else {
+      // Si solo vienen URIs, usarlos directamente
+      uris = Array.isArray(rawUris)
+        ? rawUris.map(toUri).filter(Boolean).slice(0, 200)
+        : [];
+    }
     
     console.log(`[TRACE:${traceId}] Creating playlist: "${safeName}"`);
     
@@ -171,7 +206,8 @@ export async function POST(req) {
           prompt: prompt || 'Generated from streaming',
           spotifyUrl: playlistUrl,
           spotifyId: playlistId,
-          trackCount: added
+          trackCount: added,
+          tracksData: tracksData || undefined // NUEVO: Pasar tracks completos si están disponibles
         }
       })
     }).then(async (response) => {

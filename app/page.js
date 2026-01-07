@@ -190,6 +190,235 @@ export default function Home() {
   const [showTips, setShowTips] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
+  // Componente interno para cargar imágenes de tracks
+  function TracksWithImagesLoader({ tracks, t, onTracksChange }) {
+    const [tracksWithImages, setTracksWithImages] = useState([]);
+    const [loadingImages, setLoadingImages] = useState(false);
+    const [filteredTracks, setFilteredTracks] = useState([]);
+
+    useEffect(() => {
+      if (!tracks || tracks.length === 0) {
+        setTracksWithImages([]);
+        return;
+      }
+
+      // Formatear tracks iniciales
+      const formattedTracks = tracks.map((track) => {
+        // Extract artist names
+        let artists = [];
+        if (typeof track.artistNames === 'string') {
+          artists = track.artistNames.split(',').map(a => a.trim()).filter(Boolean);
+        } else if (Array.isArray(track.artistNames)) {
+          artists = track.artistNames.map(a => typeof a === 'string' ? a : a?.name).filter(Boolean);
+        } else if (Array.isArray(track.artists)) {
+          artists = track.artists.map(a => typeof a === 'string' ? a : a?.name).filter(Boolean);
+        }
+        
+        const artistStr = artists.length > 0 ? artists.join(', ') : 'Artista desconocido';
+        const name = track.title || track.name || 'Título desconocido';
+        
+        // Extract album image (prioritize different possible locations)
+        let imageUrl = null;
+        
+        // Prioridad 1: album.images[0].url (formato estándar de Spotify)
+        if (track.album?.images && Array.isArray(track.album.images) && track.album.images.length > 0) {
+          const firstImage = track.album.images[0];
+          if (typeof firstImage === 'string') {
+            imageUrl = firstImage;
+          } else if (firstImage?.url) {
+            imageUrl = firstImage.url;
+          }
+        }
+        
+        // Prioridad 2: Formato alternativo con optional chaining
+        if (!imageUrl && track.album?.images?.[0]?.url) {
+          imageUrl = track.album.images[0].url;
+        }
+        
+        // Prioridad 3: Otras ubicaciones posibles
+        if (!imageUrl && track.album?.image) {
+          imageUrl = track.album.image;
+        }
+        if (!imageUrl && track.image) {
+          imageUrl = track.image;
+        }
+        if (!imageUrl && track.albumCover) {
+          imageUrl = track.albumCover;
+        }
+        
+        // Format artists array for TracksPreview
+        const artistsArray = artists.map(a => ({ name: typeof a === 'string' ? a : a?.name || a })).filter(a => a.name);
+        
+        return {
+          name: name,
+          artist: artistStr,
+          artists: artistsArray.length > 0 ? artistsArray : undefined,
+          spotify_url: track.open_url || track.spotify_url || track.external_urls?.spotify || (track.id ? `https://open.spotify.com/track/${track.id}` : '#'),
+          image: imageUrl || null,
+          id: track.id,
+          album: track.album || (imageUrl ? { images: [{ url: imageUrl }] } : undefined),
+          external_urls: track.external_urls || (track.id ? { spotify: `https://open.spotify.com/track/${track.id}` } : undefined),
+          open_url: track.open_url || track.spotify_url || (track.id ? `https://open.spotify.com/track/${track.id}` : undefined),
+          artistNames: artistStr
+        };
+      });
+
+      // Verificar cuáles tracks no tienen imágenes
+      const tracksWithoutImages = formattedTracks.filter(t => !t.image && t.id);
+      
+      if (tracksWithoutImages.length > 0) {
+        // Hay tracks sin imágenes, obtenerlas desde Spotify
+        setLoadingImages(true);
+        const trackIds = tracksWithoutImages.map(t => t.id).filter(Boolean);
+        
+        fetch('/api/tracks/images', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ trackIds })
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && data.tracks) {
+              // Crear un mapa de trackId -> imagen
+              const imageMap = new Map();
+              data.tracks.forEach((t) => {
+                if (t.id && t.image) {
+                  imageMap.set(t.id, t.image);
+                }
+              });
+              
+              // Actualizar tracks con las imágenes obtenidas
+              const updatedTracks = formattedTracks.map(t => {
+                if (!t.image && t.id && imageMap.has(t.id)) {
+                  return {
+                    ...t,
+                    image: imageMap.get(t.id),
+                    album: t.album || { images: [{ url: imageMap.get(t.id) }] }
+                  };
+                }
+                return t;
+              });
+              
+              setTracksWithImages(updatedTracks);
+              setFilteredTracks(updatedTracks); // Inicializar filteredTracks
+            } else {
+              // Si falla, usar tracks sin imágenes
+              setTracksWithImages(formattedTracks);
+              setFilteredTracks(formattedTracks);
+            }
+          })
+          .catch(err => {
+            console.error('[TRACKS_IMAGES] Error fetching images:', err);
+            // Si falla, usar tracks sin imágenes
+            setTracksWithImages(formattedTracks);
+            setFilteredTracks(formattedTracks);
+          })
+          .finally(() => {
+            setLoadingImages(false);
+          });
+      } else {
+        // Todos los tracks ya tienen imágenes
+        setTracksWithImages(formattedTracks);
+        setFilteredTracks(formattedTracks);
+      }
+    }, [tracks]);
+
+    // Función para eliminar un track
+    const handleRemoveTrack = (trackId) => {
+      const updated = filteredTracks.filter(t => t.id !== trackId);
+      setFilteredTracks(updated);
+      setTracksWithImages(updated);
+      // Notificar al componente padre para actualizar tracks
+      if (onTracksChange) {
+        // Encontrar el track original en tracks para eliminarlo
+        const originalTrack = tracks.find(t => t.id === trackId);
+        if (originalTrack) {
+          onTracksChange(tracks.filter(t => t.id !== trackId));
+        }
+      }
+    };
+
+    return (
+      <div className="spotify-card">
+        <h3 className="text-xl font-semibold text-white mb-6">
+          {t('playlist.tracksTitle')} ({filteredTracks.length} tracks)
+        </h3>
+        
+        <div className="space-y-2 max-h-96 overflow-y-auto rounded-xl p-4"
+          style={{
+            background: 'rgba(0, 0, 0, 0.2)',
+            border: '1px solid rgba(255, 255, 255, 0.05)',
+          }}
+        >
+          {loadingImages ? (
+            <div className="text-center py-8 text-gray-400">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-400 mx-auto mb-2"></div>
+              <p className="text-sm">Cargando canciones...</p>
+            </div>
+          ) : filteredTracks.length === 0 ? (
+            <div className="text-center py-4 text-gray-400 text-sm">
+              <p>No hay canciones disponibles</p>
+            </div>
+          ) : (
+            filteredTracks.map((track, index) => (
+              <div
+                key={track.id || index}
+                className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/10 transition-all duration-200 group/track relative"
+                style={{
+                  backdropFilter: 'blur(4px)',
+                }}
+              >
+                {track.image && (
+                  <div className="relative">
+                    <img
+                      src={track.image}
+                      alt={track.name}
+                      className="w-12 h-12 rounded-lg object-cover"
+                      style={{
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                      }}
+                    />
+                    <div 
+                      className="absolute inset-0 rounded-lg opacity-0 group-hover/track:opacity-100 transition-opacity"
+                      style={{
+                        background: 'linear-gradient(135deg, rgba(54, 226, 180, 0.2), rgba(91, 140, 255, 0.2))',
+                      }}
+                    />
+                  </div>
+                )}
+                <a
+                  href={track.spotify_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 min-w-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <p className="text-sm font-medium text-white truncate group-hover/track:text-green-300 transition-colors">
+                    {track.name}
+                  </p>
+                  <p className="text-xs text-gray-400 truncate">{track.artist}</p>
+                </a>
+                <button
+                  onClick={() => handleRemoveTrack(track.id)}
+                  className="opacity-0 group-hover/track:opacity-100 transition-opacity p-1 hover:bg-red-500/20 rounded-full"
+                  title="Eliminar canción"
+                  style={{
+                    color: '#ef4444',
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // Detect mobile for placeholder
   useEffect(() => {
     const checkMobile = () => {
@@ -758,6 +987,11 @@ export default function Home() {
         setTracks([...allTracks]);
         setPlaylistMeta(payload.playlist || null);
 
+        // Si la playlist tiene un nombre generado por IA, establecerlo en el campo de edición
+        if (payload.playlist?.name && !customPlaylistName) {
+          setCustomPlaylistName(payload.playlist.name);
+        }
+
         finishProgress();
         setIsGenerationComplete(true);
         setStatusText(`✅ ¡Listo! ${allTracks.length} canciones encontradas`);
@@ -775,10 +1009,15 @@ export default function Home() {
 
       try {
         // Crear EventSource para el agente
+        // IMPORTANTE: Solo enviar playlist_name si el usuario lo ha editado manualmente
+        // Si está vacío o es el prompt, dejar que el backend lo genere con IA
         const params = new URLSearchParams({
           prompt,
           target_tracks: wanted.toString(),
-          playlist_name: customPlaylistName || safeDefaultName(prompt)
+          // Solo enviar playlist_name si el usuario lo ha escrito manualmente (no vacío y diferente del prompt)
+          ...(customPlaylistName && customPlaylistName.trim() && customPlaylistName.trim() !== prompt.trim() 
+            ? { playlist_name: customPlaylistName.trim() } 
+            : {})
         });
         
         const streamUrl = new URL('/api/agent/stream', window.location.origin);
@@ -1067,6 +1306,11 @@ export default function Home() {
 
         setTracks([...allTracks]);
         setPlaylistMeta(payload.playlist || null);
+
+        // Si la playlist tiene un nombre generado por IA, establecerlo en el campo de edición
+        if (payload.playlist?.name && !customPlaylistName) {
+          setCustomPlaylistName(payload.playlist.name);
+        }
 
         finishProgress();
         setIsGenerationComplete(true);
@@ -1544,6 +1788,10 @@ export default function Home() {
     setPlaylistMeta(null);
     setCopyStatus(null);
     setPageLoading(false);
+    
+    // SIEMPRE limpiar el nombre de playlist al iniciar nueva generación
+    // El backend generará uno nuevo basado en el prompt actual
+    setCustomPlaylistName('');
 
     // Check usage limit before generating (but don't consume yet)
     try {
@@ -2842,49 +3090,11 @@ export default function Home() {
           {showUsageLimit ? (
             <UsageLimitReached onViewPlans={handleViewPlans} />
           ) : tracks.length > 0 && (
-            <div className="spotify-card">
-              <h3 className="text-xl font-semibold text-white mb-6">
-                {t('playlist.tracksTitle')} ({tracks.length} tracks)
-              </h3>
-              
-              
-              <AnimatedList
-                items={tracks.map((track) => {
-                  // Extract artist names
-                  let artists = [];
-                  if (typeof track.artistNames === 'string') {
-                    artists = track.artistNames.split(',').map(a => a.trim()).filter(Boolean);
-                  } else if (Array.isArray(track.artistNames)) {
-                    artists = track.artistNames.map(a => typeof a === 'string' ? a : a?.name).filter(Boolean);
-                  } else if (Array.isArray(track.artists)) {
-                    artists = track.artists.map(a => typeof a === 'string' ? a : a?.name).filter(Boolean);
-                  }
-                  
-                  const artistStr = artists.length > 0 ? artists.join(', ') : 'Artista desconocido';
-                  const title = track.title || track.name || 'Título desconocido';
-                  
-                  return {
-                    title: title,
-                    artist: artistStr,
-                    trackId: track.id,
-                    openUrl: track.open_url || (track.id ? `https://open.spotify.com/track/${track.id}` : undefined)
-                  };
-                })}
-                onItemSelect={(item, idx) => {
-                  // Open track in Spotify
-                  if (item.openUrl) {
-                    window.open(item.openUrl, '_blank');
-                  }
-                }}
-                onItemRemove={(item, idx) => {
-                  // Remove track from list
-                  handleRemoveTrack(item.trackId);
-                }}
-                displayScrollbar={true}
-                className=""
-                itemClassName=""
-              />
-            </div>
+            <TracksWithImagesLoader 
+              tracks={tracks} 
+              t={t} 
+              onTracksChange={(newTracks) => setTracks(newTracks)}
+            />
           )}
 
           {/* Spotify Branding - After tracks generation */}

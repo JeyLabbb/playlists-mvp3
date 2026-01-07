@@ -99,6 +99,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Formatear tracks completos para guardar (antes de crear playlist en Spotify)
+    const formattedTracks = playlist.tracks.map((track: any) => {
+      // Extraer información completa de cada track
+      const artists = Array.isArray(track.artists) 
+        ? track.artists.map((a: any) => ({ name: a.name || a, id: a.id || null }))
+        : track.artist 
+          ? [{ name: track.artist, id: null }]
+          : [{ name: 'Artista desconocido', id: null }];
+      
+      return {
+        id: track.id,
+        name: track.name || 'Sin nombre',
+        artist: artists.map((a: any) => a.name).join(', '), // String para compatibilidad
+        artists: artists, // Array completo
+        album: {
+          name: track.album?.name || track.album_name || '',
+          images: track.album?.images || track.album?.image ? [track.album.image] : []
+        },
+        spotify_url: track.external_urls?.spotify || track.spotify_url || track.open_url || `https://open.spotify.com/track/${track.id}`,
+        image: track.album?.images?.[0]?.url || track.album?.image || track.image || null
+      };
+    });
+
     // Crear la playlist en Spotify
     const trackUris = playlist.tracks.map((track: any) => `spotify:track:${track.id}`);
     const spotifyPlaylist = await createSpotifyPlaylist(
@@ -154,7 +177,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       playlistId: spotifyPlaylist.id,
-      playlistUrl: spotifyPlaylist.external_urls.spotify
+      playlistUrl: spotifyPlaylist.external_urls.spotify,
+      tracks: formattedTracks, // NUEVO: Devolver tracks completos formateados
+      trackCount: formattedTracks.length
     });
 
   } catch (error) {

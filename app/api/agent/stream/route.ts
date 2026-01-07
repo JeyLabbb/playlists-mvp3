@@ -30,11 +30,85 @@ const openai = new OpenAI({
 // GET Handler (SSE Streaming)
 // ═══════════════════════════════════════════════════════════════
 
+// Función para generar nombre de playlist con IA
+async function generatePlaylistName(prompt: string): Promise<string> {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return 'PLEIA Playlist';
+    }
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `Eres un experto en crear nombres de playlists atractivos y relevantes. 
+          
+          Genera un nombre de playlist profesional y atractivo basado EXACTAMENTE en el prompt del usuario. 
+          
+          REGLAS CRÍTICAS:
+          - El nombre DEBE reflejar el contenido real del prompt
+          - Si el prompt menciona un festival, evento o lugar específico, inclúyelo en el nombre
+          - Si el prompt menciona años (2025, 2024, etc.), inclúyelos si son relevantes
+          - Si el prompt menciona un género o estilo, inclúyelo
+          - Breve (máximo 40 caracteres)
+          - Estilizado y profesional
+          - Puedes usar emojis relevantes (máximo 1-2)
+          - NO incluir "by PLEIA" o "PLEIA"
+          - NO inventar información que no esté en el prompt
+          
+          Ejemplos CORRECTOS:
+          "quiero una playlist para recordar Riverland 2025 y 2024" → "Riverland 2024-2025 🎵" o "Riverland Memories"
+          "recordar Riverland 2025" → "Riverland 2025 🎵"
+          "trap español para activarme" → "Trap Español 🔥"
+          "techno suave 2020s" → "Chill Techno (2020s)"
+          "reggaeton como Bad Bunny pero sin Bad Bunny" → "Reggaeton Vibes" o "Reggaeton Style"
+          
+          Ejemplos INCORRECTOS (NO hacer esto):
+          - Si el prompt es sobre Riverland, NO generar algo sobre Bad Bunny
+          - Si el prompt es sobre un festival, NO generar algo genérico sin mencionar el festival
+          
+          Responde SOLO con el nombre de la playlist, sin explicaciones adicionales.`
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 50,
+      temperature: 0.7 // Reducir temperatura para más consistencia
+    });
+
+    const generatedName = response.choices[0]?.message?.content?.trim();
+    
+    // Limpiar el nombre de posibles prefijos/sufijos no deseados
+    let cleanedName = generatedName
+      .replace(/^["']|["']$/g, '') // Quitar comillas al inicio/final
+      .replace(/^Nombre de playlist:\s*/i, '') // Quitar prefijos comunes
+      .replace(/^Playlist:\s*/i, '')
+      .trim();
+    
+    if (cleanedName && cleanedName.length > 0 && cleanedName.length <= 100) {
+      console.log(`[AGENT-STREAM] Generated playlist name from prompt "${prompt.substring(0, 50)}...": "${cleanedName}"`);
+      return cleanedName;
+    }
+  } catch (error) {
+    console.error('[AGENT-STREAM] Error generating playlist name:', error);
+  }
+  
+  // Fallback: usar el prompt truncado, pero mejorado
+  const fallbackName = prompt.length > 40 ? prompt.substring(0, 37) + '...' : prompt;
+  console.log(`[AGENT-STREAM] Using fallback name: "${fallbackName}"`);
+  return fallbackName;
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const prompt = searchParams.get('prompt');
   const targetTracks = parseInt(searchParams.get('target_tracks') || '50', 10);
-  const playlistName = searchParams.get('playlist_name') || 'PLEIA Playlist';
+  const userProvidedName = searchParams.get('playlist_name');
+  // Si el usuario no proporcionó nombre, usar prompt como fallback (se generará con IA más tarde)
+  const playlistName = userProvidedName || 'PLEIA Playlist';
 
   if (!prompt) {
     return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
@@ -592,7 +666,9 @@ export async function GET(request: NextRequest) {
           const missing = targetTracks - allTracks.length;
           
           // Para festivales, intentar buscar más playlists en lugar de hacer fill genérico
-          if (isFestival) {
+          // MEJORA: Solo hacer búsquedas adicionales si realmente faltan muchas canciones (más de 10)
+          // y limitar a máximo 2 búsquedas adicionales para mantener calidad
+          if (isFestival && missing > 10) {
             console.log(`[AGENT-STREAM] Festival detected - missing ${missing} tracks. Trying additional search_playlists instead of generic fill...`);
             sendThinking(`Buscando más playlists del festival para completar...`);
             
@@ -600,24 +676,26 @@ export async function GET(request: NextRequest) {
               const festivalMatch = prompt.match(/\b(festival\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/i);
               const festivalName = festivalMatch ? (festivalMatch[2] || festivalMatch[0]) : prompt;
               
-              // Buscar más playlists con diferentes queries
+              // MEJORA: Reducir queries adicionales y hacerlas más estrictas
+              // Solo las 2 más relevantes, con min_consensus más alto
               const additionalQueries = [
                 `${festivalName} 2024`,
-                `${festivalName} 2023`,
-                `${festivalName} lineup`,
-                `${festivalName} official`
+                `${festivalName} lineup`
               ];
               
+              let queriesExecuted = 0;
+              const MAX_ADDITIONAL_QUERIES = 2; // Limitar a 2 búsquedas adicionales
+              
               for (const query of additionalQueries) {
-                if (allTracks.length >= targetTracks) break;
+                if (allTracks.length >= targetTracks || queriesExecuted >= MAX_ADDITIONAL_QUERIES) break;
                 
                 const additionalStep: ToolCall = {
                   tool: 'search_playlists',
                   params: {
                     query: `${query} playlist`,
-                    limit_playlists: 5,
-                    tracks_per_playlist: 50,
-                    min_consensus: 2, // CRÍTICO: Requerir consenso de 2
+                    limit_playlists: 3, // Reducir de 5 a 3 playlists
+                    tracks_per_playlist: 30, // Reducir de 50 a 30 tracks por playlist
+                    min_consensus: 3, // AUMENTAR consenso de 2 a 3 para mayor calidad
                   },
                   reason: `Buscar más playlists del festival con query alternativa: ${query}`,
                 };
@@ -630,11 +708,15 @@ export async function GET(request: NextRequest) {
 
                 const additionalFiltered = filterBannedArtists(additionalResult.tracks);
                 allTracks.push(...additionalFiltered);
+                queriesExecuted++;
                 console.log(`[AGENT-STREAM] Additional search "${query}" added ${additionalFiltered.length} tracks. Total now: ${allTracks.length}`);
               }
             } catch (festivalFillError) {
               console.error('[AGENT-STREAM] Festival fill failed:', festivalFillError);
             }
+          } else if (isFestival && missing <= 10) {
+            // Si faltan 10 o menos tracks, mejor no hacer búsquedas adicionales para mantener calidad
+            console.log(`[AGENT-STREAM] Festival detected but only missing ${missing} tracks. Skipping additional searches to maintain quality.`);
           } else {
             // Solo hacer fill genérico si NO es un festival
             console.log(`[AGENT-STREAM] Missing ${missing} tracks, attempting to fill with recommendations...`);
@@ -1279,6 +1361,47 @@ export async function GET(request: NextRequest) {
           return;
         }
 
+        // Generar nombre de playlist con IA
+        // IMPORTANTE: Siempre generar desde el prompt actual, ignorar playlistName si no tiene sentido con el prompt
+        let finalPlaylistName = playlistName;
+        
+        // Extraer palabras clave del prompt para validar
+        const promptLowerForName = prompt.toLowerCase();
+        const promptKeywords = promptLowerForName
+          .split(/\s+/)
+          .filter(word => word.length > 3) // Solo palabras de más de 3 caracteres
+          .slice(0, 5); // Primeras 5 palabras clave
+        
+        // Detectar si el nombre proporcionado tiene sentido con el prompt actual
+        // Verificar si alguna palabra clave del prompt aparece en el nombre
+        const nameLower = playlistName.toLowerCase();
+        const hasRelevantKeyword = promptKeywords.some(keyword => 
+          nameLower.includes(keyword) || keyword.includes(nameLower.substring(0, keyword.length))
+        );
+        
+        // Si no hay nombre proporcionado, o es el default, o no tiene palabras clave relevantes, generar uno nuevo
+        const shouldGenerateNew = !userProvidedName || 
+                                  playlistName === 'PLEIA Playlist' || 
+                                  playlistName === prompt ||
+                                  (!hasRelevantKeyword && userProvidedName);
+        
+        if (shouldGenerateNew) {
+          try {
+            console.log(`[AGENT-STREAM] Generating playlist name from prompt: "${prompt.substring(0, 100)}"`);
+            if (userProvidedName && !hasRelevantKeyword) {
+              console.log(`[AGENT-STREAM] ⚠️ Provided name "${playlistName}" doesn't match prompt keywords [${promptKeywords.join(', ')}], generating new one`);
+            }
+            finalPlaylistName = await generatePlaylistName(prompt);
+            console.log(`[AGENT-STREAM] ✅ Generated playlist name: "${finalPlaylistName}"`);
+          } catch (nameError) {
+            console.error('[AGENT-STREAM] Error generating playlist name, using fallback:', nameError);
+            finalPlaylistName = prompt.length > 40 ? prompt.substring(0, 37) + '...' : prompt;
+          }
+        } else {
+          // Usuario proporcionó un nombre personalizado que tiene sentido, usarlo
+          console.log(`[AGENT-STREAM] Using user-provided playlist name: "${finalPlaylistName}"`);
+        }
+
         // Crear playlist
         let playlist = null;
         try {
@@ -1288,7 +1411,7 @@ export async function GET(request: NextRequest) {
 
           if (trackUris.length > 0) {
             playlist = await createPlaylist(accessToken, {
-              name: playlistName,
+              name: finalPlaylistName,
               description: `Generada por PLEIA Agent: "${prompt}"`,
               public: false
             });
@@ -1309,6 +1432,19 @@ export async function GET(request: NextRequest) {
 
         console.log('[AGENT-STREAM] ✅ Sending DONE event with', finalTracks.length, 'tracks');
         console.log('[AGENT-STREAM] Playlist created:', playlist ? playlist.id : 'none');
+        
+        // DEBUG: Log first track structure to verify album.images is included
+        if (finalTracks.length > 0) {
+          const firstTrack = finalTracks[0];
+          console.log('[AGENT-STREAM] First track structure:', {
+            id: firstTrack.id,
+            name: firstTrack.name,
+            hasAlbum: !!firstTrack.album,
+            albumImages: firstTrack.album?.images,
+            imagesLength: firstTrack.album?.images?.length,
+            firstImageUrl: firstTrack.album?.images?.[0]?.url
+          });
+        }
         
         // ⚠️ IMPORTANTE: Consumir uso SOLO si hay al menos 1 track
         if (finalTracks.length > 0) {
@@ -1347,7 +1483,7 @@ export async function GET(request: NextRequest) {
           target: targetTracks,
           playlist: playlist ? {
             id: playlist.id,
-            name: playlist.name,
+            name: finalPlaylistName, // Usar el nombre generado por IA
             url: playlist.external_urls?.spotify
           } : null,
           message: `¡Listo! He encontrado ${finalTracks.length} canciones para ti.`

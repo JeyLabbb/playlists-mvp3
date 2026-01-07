@@ -179,7 +179,8 @@ export async function POST(request) {
       prompt: playlistData.prompt || 'Playlist creada',
       name: playlistData.name || playlistData.prompt || 'Mi Playlist',
       url: playlistData.url || '#',
-      tracks: playlistData.tracks || 0,
+      tracks: playlistData.tracks || playlistData.trackList?.length || 0, // Número total
+      trackList: playlistData.trackList || playlistData.tracks || [], // NUEVO: Array completo de tracks formateados
       views: 0,
       clicks: 0,
       createdAt: new Date().toISOString(),
