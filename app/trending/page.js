@@ -170,6 +170,16 @@ export default function TrendingPage() {
           trackCount: 0
         });
       }
+    } catch (error) {
+      console.error('[TRENDING] Error loading playlist preview:', error);
+      setPreviewTracks([]);
+      setPreviewPlaylist({
+        ...playlist,
+        trackCount: 0
+      });
+    } finally {
+      setLoadingPreview(false);
+    }
   };
 
   const trackClick = async (playlistId, spotifyUrl) => {
