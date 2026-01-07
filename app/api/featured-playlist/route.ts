@@ -112,9 +112,16 @@ export async function GET() {
       );
     }
 
+    // Usar display_name si existe, sino usar playlist_name
+    const featuredData = {
+      ...data,
+      display_name: data.display_name || data.playlist_name,
+      // Mantener playlist_name original para referencia
+    };
+
     return NextResponse.json({
       success: true,
-      featured: data
+      featured: featuredData
     });
 
   } catch (error: any) {

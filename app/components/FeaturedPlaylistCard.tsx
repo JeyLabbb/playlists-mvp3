@@ -8,6 +8,7 @@ import TracksPreview from './TracksPreview';
 type FeaturedPlaylist = {
   id: string;
   playlist_name: string;
+  display_name?: string | null; // Nombre personalizado para UI
   owner_display_name: string;
   owner_username?: string | null;
   owner_user_id?: string | null;
@@ -242,7 +243,7 @@ export default function FeaturedPlaylistCard() {
               lineHeight: '1.2',
             }}
           >
-            {featured.playlist_name}
+            {featured.display_name || featured.playlist_name}
           </h4>
           
           <div className="flex items-center gap-2 mb-4">
