@@ -256,9 +256,19 @@ async function getPlaylistsFromSupabase() {
       // Usar username TAL CUAL está en Supabase - SIN NORMALIZAR
       const rawUsername = userDetails.username || playlist.user_email?.split('@')[0] || 'unknown';
 
+      // Extraer el ID real de Spotify de spotify_url (igual que FeaturedPlaylistCard usa spotify_playlist_id)
+      let spotifyPlaylistId = playlist.id; // Fallback al UUID interno
+      if (playlist.spotify_url) {
+        // Extraer ID de URL como: https://open.spotify.com/playlist/37i9dQZF1DX8Uebhn9wzrS
+        const urlMatch = playlist.spotify_url.match(/playlist\/([a-zA-Z0-9]+)/);
+        if (urlMatch && urlMatch[1]) {
+          spotifyPlaylistId = urlMatch[1];
+        }
+      }
+
       return {
-        id: playlist.id, // ID único para React key
-        playlistId: playlist.id,
+        id: playlist.id, // ID único para React key (UUID interno)
+        playlistId: spotifyPlaylistId, // ID REAL de Spotify (para llamar a la API)
         prompt: playlist.prompt || 'Playlist creada',
         playlistName: playlist.playlist_name || playlist.prompt || 'Playlist',
         spotifyUrl: playlist.spotify_url || '#',
