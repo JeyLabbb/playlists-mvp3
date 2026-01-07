@@ -73,7 +73,7 @@ export async function GET(request: Request) {
         if (currentUser?.email) {
           const { getServerSession } = await import('next-auth');
           const { authOptions } = await import('@/lib/auth/config');
-          const session = await getServerSession(authOptions);
+          const session = await getServerSession(authOptions as any) as any;
           
           if (session?.accessToken) {
             accessToken = session.accessToken;

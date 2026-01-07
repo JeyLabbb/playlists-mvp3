@@ -1,9 +1,10 @@
 {
   "/api/social/friends/list/route": "app/api/social/friends/list/route.js",
+  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
+  "/api/me/route": "app/api/me/route.js",
+  "/api/admin/featured-playlist/list/route": "app/api/admin/featured-playlist/list/route.js",
   "/api/usage/status/route": "app/api/usage/status/route.js",
-  "/api/intent/route": "app/api/intent/route.js",
-  "/api/agent/stream/route": "app/api/agent/stream/route.js",
-  "/api/telemetry/ingest/route": "app/api/telemetry/ingest/route.js",
-  "/_not-found/page": "app/_not-found/page.js",
-  "/page": "app/page.js"
+  "/api/featured-playlist/route": "app/api/featured-playlist/route.js",
+  "/page": "app/page.js",
+  "/admin/featured-playlist/page": "app/admin/featured-playlist/page.js"
 }
