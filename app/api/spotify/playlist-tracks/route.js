@@ -77,15 +77,20 @@ export async function GET(request) {
       try {
         const { getServerSession } = await import('next-auth');
         const { authOptions } = await import('@/lib/auth/config');
+        // En Next.js 15, getServerSession necesita el request
         const session = await getServerSession(authOptions);
         
         if (session?.accessToken) {
           accessToken = session.accessToken;
           console.log('[PLAYLIST-TRACKS] Using user access token');
+        } else {
+          console.log('[PLAYLIST-TRACKS] No user access token found in session');
         }
       } catch (sessionError) {
         console.warn('[PLAYLIST-TRACKS] Could not get user session:', sessionError);
       }
+    } else {
+      console.log('[PLAYLIST-TRACKS] No current user, will try hub token');
     }
     
     // Prioridad 2: Hub token (solo si no hay token de usuario)
@@ -95,14 +100,23 @@ export async function GET(request) {
         console.log('[PLAYLIST-TRACKS] Using hub access token');
       } catch (tokenError) {
         console.error('[PLAYLIST-TRACKS] Failed to get hub access token:', tokenError);
-        // Si falla, continuar sin token (puede funcionar para playlists públicas en algunos casos)
-        // Pero mejor devolver error claro
+        // Si falla tanto el token de usuario como el hub token, devolver error claro
+        // Pero permitir que la UI maneje el error mostrando un mensaje amigable
         return NextResponse.json({ 
           success: false, 
-          error: 'Failed to authenticate with Spotify. Please log in with Spotify to view playlist tracks.',
+          error: 'Unable to load playlist tracks. Please try logging in with Spotify or opening the playlist directly on Spotify.',
           tracks: [] 
         }, { status: 401 });
       }
+    }
+    
+    if (!accessToken) {
+      // Si por alguna razón no hay token, devolver error
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Unable to authenticate with Spotify to load tracks.',
+        tracks: [] 
+      }, { status: 401 });
     }
 
     // Fetch playlist tracks from Spotify
