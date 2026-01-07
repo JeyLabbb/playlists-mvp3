@@ -68,12 +68,9 @@ export default function FeaturedPlaylistCard() {
       return;
     }
 
-    // Prioridad 1: Usar preview_tracks si están disponibles (más rápido)
-    // PERO: igual que Trending, SIEMPRE cargar desde API para obtener el total real
-    // (Trending no usa preview_tracks, siempre carga desde API)
-    // Así que saltamos preview_tracks y vamos directo a la API como Trending
-
-    // Prioridad 2: Si no hay preview_tracks, intentar cargar desde Spotify
+    // COPIAR EXACTAMENTE de Trending: SIEMPRE cargar desde API para obtener el total real
+    // (Trending no usa preview_tracks, siempre carga desde API y obtiene data.total)
+    // Esto asegura que totalTracks sea correcto y el mensaje "y x canciones más" aparezca
     setTracksLoading(true);
     try {
       const res = await fetch(`/api/featured-playlist/tracks?playlist_id=${featured?.spotify_playlist_id}`);
