@@ -2049,62 +2049,6 @@ export default function Home() {
   }, [sessionUser?.email]);
 
   // Toggle playlist privacy
-  // Load tracks for a playlist
-  const loadPlaylistTracks = async (playlistId, spotifyUrl) => {
-    if (playlistTracks[playlistId]?.length > 0) {
-      // Toggle if already loaded
-      setShowPlaylistTracks(prev => ({
-        ...prev,
-        [playlistId]: !prev[playlistId]
-      }));
-      return;
-    }
-
-    setLoadingPlaylistTracks(prev => ({ ...prev, [playlistId]: true }));
-
-    try {
-      // Extract Spotify playlist ID from URL
-      const spotifyIdMatch = spotifyUrl?.match(/playlist\/([a-zA-Z0-9]+)/);
-      const spotifyId = spotifyIdMatch ? spotifyIdMatch[1] : null;
-
-      if (!spotifyId) {
-        throw new Error('No se pudo extraer el ID de Spotify');
-      }
-
-      const response = await fetch(`/api/spotify/playlist-tracks?id=${spotifyId}&ownerEmail=${encodeURIComponent(sessionUser?.email || '')}`);
-      const data = await response.json();
-
-      if (data.success && data.tracks && data.tracks.length > 0) {
-        setPlaylistTracks(prev => ({
-          ...prev,
-          [playlistId]: data.tracks
-        }));
-        setShowPlaylistTracks(prev => ({
-          ...prev,
-          [playlistId]: true
-        }));
-      } else {
-        console.error('[PLAYLISTS] Error loading tracks:', data.error);
-        setPlaylistTracks(prev => ({
-          ...prev,
-          [playlistId]: []
-        }));
-      }
-    } catch (err) {
-      console.error('[PLAYLISTS] Error fetching tracks:', err);
-      setPlaylistTracks(prev => ({
-        ...prev,
-        [playlistId]: []
-      }));
-    } finally {
-      setLoadingPlaylistTracks(prev => {
-        const newState = { ...prev };
-        delete newState[playlistId];
-        return newState;
-      });
-    }
-  };
-
   const togglePlaylistPrivacy = async (playlistId, currentPublic) => {
     const newPublic = !currentPublic;
     
