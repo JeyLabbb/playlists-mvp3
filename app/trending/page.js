@@ -110,12 +110,8 @@ export default function TrendingPage() {
 
   // Load playlist preview (tracks) and track click
   const loadPlaylistPreview = async (playlist) => {
+    // Track preview click (esto es específico de Trending, no está en FeaturedPlaylistCard)
     try {
-      console.log('Loading preview for playground:', playlist.playlistId);
-      setLoadingPreview(true);
-      setPreviewPlaylist(playlist);
-      
-      // Track preview click
       const response = await fetch('/api/metrics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -129,59 +125,66 @@ export default function TrendingPage() {
         console.log('Handling preview click tracking in localStorage');
         await updateMetricsInLocalStorage(playlist.playlistId, 'click');
       }
+    } catch (metricsError) {
+      console.warn('[TRENDING] Error tracking metrics:', metricsError);
+      // Continuar aunque falle el tracking
+    }
+    
+    // COPIAR EXACTAMENTE handleShowTracks de FeaturedPlaylistCard (líneas 59-117)
+    // Pero adaptado para Trending (usar previewPlaylist en lugar de featured, previewTracks en lugar de tracks)
+    
+    // Si ya tenemos tracks cargados para esta playlist, solo mostrar
+    if (previewPlaylist?.playlistId === playlist.playlistId && previewTracks.length > 0) {
+      // Ya tenemos tracks, solo abrir el modal si está cerrado
+      setPreviewPlaylist(playlist);
+      return;
+    }
+    
+    // Establecer la playlist primero
+    setPreviewPlaylist(playlist);
+    
+    // Prioridad 1: Usar preview_tracks si están disponibles (más rápido)
+    // En Trending no tenemos preview_tracks en la DB, así que saltamos esto
+    
+    // Prioridad 2: Si no hay preview_tracks, intentar cargar desde Spotify
+    // EXACTAMENTE igual que FeaturedPlaylistCard.handleShowTracks líneas 87-116
+    setLoadingPreview(true);
+    try {
+      const res = await fetch(`/api/featured-playlist/tracks?playlist_id=${playlist.playlistId}`);
       
-      // Load playlist tracks - COPIAR EXACTAMENTE de FeaturedPlaylistCard (líneas 87-116)
-      console.log('[TRENDING] Fetching tracks for playlist:', playlist.playlistId);
+      if (!res.ok) {
+        throw new Error('Failed to fetch tracks');
+      }
       
-      // Prioridad 2: Si no hay preview_tracks, intentar cargar desde Spotify
-      // EXACTAMENTE igual que FeaturedPlaylistCard.handleShowTracks (líneas 87-116)
-      // setTracksLoading(true) en FeaturedPlaylistCard = setLoadingPreview(true) en Trending
-      try {
-        const res = await fetch(`/api/featured-playlist/tracks?playlist_id=${playlist.playlistId}`);
-        
-        if (!res.ok) {
-          throw new Error('Failed to fetch tracks');
-        }
-        
-        const data = await res.json();
-        
-        if (data.success && data.tracks && data.tracks.length > 0) {
-          // EXACTAMENTE igual que FeaturedPlaylistCard línea 99: setTracks(data.tracks);
-          setPreviewTracks(data.tracks);
-          // EXACTAMENTE igual que FeaturedPlaylistCard línea 100: setTotalTracks(data.total || data.tracks.length);
-          setPreviewPlaylist({
-            ...playlist,
-            trackCount: data.total || data.tracks.length
-          });
-        } else {
-          // Si falla, mostrar mensaje (igual que FeaturedPlaylistCard líneas 103-107)
-          console.error('[TRENDING] Error loading tracks:', data.error);
-          setPreviewTracks([]);
-          setPreviewPlaylist({
-            ...playlist,
-            trackCount: 0
-          });
-        }
-      } catch (err) {
-        // EXACTAMENTE igual que FeaturedPlaylistCard (líneas 109-113)
-        console.error('[TRENDING] Error fetching tracks:', err);
+      const data = await res.json();
+      
+      if (data.success && data.tracks && data.tracks.length > 0) {
+        // EXACTAMENTE igual que FeaturedPlaylistCard línea 99: setTracks(data.tracks);
+        setPreviewTracks(data.tracks);
+        // EXACTAMENTE igual que FeaturedPlaylistCard línea 100: setTotalTracks(data.total || data.tracks.length);
+        setPreviewPlaylist({
+          ...playlist,
+          trackCount: data.total || data.tracks.length
+        });
+      } else {
+        // Si falla, mostrar mensaje (igual que FeaturedPlaylistCard líneas 103-107)
+        console.error('[TRENDING] Error loading tracks:', data.error);
         setPreviewTracks([]);
         setPreviewPlaylist({
           ...playlist,
           trackCount: 0
         });
-      } finally {
-        // EXACTAMENTE igual que FeaturedPlaylistCard línea 115: setTracksLoading(false);
-        setLoadingPreview(false);
       }
-    } catch (error) {
-      console.error('[TRENDING] Error loading playlist preview:', error);
+    } catch (err) {
+      // EXACTAMENTE igual que FeaturedPlaylistCard (líneas 109-113)
+      console.error('[TRENDING] Error fetching tracks:', err);
       setPreviewTracks([]);
       setPreviewPlaylist({
         ...playlist,
         trackCount: 0
       });
     } finally {
+      // EXACTAMENTE igual que FeaturedPlaylistCard línea 115: setTracksLoading(false);
       setLoadingPreview(false);
     }
   };
