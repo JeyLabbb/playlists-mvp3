@@ -139,18 +139,18 @@ export default function TrendingPage() {
       // Get owner email from playlist for access control
       const ownerEmail = playlist.ownerEmail || playlist.author?.email || null;
       
-      const tracksEndpoint = isExamplePlaylist 
-        ? `/api/spotify/example-tracks?id=${playlist.playlistId}`
-        : ownerEmail
-          ? `/api/spotify/playlist-tracks?id=${playlist.playlistId}&ownerEmail=${encodeURIComponent(ownerEmail)}`
-          : `/api/spotify/playlist-tracks?id=${playlist.playlistId}`;
+      // Usar exactamente el mismo endpoint que FeaturedPlaylistCard usa
+      const res = await fetch(`/api/spotify/playlist-tracks?id=${playlist.playlistId}&ownerEmail=${encodeURIComponent(ownerEmail || '')}`);
       
-      const tracksResponse = await fetch(tracksEndpoint);
-      const tracksData = await tracksResponse.json();
+      if (!res.ok) {
+        throw new Error('Failed to fetch tracks');
+      }
+      
+      const tracksData = await res.json();
       
       console.log('Tracks response:', tracksData);
       
-      if (tracksData.success && tracksData.tracks) {
+      if (tracksData.success && tracksData.tracks && tracksData.tracks.length > 0) {
         setPreviewTracks(tracksData.tracks);
         console.log('Successfully loaded', tracksData.tracks.length, 'tracks');
         console.log('Sample track structure:', tracksData.tracks[0]);

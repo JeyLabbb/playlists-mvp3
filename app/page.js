@@ -247,11 +247,6 @@ export default function Home() {
   const [editingNameValue, setEditingNameValue] = useState('');
   const [removing, setRemoving] = useState(false);
   
-  // Playlist tracks preview state
-  const [playlistTracks, setPlaylistTracks] = useState({}); // { playlistId: tracks[] }
-  const [showPlaylistTracks, setShowPlaylistTracks] = useState({}); // { playlistId: boolean }
-  const [loadingPlaylistTracks, setLoadingPlaylistTracks] = useState({}); // { playlistId: boolean }
-  
   // Playlist preview modal state
   const [previewPlaylist, setPreviewPlaylist] = useState(null);
   const [previewTracks, setPreviewTracks] = useState([]);
@@ -2259,12 +2254,23 @@ export default function Home() {
     }
   };
 
-  // Load playlist preview
+  // Load playlist preview - igual que FeaturedPlaylistCard
   const loadPlaylistPreview = async (playlist) => {
     try {
       setLoadingPreview(true);
       setPreviewPlaylist(playlist);
       setPreviewTracks([]);
+      
+      // Extraer spotify_playlist_id de la URL
+      const spotifyIdMatch = playlist.url?.match(/playlist\/([a-zA-Z0-9]+)/);
+      const spotifyId = spotifyIdMatch ? spotifyIdMatch[1] : null;
+      
+      if (!spotifyId) {
+        console.error('[PLAYLIST_PREVIEW] No se pudo extraer el ID de Spotify');
+        setPreviewTracks([]);
+        setLoadingPreview(false);
+        return;
+      }
       
       // Extract playlist ID from URL
       const playlistIdMatch = playlist.url?.match(/playlist\/([a-zA-Z0-9]+)/);
@@ -3132,47 +3138,6 @@ export default function Home() {
                           </div>
                           
                           <div className="flex flex-col gap-2.5 mt-5">
-                            {/* Ver canciones button */}
-                            <button
-                              onClick={() => loadPlaylistTracks(playlist.playlistId, playlist.url)}
-                              disabled={loadingPlaylistTracks[playlist.playlistId]}
-                              className="w-full px-4 py-2.5 rounded-xl border text-xs font-semibold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:scale-[1.02]"
-                              style={{
-                                background: 'linear-gradient(135deg, rgba(54, 226, 180, 0.15) 0%, rgba(91, 140, 255, 0.12) 100%)',
-                                borderColor: 'rgba(54, 226, 180, 0.3)',
-                                color: '#36E2B4',
-                              }}
-                            >
-                              {loadingPlaylistTracks[playlist.playlistId] ? (
-                                <>
-                                  <span className="animate-spin">⏳</span>
-                                  <span>Cargando...</span>
-                                </>
-                              ) : showPlaylistTracks[playlist.playlistId] ? (
-                                <>
-                                  <span>Ocultar canciones</span>
-                                  <span>↑</span>
-                                </>
-                              ) : (
-                                <>
-                                  <span>Ver canciones</span>
-                                  <span>↓</span>
-                                </>
-                              )}
-                            </button>
-
-                            {/* Tracks preview */}
-                            {showPlaylistTracks[playlist.playlistId] && (
-                              <div className="mt-2">
-                                <TracksPreview
-                                  tracks={playlistTracks[playlist.playlistId] || []}
-                                  totalTracks={playlist.tracks || 0}
-                                  spotifyPlaylistUrl={playlist.url}
-                                  loading={loadingPlaylistTracks[playlist.playlistId]}
-                                />
-                              </div>
-                            )}
-
                             <button
                               onClick={() => playlist.url && window.open(playlist.url, '_blank')}
                               disabled={!playlist.url}
@@ -3492,21 +3457,11 @@ export default function Home() {
                   <p className="text-sm text-gray-400">Cargando canciones...</p>
                 </div>
               ) : previewTracks.length > 0 ? (
-                <AnimatedList
-                  items={previewTracks.map((track) => ({
-                    title: track.name || track.title || 'Título desconocido',
-                    artist: track.artistNames || track.artists?.join(', ') || 'Artista desconocido',
-                    trackId: track.id,
-                    openUrl: track.open_url || (track.id ? `https://open.spotify.com/track/${track.id}` : undefined)
-                  }))}
-                  onItemSelect={(item) => {
-                    if (item.openUrl) {
-                      window.open(item.openUrl, '_blank');
-                    }
-                  }}
-                  displayScrollbar={true}
-                  className=""
-                  itemClassName=""
+                <TracksPreview
+                  tracks={previewTracks}
+                  totalTracks={previewPlaylist?.tracks || previewTracks.length}
+                  spotifyPlaylistUrl={previewPlaylist?.url}
+                  loading={false}
                 />
               ) : (
                 <div className="text-center py-12">

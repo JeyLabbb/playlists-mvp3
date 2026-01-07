@@ -1,12 +1,5 @@
 {
-  "/api/me/route": "app/api/me/route.js",
-  "/api/social/friends/list/route": "app/api/social/friends/list/route.js",
-  "/api/userplaylists/route": "app/api/userplaylists/route.js",
-  "/api/featured-playlist/tracks/route": "app/api/featured-playlist/tracks/route.js",
-  "/api/spotify/playlist-tracks/route": "app/api/spotify/playlist-tracks/route.js",
-  "/api/featured-playlist/route": "app/api/featured-playlist/route.js",
-  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
-  "/api/usage/status/route": "app/api/usage/status/route.js",
+  "/api/trending/route": "app/api/trending/route.js",
   "/admin/featured-playlist/page": "app/admin/featured-playlist/page.js",
   "/page": "app/page.js",
   "/trending/page": "app/trending/page.js"
