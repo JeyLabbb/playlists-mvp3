@@ -69,17 +69,40 @@ export async function GET(request) {
       }
     }
 
-    // Use hub access token (works for public playlists)
+    // Intentar usar token del usuario primero, luego hub token como fallback
     let accessToken;
-    try {
-      accessToken = await getHubAccessToken();
-    } catch (tokenError) {
-      console.error('[PLAYLIST-TRACKS] Failed to get hub access token:', tokenError);
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Failed to authenticate with Spotify',
-        tracks: [] 
-      }, { status: 500 });
+    
+    // Prioridad 1: Token del usuario logueado (si está disponible)
+    if (currentUser?.email) {
+      try {
+        const { getServerSession } = await import('next-auth');
+        const { authOptions } = await import('@/lib/auth/config');
+        const session = await getServerSession(authOptions);
+        
+        if (session?.accessToken) {
+          accessToken = session.accessToken;
+          console.log('[PLAYLIST-TRACKS] Using user access token');
+        }
+      } catch (sessionError) {
+        console.warn('[PLAYLIST-TRACKS] Could not get user session:', sessionError);
+      }
+    }
+    
+    // Prioridad 2: Hub token (solo si no hay token de usuario)
+    if (!accessToken) {
+      try {
+        accessToken = await getHubAccessToken();
+        console.log('[PLAYLIST-TRACKS] Using hub access token');
+      } catch (tokenError) {
+        console.error('[PLAYLIST-TRACKS] Failed to get hub access token:', tokenError);
+        // Si falla, continuar sin token (puede funcionar para playlists públicas en algunos casos)
+        // Pero mejor devolver error claro
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Failed to authenticate with Spotify. Please log in with Spotify to view playlist tracks.',
+          tracks: [] 
+        }, { status: 401 });
+      }
     }
 
     // Fetch playlist tracks from Spotify

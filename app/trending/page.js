@@ -130,54 +130,60 @@ export default function TrendingPage() {
         await updateMetricsInLocalStorage(playlist.playlistId, 'click');
       }
       
-      // Load playlist tracks
-      console.log('Fetching tracks for playground:', playlist.playlistId);
+      // Load playlist tracks - usar el mismo endpoint que Mis Playlists (no requiere variables de entorno)
+      console.log('[TRENDING] Fetching tracks for playlist:', playlist.playlistId);
       
-      // Check if this is an example playlist (starts with 37i9dQZF1DX)
-      const isExamplePlaylist = playlist.playlistId.startsWith('37i9dQZF1DX');
-      
-      // Get owner email from playlist for access control
+      // Usar el mismo endpoint que Mis Playlists usa
       const ownerEmail = playlist.ownerEmail || playlist.author?.email || null;
+      const tracksUrl = ownerEmail 
+        ? `/api/spotify/playlist-tracks?id=${playlist.playlistId}&ownerEmail=${encodeURIComponent(ownerEmail)}`
+        : `/api/spotify/playlist-tracks?id=${playlist.playlistId}`;
       
-      // Usar exactamente el mismo endpoint que FeaturedPlaylistCard usa
-      const res = await fetch(`/api/featured-playlist/tracks?playlist_id=${playlist.playlistId}`);
+      console.log('[TRENDING] Calling endpoint:', tracksUrl);
+      
+      const res = await fetch(tracksUrl, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+      
+      console.log('[TRENDING] Response status:', res.status, res.ok);
       
       if (!res.ok) {
-        throw new Error('Failed to fetch tracks');
+        const errorText = await res.text();
+        console.error('[TRENDING] Response not OK:', res.status, errorText);
+        // Si falla, simplemente no mostrar tracks (igual que FeaturedPlaylistCard cuando no hay preview_tracks)
+        setPreviewTracks([]);
+        setLoadingPreview(false);
+        return;
       }
       
       const tracksData = await res.json();
       
-      console.log('[TRENDING] Tracks response:', tracksData);
+      console.log('[TRENDING] Tracks response:', JSON.stringify(tracksData, null, 2));
       
       if (tracksData.success && tracksData.tracks && tracksData.tracks.length > 0) {
-        // Formatear tracks para que incluyan artists como array (TracksPreview espera artists como array)
-        const formattedTracks = tracksData.tracks.map((track) => {
-          // Convertir artist (string) a artists (array)
-          let artists = [];
-          if (track.artist) {
-            // Si artist es string, dividirlo por comas y crear array
-            artists = track.artist.split(',').map(name => ({ name: name.trim() }));
-          }
-          
-          return {
-            name: track.name,
-            artist: track.artist, // Mantener como fallback
-            artists: artists,
-            artistNames: track.artist || 'Artista desconocido',
-            spotify_url: track.spotify_url,
-            image: track.image,
-          };
-        });
+        // Formatear tracks para TracksPreview (el endpoint devuelve artists como array)
+        const formattedTracks = tracksData.tracks.map((track) => ({
+          name: track.name,
+          artist: track.artistNames || track.artists?.join(', ') || 'Artista desconocido',
+          artists: track.artists?.map(a => typeof a === 'string' ? { name: a } : a) || [],
+          artistNames: track.artistNames || track.artists?.join(', ') || 'Artista desconocido',
+          spotify_url: track.open_url || track.spotify_url || `https://open.spotify.com/track/${track.id}`,
+          image: track.album?.images?.[0]?.url || track.image || null,
+        }));
+        
+        console.log('[TRENDING] Setting', formattedTracks.length, 'tracks');
         setPreviewTracks(formattedTracks);
         console.log('[TRENDING] Successfully loaded', formattedTracks.length, 'tracks');
       } else {
-        // Si falla, mostrar mensaje (igual que FeaturedPlaylistCard)
-        console.error('[TRENDING] Error loading tracks:', tracksData.error);
+        // Si falla, simplemente no mostrar tracks
+        console.error('[TRENDING] Error loading tracks - success:', tracksData.success, 'tracks length:', tracksData.tracks?.length, 'error:', tracksData.error);
         setPreviewTracks([]);
       }
     } catch (error) {
-      console.error('Error loading playlist preview:', error);
+      console.error('[TRENDING] Error loading playlist preview:', error);
+      // Si falla, simplemente no mostrar tracks (igual que FeaturedPlaylistCard)
       setPreviewTracks([]);
     } finally {
       setLoadingPreview(false);
@@ -649,21 +655,13 @@ export default function TrendingPage() {
                       )}
                     </div>
                   ) : (
-                    <div className="p-6 text-center">
-                      <p className="text-gray-400 mb-4">No se pudieron cargar las canciones</p>
-                      {previewPlaylist?.spotifyUrl && (
-                        <button
-                          onClick={() => {
-                            trackClick(previewPlaylist.playlistId, previewPlaylist.spotifyUrl);
-                            setPreviewPlaylist(null);
-                            setPreviewTracks([]);
-                          }}
-                          className="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded-lg transition-colors duration-200 mx-auto"
-                        >
-                          <span className="text-xl">🎧</span>
-                          <span>Abrir en Spotify</span>
-                        </button>
-                      )}
+                    <div className="p-4">
+                      <TracksPreview
+                        tracks={[]}
+                        totalTracks={0}
+                        spotifyPlaylistUrl={previewPlaylist?.spotifyUrl}
+                        loading={false}
+                      />
                     </div>
                   )}
                 </div>
