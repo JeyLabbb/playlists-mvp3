@@ -20,8 +20,42 @@ export async function GET(request: Request) {
 
     // Obtener tracks directamente desde Spotify API (sin fetch HTTP interno)
     try {
-      // Obtener token de Spotify directamente (más confiable que fetch HTTP interno)
-      const accessToken = await getHubAccessToken();
+      // Intentar usar token del usuario primero, luego hub token como fallback
+      let accessToken: string | null = null;
+      
+      // Prioridad 1: Token del usuario logueado (si está disponible)
+      try {
+        const { getPleiaServerUser } = await import('@/lib/auth/serverUser');
+        const currentUser = await getPleiaServerUser();
+        
+        if (currentUser?.email) {
+          const { getServerSession } = await import('next-auth');
+          const { authOptions } = await import('@/lib/auth/config');
+          const session = await getServerSession(authOptions);
+          
+          if (session?.accessToken) {
+            accessToken = session.accessToken;
+            console.log('[FEATURED_TRACKS] Using user access token');
+          }
+        }
+      } catch (sessionError) {
+        console.warn('[FEATURED_TRACKS] Could not get user session:', sessionError);
+      }
+      
+      // Prioridad 2: Hub token (solo si no hay token de usuario)
+      if (!accessToken) {
+        try {
+          accessToken = await getHubAccessToken();
+          console.log('[FEATURED_TRACKS] Using hub access token');
+        } catch (tokenError) {
+          console.error('[FEATURED_TRACKS] Failed to get hub access token:', tokenError);
+          throw new Error('No se pudo obtener token de Spotify. Por favor, inicia sesión con Spotify.');
+        }
+      }
+      
+      if (!accessToken) {
+        throw new Error('No se pudo obtener token de Spotify');
+      }
       
       // Llamar directamente a la API de Spotify
       const response = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`, {

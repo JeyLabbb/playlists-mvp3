@@ -120,24 +120,6 @@ export default function TracksPreview({
           </span>
         </a>
       ))}
-      
-      {/* Mensaje "... y x canciones más" */}
-      {displayTotal > showingCount && spotifyPlaylistUrl && (
-        <div className="pt-2 mt-2 border-t border-white/5 text-center">
-          <p className="text-xs text-gray-400">
-            ... y <span className="font-semibold text-gray-300">{displayTotal - showingCount}</span> canciones más
-          </p>
-          <a
-            href={spotifyPlaylistUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-green-400 hover:text-green-300 mt-1 inline-block"
-            onClick={(e) => e.stopPropagation()}
-          >
-            Ver todas en Spotify →
-          </a>
-        </div>
-      )}
     </div>
   );
 }

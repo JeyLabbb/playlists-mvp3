@@ -163,9 +163,12 @@ export default function TrendingPage() {
         
         console.log('[TRENDING] Setting', formattedTracks.length, 'tracks, total:', tracksData.total);
         setPreviewTracks(formattedTracks);
-        // Guardar el total para pasarlo a TracksPreview
+        // Actualizar el total en previewPlaylist
         if (previewPlaylist) {
-          previewPlaylist.trackCount = tracksData.total || formattedTracks.length;
+          setPreviewPlaylist({
+            ...previewPlaylist,
+            trackCount: tracksData.total || formattedTracks.length
+          });
         }
         console.log('[TRENDING] Successfully loaded', formattedTracks.length, 'tracks of', tracksData.total || formattedTracks.length, 'total');
       } else {
@@ -627,6 +630,23 @@ export default function TrendingPage() {
                         spotifyPlaylistUrl={previewPlaylist?.spotifyUrl}
                         loading={false}
                       />
+                      {/* Mensaje "... y x canciones más" - fuera del componente, después de las canciones */}
+                      {previewPlaylist && previewPlaylist.trackCount > previewTracks.length && previewPlaylist.spotifyUrl && (
+                        <div className="pt-3 mt-3 border-t border-white/10 text-center">
+                          <p className="text-sm text-gray-400">
+                            ... y <span className="font-semibold text-gray-300">{previewPlaylist.trackCount - previewTracks.length}</span> canciones más
+                          </p>
+                          <a
+                            href={previewPlaylist.spotifyUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-green-400 hover:text-green-300 mt-2 inline-block"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            Ver todas en Spotify →
+                          </a>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="p-4">

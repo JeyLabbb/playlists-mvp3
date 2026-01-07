@@ -336,6 +336,23 @@ export default function FeaturedPlaylistCard() {
               spotifyPlaylistUrl={featured.spotify_playlist_url}
               loading={tracksLoading}
             />
+            {/* Mensaje "... y x canciones más" - fuera del componente, después de las canciones */}
+            {totalTracks > tracks.length && featured.spotify_playlist_url && (
+              <div className="pt-3 mt-3 border-t border-white/10 text-center">
+                <p className="text-sm text-gray-400">
+                  ... y <span className="font-semibold text-gray-300">{totalTracks - tracks.length}</span> canciones más
+                </p>
+                <a
+                  href={featured.spotify_playlist_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-green-400 hover:text-green-300 mt-2 inline-block"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Ver todas en Spotify →
+                </a>
+              </div>
+            )}
           </div>
         )}
 
