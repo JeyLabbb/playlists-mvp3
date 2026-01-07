@@ -135,6 +135,7 @@ export async function POST(request: Request) {
 
     // 3. Obtener preview de tracks desde Spotify (opcional, puede fallar)
     let previewTracks: any[] = [];
+    let totalTracks: number | null = null;
     try {
       // Obtener token de Spotify directamente (más confiable que fetch HTTP interno)
       const accessToken = await getHubAccessToken();
@@ -150,6 +151,7 @@ export async function POST(request: Request) {
       if (response.ok) {
         const data = await response.json();
         const items = data.items || [];
+        totalTracks = data.total || items.length; // Total de canciones en la playlist
         
         // Formatear tracks con toda la info necesaria
         previewTracks = items.slice(0, 15).map((item: any) => {
@@ -169,7 +171,7 @@ export async function POST(request: Request) {
           };
         }).filter((t: any) => t !== null);
         
-        console.log(`[FEATURED] Preview tracks obtenidos: ${previewTracks.length} tracks`);
+        console.log(`[FEATURED] Preview tracks obtenidos: ${previewTracks.length} tracks de ${totalTracks} totales`);
       } else {
         console.warn(`[FEATURED] Error fetching Spotify tracks: ${response.status} ${response.statusText}`);
       }
@@ -191,7 +193,7 @@ export async function POST(request: Request) {
       .eq('spotify_playlist_id', spotify_playlist_id)
       .single();
 
-    const featuredData = {
+    const featuredData: any = {
       is_active: true,
       spotify_playlist_id: playlist.spotify_id,
       spotify_playlist_url: playlist.spotify_url || `https://open.spotify.com/playlist/${spotify_playlist_id}`,
@@ -204,6 +206,7 @@ export async function POST(request: Request) {
       preview_tracks: previewTracks,
       featured_at: new Date().toISOString(),
       featured_by_admin: adminUser?.id || null,
+      total_tracks: totalTracks, // Total de canciones en la playlist
     };
 
     let result;

@@ -15,6 +15,7 @@ type FeaturedPlaylist = {
   owner_profile_url?: string | null; // URL completa del perfil
   spotify_playlist_id: string;
   spotify_playlist_url: string;
+  total_tracks?: number | null; // Total de canciones en la playlist
   preview_tracks: Array<{
     name: string;
     artist: string;
@@ -76,7 +77,8 @@ export default function FeaturedPlaylistCard() {
         image: t.album?.images?.[0]?.url || t.image || null,
       }));
       setTracks(formattedTracks);
-      setTotalTracks(featured.preview_tracks.length);
+      // Usar total_tracks de la DB si está disponible, sino usar el número de preview_tracks
+      setTotalTracks(featured.total_tracks || featured.preview_tracks.length);
       setShowTracks(true);
       return;
     }
