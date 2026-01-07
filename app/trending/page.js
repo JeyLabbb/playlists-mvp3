@@ -130,59 +130,46 @@ export default function TrendingPage() {
         await updateMetricsInLocalStorage(playlist.playlistId, 'click');
       }
       
-      // Load playlist tracks - usar EXACTAMENTE el mismo endpoint que FeaturedPlaylistCard
+      // Load playlist tracks - COPIAR EXACTAMENTE de FeaturedPlaylistCard (líneas 87-116)
       console.log('[TRENDING] Fetching tracks for playlist:', playlist.playlistId);
       
-      // Usar el mismo endpoint que FeaturedPlaylistCard usa: /api/featured-playlist/tracks
-      const res = await fetch(`/api/featured-playlist/tracks?playlist_id=${playlist.playlistId}`);
-      
-      console.log('[TRENDING] Response status:', res.status, res.ok);
-      
-      if (!res.ok) {
-        const errorText = await res.text();
-        console.error('[TRENDING] Response not OK:', res.status, errorText);
-        // Si falla, simplemente no mostrar tracks (igual que FeaturedPlaylistCard cuando no hay preview_tracks)
-        setPreviewTracks([]);
-        setLoadingPreview(false);
-        return;
-      }
-      
-      const tracksData = await res.json();
-      
-      console.log('[TRENDING] Tracks response:', JSON.stringify(tracksData, null, 2));
-      
-      if (tracksData.success && tracksData.tracks && tracksData.tracks.length > 0) {
-        // Formatear tracks para TracksPreview (igual que FeaturedPlaylistCard)
-        const formattedTracks = tracksData.tracks.map((track) => ({
-          name: track.name || 'Sin nombre',
-          artist: track.artist || 'Artista desconocido',
-          artists: track.artists || [],
-          spotify_url: track.spotify_url || '#',
-          image: track.image || null,
-        }));
+      // Prioridad 2: Si no hay preview_tracks, intentar cargar desde Spotify
+      // EXACTAMENTE igual que FeaturedPlaylistCard.handleShowTracks
+      try {
+        const res = await fetch(`/api/featured-playlist/tracks?playlist_id=${playlist.playlistId}`);
         
-        console.log('[TRENDING] Setting', formattedTracks.length, 'tracks, total:', tracksData.total);
-        setPreviewTracks(formattedTracks);
-        // Actualizar el total en previewPlaylist
-        if (previewPlaylist) {
+        if (!res.ok) {
+          throw new Error('Failed to fetch tracks');
+        }
+        
+        const data = await res.json();
+        
+        if (data.success && data.tracks && data.tracks.length > 0) {
+          // EXACTAMENTE igual que FeaturedPlaylistCard línea 99: setTracks(data.tracks);
+          setPreviewTracks(data.tracks);
+          // EXACTAMENTE igual que FeaturedPlaylistCard línea 100: setTotalTracks(data.total || data.tracks.length);
           setPreviewPlaylist({
-            ...previewPlaylist,
-            trackCount: tracksData.total || formattedTracks.length
+            ...playlist,
+            trackCount: data.total || data.tracks.length
+          });
+        } else {
+          // Si falla, mostrar mensaje (igual que FeaturedPlaylistCard líneas 103-107)
+          console.error('[TRENDING] Error loading tracks:', data.error);
+          setPreviewTracks([]);
+          setPreviewPlaylist({
+            ...playlist,
+            trackCount: 0
           });
         }
-        console.log('[TRENDING] Successfully loaded', formattedTracks.length, 'tracks of', tracksData.total || formattedTracks.length, 'total');
-      } else {
-        // Si falla, simplemente no mostrar tracks
-        console.error('[TRENDING] Error loading tracks - success:', tracksData.success, 'tracks length:', tracksData.tracks?.length, 'error:', tracksData.error);
+      } catch (err) {
+        // EXACTAMENTE igual que FeaturedPlaylistCard (líneas 109-113)
+        console.error('[TRENDING] Error fetching tracks:', err);
         setPreviewTracks([]);
+        setPreviewPlaylist({
+          ...playlist,
+          trackCount: 0
+        });
       }
-    } catch (error) {
-      console.error('[TRENDING] Error loading playlist preview:', error);
-      // Si falla, simplemente no mostrar tracks (igual que FeaturedPlaylistCard)
-      setPreviewTracks([]);
-    } finally {
-      setLoadingPreview(false);
-    }
   };
 
   const trackClick = async (playlistId, spotifyUrl) => {

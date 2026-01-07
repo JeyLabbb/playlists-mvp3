@@ -47,14 +47,31 @@ export async function GET(request: Request) {
         try {
           accessToken = await getHubAccessToken();
           console.log('[FEATURED_TRACKS] Using hub access token');
-        } catch (tokenError) {
+        } catch (tokenError: any) {
           console.error('[FEATURED_TRACKS] Failed to get hub access token:', tokenError);
-          throw new Error('No se pudo obtener token de Spotify. Por favor, inicia sesión con Spotify.');
+          // Si falla el hub token, devolver error claro pero no 500
+          return NextResponse.json(
+            { 
+              success: false, 
+              error: 'No se pudo obtener token de Spotify. Por favor, inicia sesión con Spotify para ver las canciones.',
+              tracks: [],
+              total: 0
+            },
+            { status: 401 }
+          );
         }
       }
       
       if (!accessToken) {
-        throw new Error('No se pudo obtener token de Spotify');
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'No se pudo obtener token de Spotify',
+            tracks: [],
+            total: 0
+          },
+          { status: 401 }
+        );
       }
       
       // Llamar directamente a la API de Spotify

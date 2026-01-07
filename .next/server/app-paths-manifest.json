@@ -1,8 +1,13 @@
 {
   "/api/trending/route": "app/api/trending/route.js",
-  "/trending/page": "app/trending/page.js",
-  "/login/page": "app/login/page.js",
+  "/api/metrics/route": "app/api/metrics/route.js",
+  "/api/featured-playlist/tracks/route": "app/api/featured-playlist/tracks/route.js",
+  "/api/me/route": "app/api/me/route.js",
+  "/api/featured-playlist/route": "app/api/featured-playlist/route.js",
   "/admin/featured-playlist/page": "app/admin/featured-playlist/page.js",
+  "/trending/page": "app/trending/page.js",
   "/me/page": "app/me/page.js",
-  "/page": "app/page.js"
+  "/login/page": "app/login/page.js",
+  "/page": "app/page.js",
+  "/crear-playlists/page": "app/crear-playlists/page.js"
 }
