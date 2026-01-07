@@ -9,18 +9,20 @@ import { getSupabaseAdmin } from '@/lib/supabase/server';
 export async function POST(request: NextRequest) {
   try {
     // Verificar acceso admin
-    const adminCheck = await ensureAdminAccess(request);
+    const adminCheck = await ensureAdminAccess(request as any);
     if (!adminCheck.ok) {
+      console.error('[FEATURED_ADMIN] Admin check failed:', adminCheck);
       return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
+        { success: false, error: 'No autorizado' },
         { status: 401 }
       );
     }
 
     const body = await request.json();
+    console.log('[FEATURED_ADMIN] Update name request body:', body);
     const { display_name } = body;
 
-    if (typeof display_name !== 'string') {
+    if (display_name !== undefined && typeof display_name !== 'string') {
       return NextResponse.json(
         { success: false, error: 'display_name debe ser un string' },
         { status: 400 }
@@ -28,7 +30,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Si display_name está vacío o solo espacios, establecerlo a NULL (usará playlist_name)
-    const finalDisplayName = display_name.trim() || null;
+    const finalDisplayName = display_name && typeof display_name === 'string' 
+      ? (display_name.trim() || null)
+      : null;
+
+    console.log('[FEATURED_ADMIN] Final display_name:', finalDisplayName);
 
     const supabase = getSupabaseAdmin();
 
@@ -43,7 +49,7 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('[FEATURED_ADMIN] Error updating display_name:', error);
       return NextResponse.json(
-        { success: false, error: 'Error al actualizar el nombre' },
+        { success: false, error: `Error al actualizar el nombre: ${error.message || JSON.stringify(error)}` },
         { status: 500 }
       );
     }
