@@ -152,7 +152,7 @@ export default function TrendingPage() {
       
       if (tracksData.success && tracksData.tracks && tracksData.tracks.length > 0) {
         // Formatear tracks para que incluyan artists como array (igual que FeaturedPlaylistCard espera)
-        const formattedTracks = tracksData.tracks.map((track: any) => ({
+        const formattedTracks = tracksData.tracks.map((track) => ({
           ...track,
           artists: track.artist ? [{ name: track.artist }] : [],
           artistNames: track.artist || 'Artista desconocido',
