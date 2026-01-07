@@ -320,7 +320,7 @@ export default function FeaturedPlaylistCard() {
               </span>
             ) : (
               <span className="flex items-center gap-2">
-                <span>Ver canciones</span>
+                <span>Ver preview</span>
                 <span>↓</span>
               </span>
             )}

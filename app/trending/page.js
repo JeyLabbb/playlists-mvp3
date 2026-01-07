@@ -134,7 +134,8 @@ export default function TrendingPage() {
       console.log('[TRENDING] Fetching tracks for playlist:', playlist.playlistId);
       
       // Prioridad 2: Si no hay preview_tracks, intentar cargar desde Spotify
-      // EXACTAMENTE igual que FeaturedPlaylistCard.handleShowTracks
+      // EXACTAMENTE igual que FeaturedPlaylistCard.handleShowTracks (líneas 87-116)
+      // setTracksLoading(true) en FeaturedPlaylistCard = setLoadingPreview(true) en Trending
       try {
         const res = await fetch(`/api/featured-playlist/tracks?playlist_id=${playlist.playlistId}`);
         
@@ -169,6 +170,9 @@ export default function TrendingPage() {
           ...playlist,
           trackCount: 0
         });
+      } finally {
+        // EXACTAMENTE igual que FeaturedPlaylistCard línea 115: setTracksLoading(false);
+        setLoadingPreview(false);
       }
     } catch (error) {
       console.error('[TRENDING] Error loading playlist preview:', error);
