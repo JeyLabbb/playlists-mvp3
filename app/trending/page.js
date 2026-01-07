@@ -151,12 +151,24 @@ export default function TrendingPage() {
       console.log('[TRENDING] Tracks response:', tracksData);
       
       if (tracksData.success && tracksData.tracks && tracksData.tracks.length > 0) {
-        // Formatear tracks para que incluyan artists como array (igual que FeaturedPlaylistCard espera)
-        const formattedTracks = tracksData.tracks.map((track) => ({
-          ...track,
-          artists: track.artist ? [{ name: track.artist }] : [],
-          artistNames: track.artist || 'Artista desconocido',
-        }));
+        // Formatear tracks para que incluyan artists como array (TracksPreview espera artists como array)
+        const formattedTracks = tracksData.tracks.map((track) => {
+          // Convertir artist (string) a artists (array)
+          let artists = [];
+          if (track.artist) {
+            // Si artist es string, dividirlo por comas y crear array
+            artists = track.artist.split(',').map(name => ({ name: name.trim() }));
+          }
+          
+          return {
+            name: track.name,
+            artist: track.artist, // Mantener como fallback
+            artists: artists,
+            artistNames: track.artist || 'Artista desconocido',
+            spotify_url: track.spotify_url,
+            image: track.image,
+          };
+        });
         setPreviewTracks(formattedTracks);
         console.log('[TRENDING] Successfully loaded', formattedTracks.length, 'tracks');
       } else {
