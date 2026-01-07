@@ -140,7 +140,7 @@ export default function TrendingPage() {
       const ownerEmail = playlist.ownerEmail || playlist.author?.email || null;
       
       // Usar exactamente el mismo endpoint que FeaturedPlaylistCard usa
-      const res = await fetch(`/api/spotify/playlist-tracks?id=${playlist.playlistId}&ownerEmail=${encodeURIComponent(ownerEmail || '')}`);
+      const res = await fetch(`/api/featured-playlist/tracks?playlist_id=${playlist.playlistId}`);
       
       if (!res.ok) {
         throw new Error('Failed to fetch tracks');
@@ -148,71 +148,21 @@ export default function TrendingPage() {
       
       const tracksData = await res.json();
       
-      console.log('Tracks response:', tracksData);
+      console.log('[TRENDING] Tracks response:', tracksData);
       
       if (tracksData.success && tracksData.tracks && tracksData.tracks.length > 0) {
-        setPreviewTracks(tracksData.tracks);
-        console.log('Successfully loaded', tracksData.tracks.length, 'tracks');
-        console.log('Sample track structure:', tracksData.tracks[0]);
+        // Formatear tracks para que incluyan artists como array (igual que FeaturedPlaylistCard espera)
+        const formattedTracks = tracksData.tracks.map((track: any) => ({
+          ...track,
+          artists: track.artist ? [{ name: track.artist }] : [],
+          artistNames: track.artist || 'Artista desconocido',
+        }));
+        setPreviewTracks(formattedTracks);
+        console.log('[TRENDING] Successfully loaded', formattedTracks.length, 'tracks');
       } else {
-        console.error('Failed to load playlist tracks:', tracksData.error);
-        
-        // If authentication is required, try to get a preview (25% of playlist) from Spotify public API
-        if (tracksData.error === 'Authentication required for playlist access') {
-          try {
-            // Try to fetch playlist info from Spotify public API (no auth needed for public playlists)
-            const playlistId = playlist.playlistId;
-            if (playlistId) {
-              const publicResponse = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, {
-                headers: {
-                  'Content-Type': 'application/json'
-                }
-              });
-              
-              if (publicResponse.ok) {
-                const playlistData = await publicResponse.json();
-                const allTracks = playlistData.tracks?.items || [];
-                // Show 25% of the playlist (minimum 5 tracks, maximum 15)
-                const previewCount = Math.max(5, Math.min(15, Math.ceil(allTracks.length * 0.25)));
-                const previewTracksData = allTracks.slice(0, previewCount).map(item => {
-                  const track = item.track;
-                  if (!track) return null;
-                  return {
-                    id: track.id,
-                    name: track.name,
-                    artists: track.artists?.map(artist => ({ name: artist.name })) || [],
-                    artistNames: track.artists?.map(artist => artist.name).join(', ') || 'Artista desconocido',
-                    open_url: track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
-                    spotify_url: track.external_urls?.spotify || `https://open.spotify.com/track/${track.id}`,
-                    external_urls: track.external_urls,
-                    album: track.album || {},
-                    image: track.album?.images?.[0]?.url || null,
-                    preview_url: track.preview_url || null,
-                    duration_ms: track.duration_ms,
-                    popularity: track.popularity
-                  };
-                }).filter(Boolean);
-                
-                if (previewTracksData.length > 0) {
-                  setPreviewTracks(previewTracksData);
-                  console.log(`[PREVIEW] Loaded ${previewTracksData.length} preview tracks (${previewCount} of ${allTracks.length} total)`);
-                } else {
-                  setPreviewTracks([]);
-                }
-              } else {
-                // If public API also fails, show empty state with button to open in Spotify
-                setPreviewTracks([]);
-              }
-            } else {
-              setPreviewTracks([]);
-            }
-          } catch (previewError) {
-            console.error('Error fetching preview from public API:', previewError);
-            setPreviewTracks([]);
-          }
-        } else {
-          setPreviewTracks([]);
-        }
+        // Si falla, mostrar mensaje (igual que FeaturedPlaylistCard)
+        console.error('[TRENDING] Error loading tracks:', tracksData.error);
+        setPreviewTracks([]);
       }
     } catch (error) {
       console.error('Error loading playlist preview:', error);
