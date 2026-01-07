@@ -69,20 +69,9 @@ export default function FeaturedPlaylistCard() {
     }
 
     // Prioridad 1: Usar preview_tracks si están disponibles (más rápido)
-    if (featured?.preview_tracks && featured.preview_tracks.length > 0) {
-      const formattedTracks = featured.preview_tracks.slice(0, 15).map((t: any) => ({
-        name: t.name || 'Sin nombre',
-        artist: t.artists?.[0]?.name || t.artist || 'Artista desconocido',
-        spotify_url: t.external_urls?.spotify || t.spotify_url || '#',
-        image: t.album?.images?.[0]?.url || t.image || null,
-      }));
-      setTracks(formattedTracks);
-      // Usar total_tracks de la DB si está disponible (total real de la playlist)
-      // Si no hay total_tracks, usar el número de preview_tracks como fallback
-      setTotalTracks(featured.total_tracks || featured.preview_tracks.length);
-      setShowTracks(true);
-      return;
-    }
+    // PERO: igual que Trending, SIEMPRE cargar desde API para obtener el total real
+    // (Trending no usa preview_tracks, siempre carga desde API)
+    // Así que saltamos preview_tracks y vamos directo a la API como Trending
 
     // Prioridad 2: Si no hay preview_tracks, intentar cargar desde Spotify
     setTracksLoading(true);
@@ -337,6 +326,7 @@ export default function FeaturedPlaylistCard() {
               loading={tracksLoading}
             />
             {/* Mensaje "... y x canciones más" - fuera del componente, después de las canciones */}
+            {/* COPIAR EXACTAMENTE de Trending (líneas 638-653) */}
             {totalTracks > tracks.length && featured.spotify_playlist_url && (
               <div className="pt-3 mt-3 border-t border-white/10 text-center">
                 <p className="text-sm text-gray-400">
